@@ -1,0 +1,8 @@
+# Listen address for webserver
+listen = "127.0.0.1:8000"
+
+# Database connection string (MYSQL)
+database = "mysql://root:root@localhost:3366/void_cat"
+
+# Directory to store uploads
+storage_dir = "./data"
