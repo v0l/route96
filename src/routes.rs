@@ -93,8 +93,12 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
 }
 
 #[rocket::get("/")]
-async fn root() -> &'static str {
-    "Hello welcome to void_cat_rs"
+async fn root() -> Result<NamedFile, Status> {
+    if let Ok(f) = NamedFile::open("./ui/index.html").await {
+        Ok(f)
+    } else {
+        Err(Status::InternalServerError)
+    }
 }
 
 #[rocket::get("/<sha256>")]
