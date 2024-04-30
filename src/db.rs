@@ -27,7 +27,7 @@ impl Database {
         sqlx::migrate!("./migrations/").run(&self.pool).await
     }
 
-    pub async fn upsert_user(&self, pubkey: &Vec<u8>) -> Result<u32, Error> {
+    pub async fn upsert_user(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
         let res = sqlx::query("insert ignore into users(pubkey) values(?) returning id")
             .bind(pubkey)
             .fetch_optional(&self.pool)
@@ -40,6 +40,14 @@ impl Database {
                 .try_get(0),
             Some(res) => res.try_get(0)
         }
+    }
+
+    pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
+        sqlx::query("select id from users where pubkey = ?")
+            .bind(pubkey)
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)
     }
 
     pub async fn add_file(&self, file: &FileUpload) -> Result<(), Error> {
@@ -62,10 +70,11 @@ impl Database {
     }
 
     pub async fn delete_file(&self, file: &Vec<u8>) -> Result<(), Error> {
-        sqlx::query_as("delete from uploads where id = ?")
+        sqlx::query("delete from uploads where id = ?")
             .bind(&file)
             .execute(&self.pool)
-            .await?
+            .await?;
+        Ok(())
     }
 
     pub async fn list_files(&self, pubkey: &Vec<u8>) -> Result<Vec<FileUpload>, Error> {

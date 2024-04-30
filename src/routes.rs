@@ -148,7 +148,7 @@ async fn head_blob(sha256: &str, fs: &State<FileStore>) -> BlossomResponse {
 }
 
 #[rocket::delete("/<sha256>")]
-async fn delete_blob(sha256: &str, fs: &State<FileStore>, db: &State<Database>) -> BlossomResponse {
+async fn delete_blob(sha256: &str, auth: BlossomAuth, fs: &State<FileStore>, db: &State<Database>) -> BlossomResponse {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
@@ -163,9 +163,24 @@ async fn delete_blob(sha256: &str, fs: &State<FileStore>, db: &State<Database>) 
     if id.len() != 32 {
         return BlossomResponse::error("Invalid file id");
     }
-    if let Ok(Some(_info)) = db.get_file(&id).await {
-        db.delete_file(&id).await?;
-        fs::remove_file(fs.get(&id))?;
+    if !check_method(&auth.event, "delete") {
+        return BlossomResponse::error("Invalid request method tag");
+    }
+    if let Ok(Some(info)) = db.get_file(&id).await {
+        let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+        let user = match db.get_user_id(&pubkey_vec).await {
+            Ok(u) => u,
+            Err(_e) => return BlossomResponse::error("User not found")
+        };
+        if user != info.user_id {
+            return BlossomResponse::error("You dont own this file, you cannot delete it");
+        }
+        if let Err(e) = db.delete_file(&id).await {
+            return BlossomResponse::error(format!("Failed to delete (db): {}", e));
+        }
+        if let Err(e) = fs::remove_file(fs.get(&id)) {
+            return BlossomResponse::error(format!("Failed to delete (fs): {}", e));
+        }
         BlossomResponse::StatusOnly(Status::Ok)
     } else {
         BlossomResponse::StatusOnly(Status::NotFound)
