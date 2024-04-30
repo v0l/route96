@@ -1,12 +1,12 @@
+use base64::prelude::*;
+use log::info;
+use nostr::{Event, JsonUtil, Kind, Tag, Timestamp};
+use rocket::{async_trait, Request};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
-use rocket::{async_trait, Request};
-
-use base64::prelude::*;
-use nostr::{Event, JsonUtil, Kind, Tag, TagKind, Timestamp};
 
 pub struct BlossomAuth {
-    pub pubkey: String,
+    pub content_type: Option<String>,
     pub event: Event,
 }
 
@@ -52,9 +52,15 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 if let Err(_) = event.verify() {
                     return Outcome::Error((Status::new(401), "Event signature invalid"));
                 }
+
+                info!("{}", event.as_json());
                 Outcome::Success(BlossomAuth {
-                    pubkey: event.pubkey.to_string(),
                     event,
+                    content_type: request.headers().iter().find_map(|h| if h.name == "content-type" {
+                        Some(h.value.to_string())
+                    } else {
+                        None
+                    }),
                 })
             } else {
                 Outcome::Error((Status::new(403), "Auth scheme must be Nostr"))

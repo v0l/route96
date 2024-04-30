@@ -4,10 +4,11 @@ use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 
 use anyhow::Error;
+use log::info;
 use rocket::data::DataStream;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, BufWriter};
 
 use crate::db::Database;
 use crate::settings::Settings;
@@ -40,25 +41,24 @@ impl FileStore {
         let random_id = uuid::Uuid::new_v4();
         let tmp_path = FileStore::map_temp(random_id);
 
-        let file = stream.into_file(&tmp_path).await;
-        match file {
-            Err(e) => Err(Error::from(e)),
-            Ok(file) => {
-                let size = file.n.written;
-                let mut file = file.value;
-                let hash = FileStore::hash_file(&mut file).await?;
-                let dst_path = self.map_path(&hash);
-                if let Err(e) = fs::rename(&tmp_path, &dst_path) {
-                    fs::remove_file(&tmp_path)?;
-                    Err(Error::from(e))
-                } else {
-                    Ok(FileSystemResult {
-                        size,
-                        sha256: hash,
-                        path: dst_path,
-                    })
-                }
-            }
+        let mut file = File::options()
+            .create(true).write(true).read(true)
+            .open(tmp_path.clone()).await?;
+        let n = stream.stream_to(&mut BufWriter::new(&mut file)).await?;
+
+        info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
+        let hash = FileStore::hash_file(&mut file).await?;
+        let dst_path = self.map_path(&hash);
+        fs::create_dir_all(dst_path.parent().unwrap())?;
+        if let Err(e) = fs::rename(&tmp_path, &dst_path) {
+            fs::remove_file(&tmp_path)?;
+            Err(Error::from(e))
+        } else {
+            Ok(FileSystemResult {
+                size: n.written,
+                sha256: hash,
+                path: dst_path,
+            })
         }
     }
 

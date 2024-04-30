@@ -11,6 +11,7 @@ create table uploads
     user_id integer unsigned not null,
     name    varchar(256) not null,
     size    integer unsigned not null,
+    mime_type varchar(128) not null,
     created timestamp default current_timestamp,
 
     constraint fk_uploads_user
