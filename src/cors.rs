@@ -1,7 +1,7 @@
-use std::io::Cursor;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::{Header, Method, Status};
-use rocket::{Data, Request, Response};
+use rocket::{Request, Response};
+use std::io::Cursor;
 
 pub struct CORS;
 

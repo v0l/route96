@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use sqlx::{Error, FromRow, Row};
 use sqlx::migrate::MigrateError;
+use sqlx::{Error, FromRow, Row};
 
 #[derive(Clone, FromRow)]
 pub struct FileUpload {
@@ -38,7 +38,7 @@ impl Database {
                 .fetch_one(&self.pool)
                 .await?
                 .try_get(0),
-            Some(res) => res.try_get(0)
+            Some(res) => res.try_get(0),
         }
     }
 
@@ -78,10 +78,12 @@ impl Database {
     }
 
     pub async fn list_files(&self, pubkey: &Vec<u8>) -> Result<Vec<FileUpload>, Error> {
-        let results: Vec<FileUpload> = sqlx::query_as("select * from uploads where user_id = (select id from users where pubkey = ?)")
-            .bind(&pubkey)
-            .fetch_all(&self.pool)
-            .await?;
+        let results: Vec<FileUpload> = sqlx::query_as(
+            "select * from uploads where user_id = (select id from users where pubkey = ?)",
+        )
+        .bind(&pubkey)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(results)
     }
 }

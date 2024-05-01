@@ -1,9 +1,9 @@
 use base64::prelude::*;
 use log::info;
 use nostr::{Event, JsonUtil, Kind, Tag, Timestamp};
-use rocket::{async_trait, Request};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
+use rocket::{async_trait, Request};
 
 pub struct BlossomAuth {
     pub content_type: Option<String>,
@@ -56,10 +56,12 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 info!("{}", event.as_json());
                 Outcome::Success(BlossomAuth {
                     event,
-                    content_type: request.headers().iter().find_map(|h| if h.name == "content-type" {
-                        Some(h.value.to_string())
-                    } else {
-                        None
+                    content_type: request.headers().iter().find_map(|h| {
+                        if h.name == "content-type" {
+                            Some(h.value.to_string())
+                        } else {
+                            None
+                        }
                     }),
                 })
             } else {

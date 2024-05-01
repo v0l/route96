@@ -1,16 +1,14 @@
 use std::env::temp_dir;
-use std::fs;
-use std::io::SeekFrom;
+use std::io::{SeekFrom};
 use std::path::{Path, PathBuf};
+use std::{fs};
 
 use anyhow::Error;
 use log::info;
-use rocket::data::DataStream;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, BufWriter};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
-use crate::db::Database;
 use crate::settings::Settings;
 
 #[derive(Clone)]
@@ -37,14 +35,20 @@ impl FileStore {
     }
 
     /// Store a new file
-    pub async fn put(&self, stream: DataStream<'_>) -> Result<FileSystemResult, Error> {
+    pub async fn put<TStream>(&self, mut stream: TStream) -> Result<FileSystemResult, Error>
+    where
+        TStream: AsyncRead + Unpin,
+    {
         let random_id = uuid::Uuid::new_v4();
         let tmp_path = FileStore::map_temp(random_id);
 
         let mut file = File::options()
-            .create(true).write(true).read(true)
-            .open(tmp_path.clone()).await?;
-        let n = stream.stream_to(&mut BufWriter::new(&mut file)).await?;
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(tmp_path.clone())
+            .await?;
+        let n = tokio::io::copy(&mut stream, &mut file).await?;
 
         info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
         let hash = FileStore::hash_file(&mut file).await?;
@@ -55,7 +59,7 @@ impl FileStore {
             Err(Error::from(e))
         } else {
             Ok(FileSystemResult {
-                size: n.written,
+                size: n,
                 sha256: hash,
                 path: dst_path,
             })

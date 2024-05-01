@@ -10,4 +10,10 @@ pub struct Settings {
 
     /// Database connection string mysql://localhost
     pub database: String,
+
+    /// Maximum support filesize for uploading
+    pub max_upload_bytes: usize,
+
+    /// Public facing url
+    pub public_url: String,
 }

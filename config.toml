@@ -6,3 +6,9 @@ database = "mysql://root:root@localhost:3366/void_cat"
 
 # Directory to store uploads
 storage_dir = "./data"
+
+# Maximum support filesize for uploading
+max_upload_bytes = 104857600
+
+# Public facing url
+public_url = "http://localhost:8000"

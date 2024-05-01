@@ -13,11 +13,12 @@ pub struct BlobDescriptor {
     pub created: u64,
 }
 
-impl From<&FileUpload> for BlobDescriptor {
-    fn from(value: &FileUpload) -> Self {
+impl BlobDescriptor {
+    pub fn from_upload(value: &FileUpload, public_url: &String) -> Self {
+        let id_hex = hex::encode(&value.id);
         Self {
-            url: "".to_string(),
-            sha256: hex::encode(&value.id),
+            url: format!("{}/{}", public_url, &id_hex),
+            sha256: id_hex,
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
             created: value.created.timestamp() as u64,

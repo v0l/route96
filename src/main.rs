@@ -1,20 +1,21 @@
-use crate::db::Database;
-use crate::filesystem::FileStore;
-use crate::settings::Settings;
 use anyhow::Error;
 use config::Config;
 use log::{error, info};
-use rocket::fairing::{Fairing, Info};
 use rocket::routes;
+
 use crate::cors::CORS;
+use crate::db::Database;
+use crate::filesystem::FileStore;
+use crate::routes::{get_blob, head_blob, root};
+use crate::settings::Settings;
 
 mod auth;
 mod blob;
+mod cors;
 mod db;
 mod filesystem;
 mod routes;
 mod settings;
-mod cors;
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
@@ -37,7 +38,9 @@ async fn main() -> Result<(), Error> {
         .manage(settings.clone())
         .manage(db.clone())
         .attach(CORS)
-        .mount("/", routes::all())
+        .mount("/", routes::blossom_routes())
+        .mount("/", routes::nip96_routes())
+        .mount("/", routes![root, get_blob, head_blob])
         .launch()
         .await;
 
