@@ -1,3 +1,5 @@
+use std::net::{IpAddr, SocketAddr};
+
 use anyhow::Error;
 use config::Config;
 use log::{error, info};
@@ -33,7 +35,15 @@ async fn main() -> Result<(), Error> {
     info!("Running DB migration");
     db.migrate().await?;
 
-    let rocket = rocket::build()
+    let mut config = rocket::Config::default();
+    let ip: SocketAddr = match &settings.listen {
+        Some(i) => i.parse().unwrap(),
+        None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000)
+    };
+    config.address = ip.ip();
+    config.port = ip.port();
+
+    let rocket = rocket::Rocket::custom(config)
         .manage(FileStore::new(settings.clone()))
         .manage(settings.clone())
         .manage(db.clone())
