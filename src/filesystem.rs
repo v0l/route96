@@ -54,10 +54,11 @@ impl FileStore {
         let hash = FileStore::hash_file(&mut file).await?;
         let dst_path = self.map_path(&hash);
         fs::create_dir_all(dst_path.parent().unwrap())?;
-        if let Err(e) = fs::rename(&tmp_path, &dst_path) {
+        if let Err(e) = fs::copy(&tmp_path, &dst_path) {
             fs::remove_file(&tmp_path)?;
             Err(Error::from(e))
         } else {
+            fs::remove_file(tmp_path)?;
             Ok(FileSystemResult {
                 size: n,
                 sha256: hash,
