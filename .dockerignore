@@ -3,6 +3,5 @@ data/
 .idea/
 Dockerfile
 docker-compose.yml
-config.toml
 .dockerignore
 .gitignore
