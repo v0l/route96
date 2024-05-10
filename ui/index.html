@@ -9,10 +9,64 @@
             color: white;
         }
     </style>
+    <script>
+        async function uploadFiles(e) {
+            const input = document.querySelector("#file");
+            const file = input.files[0];
+            console.debug(file);
+
+            const fd = new FormData();
+            fd.append("size", file.size.toString());
+            fd.append("caption", file.name);
+            fd.append("media_type", file.type);
+            fd.append("file", file);
+
+            const auth_event = await window.nostr.signEvent({
+                kind: 27235,
+                created_at: Math.floor(new Date().getTime() / 1000),
+                content: "",
+                tags: [
+                    ["u", `${window.location.protocol}//${window.location.host}/n96`],
+                    ["method", "POST"]
+                ]
+            });
+            const rsp = await fetch("/n96", {
+                body: fd,
+                method: "POST",
+                headers: {
+                    accept: "application/json",
+                    authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
+                },
+            });
+            console.debug(rsp);
+            const text = await rsp.text();
+            if (rsp.ok) {
+                document.querySelector("#log").append(JSON.stringify(JSON.parse(text), undefined, 2));
+            } else {
+                document.querySelector("#log").append(text);
+            }
+            document.querySelector("#log").append("\n");
+        }
+    </script>
 </head>
 <body>
-    <h1>
-        Welcome to void_cat_rs
-    </h1>
+<h1>
+    Welcome to void_cat_rs
+</h1>
+<div>
+    <p>
+        Upload a file using NIP-96
+    </p>
+    <small>
+        You must have a nostr extension for this to work
+    </small>
+</div>
+<div>
+    <input type="file" id="file">
+    <button type="submit" onclick="uploadFiles(event)">
+        Upload
+    </button>
+</div>
+<pre id="log"></pre>
 </body>
 </html>

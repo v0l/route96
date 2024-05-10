@@ -20,3 +20,5 @@ sha2 = "0.10.8"
 sqlx = { version = "0.7.4", features = ["mysql", "runtime-tokio", "chrono"] }
 config = { version = "0.14.0", features = ["toml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
+ffmpeg-sys-the-third = { version = "1.1.1",features = ["default"] }
+libc = "0.2.153"

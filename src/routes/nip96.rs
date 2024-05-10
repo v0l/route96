@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use chrono::Utc;
+use rocket::{FromForm, Responder, Route, routes, State};
+use rocket::data::ByteUnit;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
-use rocket::{routes, FromForm, Responder, Route, State};
 
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload};
@@ -156,7 +158,12 @@ async fn upload(
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),
     };
-    match fs.put(file).await {
+    let mime_type = form.media_type
+        .unwrap_or("application/octet-stream");
+    match fs
+        .put(file, mime_type)
+        .await
+    {
         Ok(blob) => {
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             let user_id = match db.upsert_user(&pubkey_vec).await {

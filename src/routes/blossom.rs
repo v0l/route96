@@ -1,3 +1,4 @@
+use std::sync::{Mutex, RwLock};
 use chrono::Utc;
 use log::{error};
 use nostr::prelude::hex;
@@ -102,8 +103,12 @@ async fn upload(
     if size.is_none() {
         return BlossomResponse::error("Invalid request, no size tag");
     }
+    let mime_type = auth
+        .content_type
+        .unwrap_or("application/octet-stream".to_string());
+    
     match fs
-        .put(data.open(ByteUnit::from(settings.max_upload_bytes)))
+        .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type)
         .await
     {
         Ok(blob) => {
@@ -119,9 +124,7 @@ async fn upload(
                 user_id,
                 name: name.unwrap_or("".to_string()),
                 size: blob.size,
-                mime_type: auth
-                    .content_type
-                    .unwrap_or("application/octet-stream".to_string()),
+                mime_type,
                 created: Utc::now(),
             };
             if let Err(e) = db.add_file(&f).await {

@@ -18,6 +18,7 @@ mod db;
 mod filesystem;
 mod routes;
 mod settings;
+mod processing;
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
