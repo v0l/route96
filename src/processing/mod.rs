@@ -1,45 +1,48 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Error;
-use crate::processing::image::ImageProcessor;
 
-mod image;
+use crate::processing::webp::WebpProcessor;
+
+mod webp;
+mod blurhash;
+
+pub(crate) enum FileProcessorResult {
+    NewFile(NewFileProcessorResult),
+    Skip,
+}
+
+pub(crate) struct NewFileProcessorResult {
+    pub result: PathBuf,
+    pub mime_type: String,
+    pub width: usize,
+    pub height: usize,
+    pub blur_hash: String,
+}
 
 pub(crate) trait FileProcessor {
-    fn process_file(&mut self, in_file: PathBuf, mime_type: &str) -> Result<PathBuf, Error>;
+    fn process_file(&mut self, in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error>;
 }
 
-pub(crate) struct MediaProcessor {
-    processors: HashMap<String, Box<dyn FileProcessor + Sync + Send>>,
-}
+pub(crate) struct MediaProcessor {}
 
 impl MediaProcessor {
     pub fn new() -> Self {
-        Self {
-            processors: HashMap::new()
-        }
+        Self {}
     }
 }
 
 impl FileProcessor for MediaProcessor {
-    fn process_file(&mut self, in_file: PathBuf, mime_type: &str) -> Result<PathBuf, Error> {
-        if !self.processors.contains_key(mime_type) {
-            if mime_type.starts_with("image/") {
-                let ix = ImageProcessor::new();
-                self.processors.insert(mime_type.to_string(), Box::new(ix));
-            } else if mime_type.starts_with("video/") {
-                
-            }
-        }
-        
-        let proc = match self.processors.get_mut(mime_type) {
-            Some(p) => p,
-            None => {
-                return Err(Error::msg("Not supported mime type"));
-            }
+    fn process_file(&mut self, in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error> {
+        let proc = if mime_type.starts_with("image/") {
+            Some(WebpProcessor::new())
+        } else {
+            None
         };
-        
-        proc.process_file(in_file, mime_type)
+        if let Some(mut proc) = proc {
+            proc.process_file(in_file, mime_type)
+        } else {
+            Ok(FileProcessorResult::Skip)
+        }
     }
 }

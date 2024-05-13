@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
-use crate::processing::{FileProcessor, MediaProcessor};
+use crate::processing::{FileProcessor, FileProcessorResult, MediaProcessor};
 use crate::settings::Settings;
 
 #[derive(Clone)]
@@ -19,6 +19,10 @@ pub struct FileSystemResult {
     pub path: PathBuf,
     pub sha256: Vec<u8>,
     pub size: u64,
+    pub mime_type: String,
+    pub width: Option<usize>,
+    pub height: Option<usize>,
+    pub blur_hash: Option<String>,
 }
 
 pub struct FileStore {
@@ -46,8 +50,9 @@ impl FileStore {
     {
         let random_id = uuid::Uuid::new_v4();
 
-        let (n, hash, tmp_path) = {
-            let tmp_path = FileStore::map_temp(random_id);
+        let mut mime_type = mime_type.to_string();
+        let (n, hash, tmp_path, width, height, blur_hash) = {
+            let mut tmp_path = FileStore::map_temp(random_id);
             let mut file = File::options()
                 .create(true)
                 .write(true)
@@ -59,29 +64,37 @@ impl FileStore {
             info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
 
             let start = SystemTime::now();
-            let new_temp = {
+            let proc_result = {
                 let mut p_lock = self.processor.lock().expect("asd");
-                p_lock.process_file(tmp_path.clone(), mime_type)?
+                p_lock.process_file(tmp_path.clone(), &mime_type)?
             };
-            let old_size = tmp_path.metadata()?.len();
-            let new_size = new_temp.metadata()?.len();
-            info!("Compressed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration={:.2}ms",
-                old_size as f32 / new_size as f32,
-                old_size as f32 / 1024.0,
-                new_size as f32 / 1024.0,
-                SystemTime::now().duration_since(start).unwrap().as_micros() as f64 / 1000.0
-            );
+            if let FileProcessorResult::NewFile(new_temp) = proc_result {
+                mime_type = new_temp.mime_type;
+                let old_size = tmp_path.metadata()?.len();
+                let new_size = new_temp.result.metadata()?.len();
+                info!("Compressed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration={:.2}ms",
+                    old_size as f32 / new_size as f32,
+                    old_size as f32 / 1024.0,
+                    new_size as f32 / 1024.0,
+                    SystemTime::now().duration_since(start).unwrap().as_micros() as f64 / 1000.0
+                );
 
-            let mut file = File::options()
-                .create(true)
-                .write(true)
-                .read(true)
-                .open(new_temp.clone())
-                .await?;
-            let n = file.metadata().await?.len();
-            let hash = FileStore::hash_file(&mut file).await?;
-            fs::remove_file(tmp_path)?;
-            (n, hash, new_temp)
+                // delete old temp
+                fs::remove_file(tmp_path)?;
+                file = File::options()
+                    .create(true)
+                    .write(true)
+                    .read(true)
+                    .open(new_temp.result.clone())
+                    .await?;
+                let n = file.metadata().await?.len();
+                let hash = FileStore::hash_file(&mut file).await?;
+                (n, hash, new_temp.result, Some(new_temp.width), Some(new_temp.height), Some(new_temp.blur_hash))
+            } else {
+                let n = file.metadata().await?.len();
+                let hash = FileStore::hash_file(&mut file).await?;
+                (n, hash, tmp_path, None, None, None)
+            }
         };
         let dst_path = self.map_path(&hash);
         fs::create_dir_all(dst_path.parent().unwrap())?;
@@ -94,6 +107,10 @@ impl FileStore {
                 size: n,
                 sha256: hash,
                 path: dst_path,
+                mime_type,
+                width,
+                height,
+                blur_hash,
             })
         }
     }

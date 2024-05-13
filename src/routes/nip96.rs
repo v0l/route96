@@ -178,10 +178,7 @@ async fn upload(
                     None => "".to_string(),
                 },
                 size: blob.size,
-                mime_type: match &form.media_type {
-                    Some(c) => c.to_string(),
-                    None => "application/octet-stream".to_string(),
-                },
+                mime_type: blob.mime_type,
                 created: Utc::now(),
             };
             if let Err(e) = db.add_file(&file_upload).await {
@@ -189,17 +186,25 @@ async fn upload(
             }
 
             let hex_id = hex::encode(&file_upload.id);
+            let mut tags = vec![
+                vec![
+                    "url".to_string(),
+                    format!("{}/{}", &settings.public_url, &hex_id),
+                ],
+                vec!["x".to_string(), hex_id],
+                vec!["m".to_string(), file_upload.mime_type],
+            ];
+            if let Some(bh) = blob.blur_hash {
+                tags.push(vec!["blurhash".to_string(), bh]);
+            }
+            if let (Some(w), Some(h)) = (blob.width, blob.height) {
+                tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
+            }
+
             Nip96Response::UploadResult(Json(Nip96UploadResult {
                 status: "success".to_string(),
                 nip94_event: Some(Nip94Event {
-                    tags: vec![
-                        vec![
-                            "url".to_string(),
-                            format!("{}/{}", &settings.public_url, &hex_id),
-                        ],
-                        vec!["x".to_string(), hex_id],
-                        vec!["m".to_string(), file_upload.mime_type],
-                    ],
+                    tags,
                 }),
                 ..Default::default()
             }))

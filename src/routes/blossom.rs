@@ -1,21 +1,21 @@
 use std::sync::{Mutex, RwLock};
-use chrono::Utc;
-use log::{error};
-use nostr::prelude::hex;
-use nostr::{Tag};
-use rocket::data::{ByteUnit};
 
-use rocket::http::{Status};
+use chrono::Utc;
+use log::error;
+use nostr::prelude::hex;
+use nostr::Tag;
+use rocket::{Data, Route, routes, State};
+use rocket::data::ByteUnit;
+use rocket::http::Status;
 use rocket::response::Responder;
 use rocket::serde::json::Json;
-use rocket::{routes, Data, Route, State};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::blossom::BlossomAuth;
 use crate::blob::BlobDescriptor;
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
-use crate::routes::{delete_file};
+use crate::routes::delete_file;
 use crate::settings::Settings;
 
 #[derive(Serialize, Deserialize)]
@@ -106,7 +106,7 @@ async fn upload(
     let mime_type = auth
         .content_type
         .unwrap_or("application/octet-stream".to_string());
-    
+
     match fs
         .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type)
         .await
@@ -116,7 +116,7 @@ async fn upload(
             let user_id = match db.upsert_user(&pubkey_vec).await {
                 Ok(u) => u,
                 Err(e) => {
-                    return BlossomResponse::error(format!("Failed to save file (db): {}", e))
+                    return BlossomResponse::error(format!("Failed to save file (db): {}", e));
                 }
             };
             let f = FileUpload {
@@ -124,7 +124,7 @@ async fn upload(
                 user_id,
                 name: name.unwrap_or("".to_string()),
                 size: blob.size,
-                mime_type,
+                mime_type: blob.mime_type,
                 created: Utc::now(),
             };
             if let Err(e) = db.add_file(&f).await {

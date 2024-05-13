@@ -301,6 +301,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "blurhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "565b78e03039f24994c5bc87ff793987be98a9ff59fa4851b72bc2e630001c9d"
+
+[[package]]
 name = "bumpalo"
 version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3168,6 +3174,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
+ "blurhash",
  "chrono",
  "config",
  "ffmpeg-sys-the-third",

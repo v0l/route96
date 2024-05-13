@@ -22,3 +22,4 @@ config = { version = "0.14.0", features = ["toml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 ffmpeg-sys-the-third = { version = "1.1.1",features = ["default"] }
 libc = "0.2.153"
+blurhash = "0.2.1"
