@@ -33,7 +33,7 @@ RUN cargo install --path . --root /app/build
 FROM $IMAGE as runner
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 && \
+    apt install -y libx264-164 libwebp7 libvpx7 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/build .
 COPY --from=build /app/src/ui ui
