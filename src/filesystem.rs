@@ -11,10 +11,11 @@ use sha2::{Digest, Sha256};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
-use crate::processing::{FileProcessor, FileProcessorResult, MediaProcessor};
+use crate::processing::{compress_file, FileProcessorResult};
+use crate::processing::labeling::label_frame;
 use crate::settings::Settings;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct FileSystemResult {
     pub path: PathBuf,
     pub sha256: Vec<u8>,
@@ -23,18 +24,17 @@ pub struct FileSystemResult {
     pub width: Option<usize>,
     pub height: Option<usize>,
     pub blur_hash: Option<String>,
+    pub labels: Option<Vec<String>>,
 }
 
 pub struct FileStore {
     settings: Settings,
-    processor: Arc<Mutex<MediaProcessor>>,
 }
 
 impl FileStore {
     pub fn new(settings: Settings) -> Self {
         Self {
             settings,
-            processor: Arc::new(Mutex::new(MediaProcessor::new())),
         }
     }
 
@@ -86,19 +86,30 @@ impl FileStore {
 
         if compress {
             let start = SystemTime::now();
-            let proc_result = {
-                let mut p_lock = self.processor.lock().expect("asd");
-                p_lock.process_file(tmp_path.clone(), mime_type)?
-            };
-            if let FileProcessorResult::NewFile(new_temp) = proc_result {
+            let proc_result = compress_file(tmp_path.clone(), mime_type)?;
+            if let FileProcessorResult::NewFile(mut new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
-                info!("Compressed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration={:.2}ms",
-                    old_size as f32 / new_size as f32,
-                    old_size as f32 / 1024.0,
-                    new_size as f32 / 1024.0,
-                    SystemTime::now().duration_since(start).unwrap().as_micros() as f64 / 1000.0
-                );
+                let time_compress = SystemTime::now().duration_since(start).unwrap();
+                let start = SystemTime::now();
+                let blur_hash = blurhash::encode(
+                    9, 9,
+                    new_temp.width as u32,
+                    new_temp.height as u32,
+                    new_temp.image.as_slice(),
+                )?;
+                let time_blurhash = SystemTime::now().duration_since(start).unwrap();
+                let start = SystemTime::now();
+                let labels = if let Some(mp) = &self.settings.vit_model_path {
+                    label_frame(
+                        new_temp.image.as_mut_slice(),
+                        new_temp.width,
+                        new_temp.height,
+                        mp.clone())?
+                } else {
+                    vec![]
+                };
+                let time_labels = SystemTime::now().duration_since(start).unwrap();
 
                 // delete old temp
                 fs::remove_file(tmp_path)?;
@@ -111,14 +122,25 @@ impl FileStore {
                     .await?;
                 let n = file.metadata().await?.len();
                 let hash = FileStore::hash_file(&mut file).await?;
+
+                info!("Processed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration_compress={:.2}ms, duration_blurhash={:.2}ms, duration_labels={:.2}ms",
+                    old_size as f32 / new_size as f32,
+                    old_size as f32 / 1024.0,
+                    new_size as f32 / 1024.0,
+                    time_compress.as_micros() as f64 / 1000.0,
+                    time_blurhash.as_micros() as f64 / 1000.0,
+                    time_labels.as_micros() as f64 / 1000.0
+                );
+
                 return Ok(FileSystemResult {
                     size: n,
                     sha256: hash,
                     path: new_temp.result,
                     width: Some(new_temp.width),
                     height: Some(new_temp.height),
-                    blur_hash: Some(new_temp.blur_hash),
+                    blur_hash: Some(blur_hash),
                     mime_type: new_temp.mime_type,
+                    labels: Some(labels),
                 });
             }
         }
@@ -129,9 +151,7 @@ impl FileStore {
             sha256: hash,
             size: n,
             mime_type: mime_type.to_string(),
-            width: None,
-            height: None,
-            blur_hash: None,
+            ..Default::default()
         })
     }
 

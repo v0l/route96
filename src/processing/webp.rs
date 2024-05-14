@@ -1,16 +1,15 @@
+use std::{ptr, slice};
 use std::collections::HashMap;
 use std::mem::transmute;
 use std::path::PathBuf;
-use std::ptr;
 
 use anyhow::Error;
 use ffmpeg_sys_the_third::{AV_CODEC_FLAG_GLOBAL_HEADER, av_dump_format, av_find_best_stream, av_frame_alloc, av_frame_copy_props, av_frame_free, av_guess_format, av_interleaved_write_frame, av_packet_alloc, av_packet_free, av_packet_rescale_ts, av_packet_unref, AV_PROFILE_H264_HIGH, av_read_frame, av_write_trailer, AVCodec, avcodec_alloc_context3, avcodec_find_encoder, avcodec_free_context, avcodec_open2, avcodec_parameters_from_context, avcodec_parameters_to_context, avcodec_receive_frame, avcodec_receive_packet, avcodec_send_frame, avcodec_send_packet, AVCodecContext, AVCodecID, AVERROR, AVERROR_EOF, AVERROR_STREAM_NOT_FOUND, AVFMT_GLOBALHEADER, avformat_alloc_output_context2, avformat_close_input, avformat_find_stream_info, avformat_free_context, avformat_init_output, avformat_new_stream, avformat_open_input, avformat_write_header, AVFormatContext, AVIO_FLAG_WRITE, avio_open, AVMediaType, AVPacket, sws_freeContext, sws_getContext, sws_scale_frame, SwsContext};
 use ffmpeg_sys_the_third::AVMediaType::{AVMEDIA_TYPE_AUDIO, AVMEDIA_TYPE_VIDEO};
-use ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
+use ffmpeg_sys_the_third::AVPixelFormat::{AV_PIX_FMT_RGBA, AV_PIX_FMT_YUV420P};
 use libc::EAGAIN;
 
-use crate::processing::{FileProcessor, FileProcessorResult, NewFileProcessorResult};
-use crate::processing::blurhash::make_blur_hash;
+use crate::processing::{FileProcessorResult, NewFileProcessorResult, resize_image};
 
 /// Image converter to WEBP
 pub struct WebpProcessor {
@@ -20,7 +19,7 @@ pub struct WebpProcessor {
     stream_map: HashMap<usize, usize>,
     width: Option<usize>,
     height: Option<usize>,
-    blur_hash: Option<String>,
+    image: Option<Vec<u8>>,
 }
 
 unsafe impl Sync for WebpProcessor {}
@@ -36,7 +35,7 @@ impl WebpProcessor {
             stream_map: HashMap::new(),
             width: None,
             height: None,
-            blur_hash: None,
+            image: None,
         }
     }
 
@@ -80,9 +79,15 @@ impl WebpProcessor {
                 None => frame
             };
 
-            // take blur_hash from first video frame
-            if (*(*out_stream).codecpar).codec_type == AVMEDIA_TYPE_VIDEO && self.blur_hash.is_none() {
-                self.blur_hash = Some(make_blur_hash(frame_out, 9)?);
+            // take the first frame as "image"
+            if (*(*out_stream).codecpar).codec_type == AVMEDIA_TYPE_VIDEO && self.image.is_none() {
+                let mut dst_frame = resize_image(frame_out,
+                                                 (*frame_out).width as usize,
+                                                 (*frame_out).height as usize,
+                                                 AV_PIX_FMT_RGBA)?;
+                let pic_slice = slice::from_raw_parts_mut((*dst_frame).data[0], ((*dst_frame).width * (*dst_frame).height * 4) as usize);
+                self.image = Some(pic_slice.to_vec());
+                av_frame_free(&mut dst_frame);
             }
 
             let ret = avcodec_send_frame(*enc_ctx, frame_out);
@@ -256,16 +261,8 @@ impl WebpProcessor {
 
         Ok(())
     }
-}
 
-impl Drop for WebpProcessor {
-    fn drop(&mut self) {
-        unsafe { self.free().unwrap(); }
-    }
-}
-
-impl FileProcessor for WebpProcessor {
-    fn process_file(&mut self, in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error> {
+    pub fn process_file(mut self, in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error> {
         unsafe {
             let mut out_path = in_file.clone();
             out_path.set_extension("_compressed");
@@ -363,10 +360,7 @@ impl FileProcessor for WebpProcessor {
                     mime_type: "image/webp".to_string(),
                     width: self.width.unwrap_or(0),
                     height: self.height.unwrap_or(0),
-                    blur_hash: match &self.blur_hash {
-                        Some(s) => s.clone(),
-                        None => "".to_string()
-                    },
+                    image: self.image.unwrap_or_default(),
                 }))
         }
     }

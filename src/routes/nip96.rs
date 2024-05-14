@@ -184,7 +184,6 @@ async fn upload(
             };
             let file_upload = FileUpload {
                 id: blob.sha256,
-                user_id,
                 name: match &form.caption {
                     Some(c) => c.to_string(),
                     None => "".to_string(),
@@ -193,7 +192,7 @@ async fn upload(
                 mime_type: blob.mime_type,
                 created: Utc::now(),
             };
-            if let Err(e) = db.add_file(&file_upload).await {
+            if let Err(e) = db.add_file(&file_upload, user_id).await {
                 error!("{}", e.to_string());
                 let _ = fs::remove_file(blob.path);
                 if let Some(dbe) = e.as_database_error() {
@@ -221,7 +220,17 @@ async fn upload(
             if let (Some(w), Some(h)) = (blob.width, blob.height) {
                 tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
             }
-
+            if let Some(lbls) = blob.labels {
+                for l in lbls {
+                    let val = if l.contains(',') {
+                        let split_val: Vec<&str> = l.split(',').collect();
+                        split_val[0].to_string()
+                    } else {
+                        l
+                    };
+                    tags.push(vec!["t".to_string(), val])
+                }
+            }
             Nip96Response::UploadResult(Json(Nip96UploadResult {
                 status: "success".to_string(),
                 nip94_event: Some(Nip94Event {

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,5 +19,8 @@ pub struct Settings {
     pub public_url: String,
 
     /// Whitelisted pubkeys
-    pub whitelist: Option<Vec<String>>
+    pub whitelist: Option<Vec<String>>,
+    
+    /// Path for ViT image model
+    pub vit_model_path: Option<PathBuf>
 }

@@ -130,13 +130,12 @@ async fn upload(
             };
             let f = FileUpload {
                 id: blob.sha256,
-                user_id,
                 name: name.unwrap_or("".to_string()),
                 size: blob.size,
                 mime_type: blob.mime_type,
                 created: Utc::now(),
             };
-            if let Err(e) = db.add_file(&f).await {
+            if let Err(e) = db.add_file(&f, user_id).await {
                 error!("{}", e.to_string());
                 let _ = fs::remove_file(blob.path);
                 if let Some(dbe) = e.as_database_error() {

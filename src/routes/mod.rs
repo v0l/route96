@@ -4,10 +4,10 @@ use std::str::FromStr;
 
 use anyhow::Error;
 use nostr::Event;
+use rocket::{Request, State};
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
 use rocket::response::Responder;
-use rocket::{Request, State};
 
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
@@ -56,20 +56,25 @@ async fn delete_file(
     if id.len() != 32 {
         return Err(Error::msg("Invalid file id"));
     }
-    if let Ok(Some(info)) = db.get_file(&id).await {
+    if let Ok(Some(_info)) = db.get_file(&id).await {
         let pubkey_vec = auth.pubkey.to_bytes().to_vec();
-        let user = match db.get_user_id(&pubkey_vec).await {
-            Ok(u) => u,
-            Err(_e) => return Err(Error::msg("User not found")),
+        let owners = db.get_file_owners(&id).await?;
+
+        let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
+            Some(o) => o,
+            None => return Err(Error::msg("You dont own this file, you cannot delete it"))
         };
-        if user != info.user_id {
-            return Err(Error::msg("You dont own this file, you cannot delete it"));
-        }
-        if let Err(e) = db.delete_file(&id).await {
+        if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
             return Err(Error::msg(format!("Failed to delete (db): {}", e)));
         }
-        if let Err(e) = fs::remove_file(fs.get(&id)) {
-            return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+        // only 1 owner was left, delete file completely
+        if owners.len() == 1 {
+            if let Err(e) = db.delete_file(&id).await {
+                return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+            }
+            if let Err(e) = fs::remove_file(fs.get(&id)) {
+                return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+            }
         }
         Ok(())
     } else {
@@ -111,7 +116,7 @@ pub async fn get_blob(
             return Ok(FilePayload { file: f, info });
         }
     }
-    return Err(Status::NotFound);
+    Err(Status::NotFound)
 }
 
 #[rocket::head("/<sha256>")]

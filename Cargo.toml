@@ -23,3 +23,6 @@ chrono = { version = "0.4.38", features = ["serde"] }
 ffmpeg-sys-the-third = { version = "1.1.1",features = ["default"] }
 libc = "0.2.153"
 blurhash = "0.2.1"
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
