@@ -26,14 +26,14 @@ pub struct FileSystemResult {
 }
 
 pub struct FileStore {
-    path: String,
+    settings: Settings,
     processor: Arc<Mutex<MediaProcessor>>,
 }
 
 impl FileStore {
     pub fn new(settings: Settings) -> Self {
         Self {
-            path: settings.storage_dir,
+            settings,
             processor: Arc::new(Mutex::new(MediaProcessor::new())),
         }
     }
@@ -50,6 +50,10 @@ impl FileStore {
     {
         let result = self.store_compress_file(stream, mime_type, compress).await?;
         let dst_path = self.map_path(&result.sha256);
+        if dst_path.exists() {
+            fs::remove_file(&result.path)?;
+            return Err(Error::msg("File already exists"));
+        }
         fs::create_dir_all(dst_path.parent().unwrap())?;
         if let Err(e) = fs::copy(&result.path, &dst_path) {
             fs::remove_file(&result.path)?;
@@ -71,6 +75,7 @@ impl FileStore {
         let tmp_path = FileStore::map_temp(random_id);
         let mut file = File::options()
             .create(true)
+            .truncate(false)
             .write(true)
             .read(true)
             .open(tmp_path.clone())
@@ -83,7 +88,7 @@ impl FileStore {
             let start = SystemTime::now();
             let proc_result = {
                 let mut p_lock = self.processor.lock().expect("asd");
-                p_lock.process_file(tmp_path.clone(), &mime_type)?
+                p_lock.process_file(tmp_path.clone(), mime_type)?
             };
             if let FileProcessorResult::NewFile(new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
@@ -99,6 +104,7 @@ impl FileStore {
                 fs::remove_file(tmp_path)?;
                 file = File::options()
                     .create(true)
+                    .truncate(false)
                     .write(true)
                     .read(true)
                     .open(new_temp.result.clone())
@@ -150,9 +156,9 @@ impl FileStore {
 
     fn map_path(&self, id: &Vec<u8>) -> PathBuf {
         let id = hex::encode(id);
-        Path::new(&self.path)
-            .join(id[0..2].to_string())
-            .join(id[2..4].to_string())
+        Path::new(&self.settings.storage_dir)
+            .join(&id[0..2])
+            .join(&id[2..4])
             .join(id)
     }
 }

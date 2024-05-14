@@ -1,3 +1,5 @@
+use std::fs;
+
 use chrono::Utc;
 use log::error;
 use nostr::prelude::hex;
@@ -105,6 +107,12 @@ async fn upload(
         .content_type
         .unwrap_or("application/octet-stream".to_string());
 
+    // check whitelist
+    if let Some(wl) = &settings.whitelist {
+        if !wl.contains(&auth.event.pubkey.to_hex()) {
+            return BlossomResponse::error("Not on whitelist");
+        }
+    }
     match fs
         .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type, false)
         .await
@@ -126,7 +134,15 @@ async fn upload(
                 created: Utc::now(),
             };
             if let Err(e) = db.add_file(&f).await {
-                error!("{:?}", e);
+                error!("{}", e.to_string());
+                let _ = fs::remove_file(blob.path);
+                if let Some(dbe) = e.as_database_error() {
+                    if let Some(c) = dbe.code() {
+                        if c == "23000" {
+                            return BlossomResponse::error("File already exists");
+                        }
+                    }
+                }
                 BlossomResponse::error(format!("Error saving file (db): {}", e))
             } else {
                 BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
@@ -136,7 +152,7 @@ async fn upload(
             }
         }
         Err(e) => {
-            error!("{:?}", e);
+            error!("{}", e.to_string());
             BlossomResponse::error(format!("Error saving file (disk): {}", e))
         }
     }

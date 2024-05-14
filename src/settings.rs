@@ -16,4 +16,7 @@ pub struct Settings {
 
     /// Public facing url
     pub public_url: String,
+
+    /// Whitelisted pubkeys
+    pub whitelist: Option<Vec<String>>
 }

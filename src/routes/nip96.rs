@@ -1,6 +1,10 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs;
 
 use chrono::Utc;
+use libc::remove;
+use log::error;
 use rocket::{FromForm, Responder, Route, routes, State};
 use rocket::form::Form;
 use rocket::fs::TempFile;
@@ -158,6 +162,13 @@ async fn upload(
     };
     let mime_type = form.media_type
         .unwrap_or("application/octet-stream");
+
+    // check whitelist
+    if let Some(wl) = &settings.whitelist {
+        if !wl.contains(&auth.event.pubkey.to_hex()) {
+            return Nip96Response::error("Not on whitelist");
+        }
+    }
     match fs
         .put(file, mime_type, true)
         .await
@@ -180,6 +191,15 @@ async fn upload(
                 created: Utc::now(),
             };
             if let Err(e) = db.add_file(&file_upload).await {
+                error!("{}", e.to_string());
+                let _ = fs::remove_file(blob.path);
+                if let Some(dbe) = e.as_database_error() {
+                    if let Some(c) = dbe.code() {
+                        if c == "23000" {
+                            return Nip96Response::error("File already exists");
+                        }
+                    }
+                }
                 return Nip96Response::error(&format!("Could not save file (db): {}", e));
             }
 
@@ -207,7 +227,10 @@ async fn upload(
                 ..Default::default()
             }))
         }
-        Err(e) => return Nip96Response::error(&format!("Could not save file: {}", e)),
+        Err(e) => {
+            error!("{}", e.to_string());
+            Nip96Response::error(&format!("Could not save file: {}", e))
+        }
     }
 }
 
