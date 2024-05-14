@@ -1,9 +1,7 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 
 use chrono::Utc;
-use libc::remove;
 use log::error;
 use rocket::{FromForm, Responder, Route, routes, State};
 use rocket::form::Form;
@@ -156,6 +154,11 @@ async fn upload(
     settings: &State<Settings>,
     form: Form<Nip96Form<'_>>,
 ) -> Nip96Response {
+    if let Some(size) = auth.content_length {
+        if size > settings.max_upload_bytes {
+            return Nip96Response::error("File too large");
+        }
+    }
     let file = match form.file.open().await {
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),

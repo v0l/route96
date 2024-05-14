@@ -92,16 +92,19 @@ async fn upload(
         Tag::Name(s) => Some(s.clone()),
         _ => None,
     });
-    let size = auth.event.tags.iter().find_map(|t| {
+    let size = match auth.event.tags.iter().find_map(|t| {
         let values = t.as_vec();
         if values.len() == 2 && values[0] == "size" {
             Some(values[1].parse::<usize>().unwrap())
         } else {
             None
         }
-    });
-    if size.is_none() {
-        return BlossomResponse::error("Invalid request, no size tag");
+    }) {
+        Some(s) => s,
+        None => return BlossomResponse::error("Invalid request, no size tag")
+    };
+    if size > settings.max_upload_bytes {
+        return BlossomResponse::error("File too large");
     }
     let mime_type = auth
         .content_type

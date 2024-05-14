@@ -1,17 +1,18 @@
 use std::ops::Sub;
 use std::time::Duration;
 
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use log::info;
 use nostr::{Event, JsonUtil, Kind, Timestamp};
-use rocket::http::uri::{Absolute, Uri};
-use rocket::http::Status;
-use rocket::request::{FromRequest, Outcome};
 use rocket::{async_trait, Request};
+use rocket::http::Status;
+use rocket::http::uri::{Absolute, Uri};
+use rocket::request::{FromRequest, Outcome};
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
+    pub content_length: Option<usize>,
     pub event: Event,
 }
 
@@ -91,6 +92,13 @@ impl<'r> FromRequest<'r> for Nip98Auth {
                     content_type: request.headers().iter().find_map(|h| {
                         if h.name == "content-type" {
                             Some(h.value.to_string())
+                        } else {
+                            None
+                        }
+                    }),
+                    content_length: request.headers().iter().find_map(|h| {
+                        if h.name == "content-length" {
+                            Some(h.value.parse().unwrap())
                         } else {
                             None
                         }
