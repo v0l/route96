@@ -37,6 +37,5 @@ RUN apt update && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/build .
 COPY --from=build /app/src/ui ui
-COPY --from=build /app/src/config.toml .
 COPY --from=build /app/ffmpeg/lib/ /lib
-ENTRYPOINT ["/app/bin/void_cat"]
+ENTRYPOINT ["./bin/void_cat"]

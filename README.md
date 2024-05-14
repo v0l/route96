@@ -10,3 +10,21 @@ Image hosting service
 
 ## Planned
 - Torrent seed V2
+
+## Running
+
+### Docker Compose
+The easiest way to run `void-cat-rs` is to use `docker compose`
+
+```bash
+docker compose -f docker-compose.prod.yml up
+```
+### Manual
+Assuming you already created your `config.toml` and configured the `database` run:
+```bash
+docker run --rm -it \
+  -p 8000:8000 \
+  -v ./config.toml:/app/config.toml \
+  -e "RUST_LOG=info" \
+  voidic/void-cat-rs
+```

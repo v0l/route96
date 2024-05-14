@@ -1,0 +1,21 @@
+volumes:
+  db:
+  files:
+services:
+  db:
+    image: mariadb
+    environment:
+      - "MARIADB_ROOT_PASSWORD=root"
+      - "MARIADB_DATABASE=void_cat"
+    volumes:
+      - "db:/var/lib/mysql"
+  app:
+    image: voidic/void-cat-rs
+    #build: .
+    environment:
+      - "RUST_LOG=info"
+    ports:
+      - "8000:8000"
+    volumes:
+      - "files:/app/data"
+      - "./config.prod.toml:/app/config.toml"
