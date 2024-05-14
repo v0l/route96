@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 use chrono::Utc;
 use rocket::{FromForm, Responder, Route, routes, State};
-use rocket::data::ByteUnit;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::serde::json::Json;
@@ -161,7 +159,7 @@ async fn upload(
     let mime_type = form.media_type
         .unwrap_or("application/octet-stream");
     match fs
-        .put(file, mime_type)
+        .put(file, mime_type, true)
         .await
     {
         Ok(blob) => {

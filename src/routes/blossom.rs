@@ -1,5 +1,3 @@
-use std::sync::{Mutex, RwLock};
-
 use chrono::Utc;
 use log::error;
 use nostr::prelude::hex;
@@ -108,7 +106,7 @@ async fn upload(
         .unwrap_or("application/octet-stream".to_string());
 
     match fs
-        .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type)
+        .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type, false)
         .await
     {
         Ok(blob) => {

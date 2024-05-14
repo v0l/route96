@@ -44,32 +44,48 @@ impl FileStore {
     }
 
     /// Store a new file
-    pub async fn put<TStream>(&self, mut stream: TStream, mime_type: &str) -> Result<FileSystemResult, Error>
+    pub async fn put<TStream>(&self, stream: TStream, mime_type: &str, compress: bool) -> Result<FileSystemResult, Error>
+        where
+            TStream: AsyncRead + Unpin,
+    {
+        let result = self.store_compress_file(stream, mime_type, compress).await?;
+        let dst_path = self.map_path(&result.sha256);
+        fs::create_dir_all(dst_path.parent().unwrap())?;
+        if let Err(e) = fs::copy(&result.path, &dst_path) {
+            fs::remove_file(&result.path)?;
+            Err(Error::from(e))
+        } else {
+            fs::remove_file(result.path)?;
+            Ok(FileSystemResult {
+                path: dst_path,
+                ..result
+            })
+        }
+    }
+
+    async fn store_compress_file<TStream>(&self, mut stream: TStream, mime_type: &str, compress: bool) -> Result<FileSystemResult, Error>
         where
             TStream: AsyncRead + Unpin,
     {
         let random_id = uuid::Uuid::new_v4();
+        let tmp_path = FileStore::map_temp(random_id);
+        let mut file = File::options()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(tmp_path.clone())
+            .await?;
+        tokio::io::copy(&mut stream, &mut file).await?;
 
-        let mut mime_type = mime_type.to_string();
-        let (n, hash, tmp_path, width, height, blur_hash) = {
-            let mut tmp_path = FileStore::map_temp(random_id);
-            let mut file = File::options()
-                .create(true)
-                .write(true)
-                .read(true)
-                .open(tmp_path.clone())
-                .await?;
-            tokio::io::copy(&mut stream, &mut file).await?;
+        info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
 
-            info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
-
+        if compress {
             let start = SystemTime::now();
             let proc_result = {
                 let mut p_lock = self.processor.lock().expect("asd");
                 p_lock.process_file(tmp_path.clone(), &mime_type)?
             };
             if let FileProcessorResult::NewFile(new_temp) = proc_result {
-                mime_type = new_temp.mime_type;
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
                 info!("Compressed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration={:.2}ms",
@@ -89,30 +105,28 @@ impl FileStore {
                     .await?;
                 let n = file.metadata().await?.len();
                 let hash = FileStore::hash_file(&mut file).await?;
-                (n, hash, new_temp.result, Some(new_temp.width), Some(new_temp.height), Some(new_temp.blur_hash))
-            } else {
-                let n = file.metadata().await?.len();
-                let hash = FileStore::hash_file(&mut file).await?;
-                (n, hash, tmp_path, None, None, None)
+                return Ok(FileSystemResult {
+                    size: n,
+                    sha256: hash,
+                    path: new_temp.result,
+                    width: Some(new_temp.width),
+                    height: Some(new_temp.height),
+                    blur_hash: Some(new_temp.blur_hash),
+                    mime_type: new_temp.mime_type,
+                });
             }
-        };
-        let dst_path = self.map_path(&hash);
-        fs::create_dir_all(dst_path.parent().unwrap())?;
-        if let Err(e) = fs::copy(&tmp_path, &dst_path) {
-            fs::remove_file(&tmp_path)?;
-            Err(Error::from(e))
-        } else {
-            fs::remove_file(tmp_path)?;
-            Ok(FileSystemResult {
-                size: n,
-                sha256: hash,
-                path: dst_path,
-                mime_type,
-                width,
-                height,
-                blur_hash,
-            })
         }
+        let n = file.metadata().await?.len();
+        let hash = FileStore::hash_file(&mut file).await?;
+        Ok(FileSystemResult {
+            path: tmp_path,
+            sha256: hash,
+            size: n,
+            mime_type: mime_type.to_string(),
+            width: None,
+            height: None,
+            blur_hash: None,
+        })
     }
 
     async fn hash_file(file: &mut File) -> Result<Vec<u8>, Error> {
