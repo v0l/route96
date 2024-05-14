@@ -3,7 +3,10 @@ use std::net::{IpAddr, SocketAddr};
 use anyhow::Error;
 use config::Config;
 use log::{error, info};
+use rocket::config::Ident;
+use rocket::data::{ByteUnit, Limits};
 use rocket::routes;
+use rocket::shield::Shield;
 
 use crate::cors::CORS;
 use crate::db::Database;
@@ -44,11 +47,19 @@ async fn main() -> Result<(), Error> {
     config.address = ip.ip();
     config.port = ip.port();
 
+    let upload_limit = ByteUnit::from(settings.max_upload_bytes);
+    config.limits = Limits::new()
+        .limit("file", upload_limit)
+        .limit("data-form", upload_limit)
+        .limit("form", upload_limit);
+    config.ident = Ident::try_new("void-cat-rs").unwrap();
+
     let rocket = rocket::Rocket::custom(config)
         .manage(FileStore::new(settings.clone()))
         .manage(settings.clone())
         .manage(db.clone())
         .attach(CORS)
+        .attach(Shield::new()) // disable
         .mount("/", routes::blossom_routes())
         .mount("/", routes::nip96_routes())
         .mount("/", routes![root, get_blob, head_blob])
