@@ -22,5 +22,8 @@ pub struct Settings {
     pub whitelist: Option<Vec<String>>,
     
     /// Path for ViT image model
-    pub vit_model_path: Option<PathBuf>
+    pub vit_model_path: Option<PathBuf>,
+    
+    /// Webhook api endpoint
+    pub webhook_url: Option<String>,
 }

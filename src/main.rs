@@ -13,6 +13,7 @@ use crate::db::Database;
 use crate::filesystem::FileStore;
 use crate::routes::{get_blob, head_blob, root};
 use crate::settings::Settings;
+use crate::webhook::Webhook;
 
 mod auth;
 mod blob;
@@ -22,6 +23,7 @@ mod filesystem;
 mod routes;
 mod settings;
 mod processing;
+mod webhook;
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
@@ -58,6 +60,7 @@ async fn main() -> Result<(), Error> {
         .manage(FileStore::new(settings.clone()))
         .manage(settings.clone())
         .manage(db.clone())
+        .manage(settings.webhook_url.as_ref().map(|w| Webhook::new(w.clone())))
         .attach(CORS)
         .attach(Shield::new()) // disable
         .mount("/", routes::blossom_routes())

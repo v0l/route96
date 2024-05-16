@@ -2,11 +2,12 @@ use std::env::temp_dir;
 use std::fs;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use anyhow::Error;
 use log::info;
+use serde::Serialize;
+use serde_with::serde_as;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
@@ -15,9 +16,11 @@ use crate::processing::{compress_file, FileProcessorResult};
 use crate::processing::labeling::label_frame;
 use crate::settings::Settings;
 
-#[derive(Clone, Default)]
+#[serde_as]
+#[derive(Clone, Default, Serialize)]
 pub struct FileSystemResult {
     pub path: PathBuf,
+    #[serde_as(as = "serde_with::hex::Hex")]
     pub sha256: Vec<u8>,
     pub size: u64,
     pub mime_type: String,
@@ -51,8 +54,11 @@ impl FileStore {
         let result = self.store_compress_file(stream, mime_type, compress).await?;
         let dst_path = self.map_path(&result.sha256);
         if dst_path.exists() {
-            fs::remove_file(&result.path)?;
-            return Err(Error::msg("File already exists"));
+            fs::remove_file(result.path)?;
+            return Ok(FileSystemResult {
+                path: dst_path,
+                ..result
+            });
         }
         fs::create_dir_all(dst_path.parent().unwrap())?;
         if let Err(e) = fs::copy(&result.path, &dst_path) {

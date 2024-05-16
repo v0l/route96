@@ -14,6 +14,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
 use crate::routes::delete_file;
 use crate::settings::Settings;
+use crate::webhook::Webhook;
 
 #[derive(Serialize, Default)]
 #[serde(crate = "rocket::serde")]
@@ -152,6 +153,7 @@ async fn upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
     form: Form<Nip96Form<'_>>,
 ) -> Nip96Response {
     if let Some(size) = auth.content_length {
@@ -178,6 +180,18 @@ async fn upload(
     {
         Ok(blob) => {
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+            if let Some(wh) = webhook.as_ref() {
+                match wh.store_file(&pubkey_vec, blob.clone()) {
+                    Ok(store) => if !store {
+                        let _ = fs::remove_file(blob.path);
+                        return Nip96Response::error("Upload rejected");
+                    }
+                    Err(e) => {
+                        let _ = fs::remove_file(blob.path);
+                        return Nip96Response::error(&format!("Internal error, failed to call webhook: {}", e));
+                    }
+                }
+            }
             let user_id = match db.upsert_user(&pubkey_vec).await {
                 Ok(u) => u,
                 Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),

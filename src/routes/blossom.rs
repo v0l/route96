@@ -17,6 +17,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
 use crate::routes::delete_file;
 use crate::settings::Settings;
+use crate::webhook::Webhook;
 
 #[derive(Serialize, Deserialize)]
 struct BlossomError {
@@ -82,6 +83,7 @@ async fn upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
     data: Data<'_>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "upload") {
@@ -122,6 +124,18 @@ async fn upload(
     {
         Ok(blob) => {
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+            if let Some(wh) = webhook.as_ref() {
+                match wh.store_file(&pubkey_vec, blob.clone()) {
+                    Ok(store) => if !store {
+                        let _ = fs::remove_file(blob.path);
+                        return BlossomResponse::error("Upload rejected");
+                    }
+                    Err(e) => {
+                        let _ = fs::remove_file(blob.path);
+                        return BlossomResponse::error(format!("Internal error, failed to call webhook: {}", e));
+                    }
+                }
+            }
             let user_id = match db.upsert_user(&pubkey_vec).await {
                 Ok(u) => u,
                 Err(e) => {

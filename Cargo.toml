@@ -26,3 +26,6 @@ blurhash = "0.2.1"
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
+ureq = { version = "2.9.7", features = ["json"] }
+url = "2.5.0"
+serde_with = { version = "3.8.1", features = ["hex"] }
