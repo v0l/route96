@@ -14,7 +14,7 @@ RUN apt update && \
     libclang-dev && \
     rm -rf /var/lib/apt/lists/*
 RUN git clone --depth=1 https://git.v0l.io/Kieran/FFmpeg.git && \
-    cd ffmpeg && \
+    cd FFmpeg && \
     ./configure \
     --prefix=$FFMPEG_DIR \
     --disable-programs \
