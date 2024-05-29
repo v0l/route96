@@ -5,29 +5,22 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::Error;
+use chrono::Utc;
 use log::info;
 use serde::Serialize;
-use serde_with::serde_as;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
+use crate::db::{FileLabel, FileUpload};
 use crate::processing::{compress_file, FileProcessorResult};
 use crate::processing::labeling::label_frame;
 use crate::settings::Settings;
 
-#[serde_as]
 #[derive(Clone, Default, Serialize)]
 pub struct FileSystemResult {
     pub path: PathBuf,
-    #[serde_as(as = "serde_with::hex::Hex")]
-    pub sha256: Vec<u8>,
-    pub size: u64,
-    pub mime_type: String,
-    pub width: Option<usize>,
-    pub height: Option<usize>,
-    pub blur_hash: Option<String>,
-    pub labels: Option<Vec<String>>,
+    pub upload: FileUpload,
 }
 
 pub struct FileStore {
@@ -52,7 +45,7 @@ impl FileStore {
             TStream: AsyncRead + Unpin,
     {
         let result = self.store_compress_file(stream, mime_type, compress).await?;
-        let dst_path = self.map_path(&result.sha256);
+        let dst_path = self.map_path(&result.upload.id);
         if dst_path.exists() {
             fs::remove_file(result.path)?;
             return Ok(FileSystemResult {
@@ -104,7 +97,7 @@ impl FileStore {
                     new_temp.height as u32,
                     new_temp.image.as_slice(),
                 )?;
-                let time_blurhash = SystemTime::now().duration_since(start).unwrap();
+                let time_blur_hash = SystemTime::now().duration_since(start).unwrap();
                 let start = SystemTime::now();
                 let labels = if let Some(mp) = &self.settings.vit_model_path {
                     label_frame(
@@ -112,6 +105,8 @@ impl FileStore {
                         new_temp.width,
                         new_temp.height,
                         mp.clone())?
+                        .iter().map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
+                        .collect()
                 } else {
                     vec![]
                 };
@@ -129,24 +124,28 @@ impl FileStore {
                 let n = file.metadata().await?.len();
                 let hash = FileStore::hash_file(&mut file).await?;
 
-                info!("Processed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration_compress={:.2}ms, duration_blurhash={:.2}ms, duration_labels={:.2}ms",
+                info!("Processed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration_compress={:.2}ms, duration_blur_hash={:.2}ms, duration_labels={:.2}ms",
                     old_size as f32 / new_size as f32,
                     old_size as f32 / 1024.0,
                     new_size as f32 / 1024.0,
                     time_compress.as_micros() as f64 / 1000.0,
-                    time_blurhash.as_micros() as f64 / 1000.0,
+                    time_blur_hash.as_micros() as f64 / 1000.0,
                     time_labels.as_micros() as f64 / 1000.0
                 );
 
                 return Ok(FileSystemResult {
-                    size: n,
-                    sha256: hash,
                     path: new_temp.result,
-                    width: Some(new_temp.width),
-                    height: Some(new_temp.height),
-                    blur_hash: Some(blur_hash),
-                    mime_type: new_temp.mime_type,
-                    labels: Some(labels),
+                    upload: FileUpload {
+                        id: hash,
+                        name: "".to_string(),
+                        size: n,
+                        width: Some(new_temp.width as u32),
+                        height: Some(new_temp.height as u32),
+                        blur_hash: Some(blur_hash),
+                        mime_type: new_temp.mime_type,
+                        labels,
+                        created: Utc::now(),
+                    },
                 });
             }
         }
@@ -154,10 +153,13 @@ impl FileStore {
         let hash = FileStore::hash_file(&mut file).await?;
         Ok(FileSystemResult {
             path: tmp_path,
-            sha256: hash,
-            size: n,
-            mime_type: mime_type.to_string(),
-            ..Default::default()
+            upload: FileUpload {
+                id: hash,
+                name: "".to_string(),
+                size: n,
+                created: Utc::now(),
+                ..Default::default()
+            },
         })
     }
 

@@ -25,6 +25,41 @@
         }
     </style>
     <script>
+        async function dumpToLog(rsp) {
+            console.debug(rsp);
+            const text = await rsp.text();
+            if (rsp.ok) {
+                document.querySelector("#log").append(JSON.stringify(JSON.parse(text), undefined, 2));
+            } else {
+                document.querySelector("#log").append(text);
+            }
+            document.querySelector("#log").append("\n");
+        }
+
+        async function listFiles() {
+            try {
+                const auth_event = await window.nostr.signEvent({
+                    kind: 27235,
+                    created_at: Math.floor(new Date().getTime() / 1000),
+                    content: "",
+                    tags: [
+                        ["u", `${window.location.protocol}//${window.location.host}/n96`],
+                        ["method", "GET"]
+                    ]
+                });
+                const rsp = await fetch("/n96?page=0&count=100", {
+                    method: "GET",
+                    headers: {
+                        accept: "application/json",
+                        authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
+                    },
+                });
+                await dumpToLog(rsp);
+            } catch (e) {
+
+            }
+        }
+
         async function uploadFiles(e) {
             try {
                 const input = document.querySelector("#file");
@@ -55,14 +90,7 @@
                         authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
                     },
                 });
-                console.debug(rsp);
-                const text = await rsp.text();
-                if (rsp.ok) {
-                    document.querySelector("#log").append(JSON.stringify(JSON.parse(text), undefined, 2));
-                } else {
-                    document.querySelector("#log").append(text);
-                }
-                document.querySelector("#log").append("\n");
+                await dumpToLog(rsp);
             } catch (ex) {
                 if (ex instanceof Error) {
                     alert(ex.message);
@@ -92,6 +120,12 @@
     <div>
         <button type="submit" onclick="uploadFiles(event)">
             Upload
+        </button>
+    </div>
+
+    <div>
+        <button type="submit" onclick="listFiles()">
+            List Uploads
         </button>
     </div>
 </div>

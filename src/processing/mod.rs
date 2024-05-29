@@ -9,9 +9,27 @@ use crate::processing::webp::WebpProcessor;
 
 mod webp;
 pub mod labeling;
+mod probe;
+
+pub struct ProbeResult {
+    pub streams: Vec<ProbeStream>,
+}
+
+pub enum ProbeStream {
+    Video {
+        width: u32,
+        height: u32,
+        codec: String,
+    },
+    Audio {
+        sample_rate: u32,
+        codec: String,
+    },
+}
 
 pub(crate) enum FileProcessorResult {
     NewFile(NewFileProcessorResult),
+    Probe(ProbeResult),
     Skip,
 }
 

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 
-use chrono::Utc;
 use log::error;
 use rocket::{FromForm, Responder, Route, routes, State};
 use rocket::form::Form;
@@ -63,6 +62,15 @@ struct Nip96MediaTransformations {
     pub video: Option<Vec<String>>,
 }
 
+#[derive(Serialize, Default)]
+#[serde(crate = "rocket::serde")]
+struct Nip96FileListResults {
+    pub count: u32,
+    pub page: u32,
+    pub total: u32,
+    pub files: Vec<Nip94Event>,
+}
+
 #[derive(Responder)]
 enum Nip96Response {
     #[response(status = 500)]
@@ -70,6 +78,9 @@ enum Nip96Response {
 
     #[response(status = 200)]
     UploadResult(Json<Nip96UploadResult>),
+
+    #[response(status = 200)]
+    FileList(Json<Nip96FileListResults>),
 }
 
 impl Nip96Response {
@@ -102,9 +113,50 @@ struct Nip96UploadResult {
     pub nip94_event: Option<Nip94Event>,
 }
 
+impl Nip96UploadResult {
+    pub fn from_upload(settings: &Settings, upload: &FileUpload) -> Self {
+        let hex_id = hex::encode(&upload.id);
+        let mut tags = vec![
+            vec![
+                "url".to_string(),
+                format!("{}/{}", &settings.public_url, &hex_id),
+            ],
+            vec!["x".to_string(), hex_id],
+            vec!["m".to_string(), upload.mime_type.clone()],
+        ];
+        if let Some(bh) = &upload.blur_hash {
+            tags.push(vec!["blurhash".to_string(), bh.clone()]);
+        }
+        if let (Some(w), Some(h)) = (upload.width, upload.height) {
+            tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
+        }
+        for l in &upload.labels {
+            let val = if l.label.contains(',') {
+                let split_val: Vec<&str> = l.label.split(',').collect();
+                split_val[0].to_string()
+            } else {
+                l.label.clone()
+            };
+            tags.push(vec!["t".to_string(), val])
+        }
+
+        Self {
+            status: "success".to_string(),
+            nip94_event: Some(Nip94Event {
+                content: upload.name.clone(),
+                created_at: upload.created.timestamp(),
+                tags,
+            }),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Serialize, Default)]
 #[serde(crate = "rocket::serde")]
 struct Nip94Event {
+    pub created_at: i64,
+    pub content: String,
     pub tags: Vec<Vec<String>>,
 }
 
@@ -121,7 +173,7 @@ struct Nip96Form<'r> {
 }
 
 pub fn nip96_routes() -> Vec<Route> {
-    routes![get_info_doc, upload, delete]
+    routes![get_info_doc, upload, delete, list_files]
 }
 
 #[rocket::get("/.well-known/nostr/nip96.json")]
@@ -172,6 +224,13 @@ async fn upload(
     let mime_type = form.media_type
         .unwrap_or("application/octet-stream");
 
+    if form.expiration.is_some() {
+        return Nip96Response::error("Expiration not supported");
+    }
+    if form.alt.is_some() {
+        return Nip96Response::error("\"alt\" is not supported");
+    }
+    
     // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
@@ -182,7 +241,11 @@ async fn upload(
         .put(file, mime_type, !form.no_transform.unwrap_or(false))
         .await
     {
-        Ok(blob) => {
+        Ok(mut blob) => {
+            blob.upload.name = match &form.caption {
+                Some(c) => c.to_string(),
+                None => "".to_string(),
+            };
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()) {
@@ -200,19 +263,10 @@ async fn upload(
                 Ok(u) => u,
                 Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
             };
-            let file_upload = FileUpload {
-                id: blob.sha256,
-                name: match &form.caption {
-                    Some(c) => c.to_string(),
-                    None => "".to_string(),
-                },
-                size: blob.size,
-                mime_type: blob.mime_type,
-                created: Utc::now(),
-            };
-            if let Err(e) = db.add_file(&file_upload, user_id).await {
+            let tmp_file = blob.path.clone();
+            if let Err(e) = db.add_file(&blob.upload, user_id).await {
                 error!("{}", e.to_string());
-                let _ = fs::remove_file(blob.path);
+                let _ = fs::remove_file(tmp_file);
                 if let Some(dbe) = e.as_database_error() {
                     if let Some(c) = dbe.code() {
                         if c == "23000" {
@@ -223,39 +277,7 @@ async fn upload(
                 return Nip96Response::error(&format!("Could not save file (db): {}", e));
             }
 
-            let hex_id = hex::encode(&file_upload.id);
-            let mut tags = vec![
-                vec![
-                    "url".to_string(),
-                    format!("{}/{}", &settings.public_url, &hex_id),
-                ],
-                vec!["x".to_string(), hex_id],
-                vec!["m".to_string(), file_upload.mime_type],
-            ];
-            if let Some(bh) = blob.blur_hash {
-                tags.push(vec!["blurhash".to_string(), bh]);
-            }
-            if let (Some(w), Some(h)) = (blob.width, blob.height) {
-                tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
-            }
-            if let Some(lbls) = blob.labels {
-                for l in lbls {
-                    let val = if l.contains(',') {
-                        let split_val: Vec<&str> = l.split(',').collect();
-                        split_val[0].to_string()
-                    } else {
-                        l
-                    };
-                    tags.push(vec!["t".to_string(), val])
-                }
-            }
-            Nip96Response::UploadResult(Json(Nip96UploadResult {
-                status: "success".to_string(),
-                nip94_event: Some(Nip94Event {
-                    tags,
-                }),
-                ..Default::default()
-            }))
+            Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(settings, &blob.upload)))
         }
         Err(e) => {
             error!("{}", e.to_string());
@@ -274,5 +296,31 @@ async fn delete(
     match delete_file(sha256, &auth.event, fs, db).await {
         Ok(()) => Nip96Response::success("File deleted."),
         Err(e) => Nip96Response::error(&format!("Failed to delete file: {}", e)),
+    }
+}
+
+
+#[rocket::get("/n96?<page>&<count>")]
+async fn list_files(
+    auth: Nip98Auth,
+    page: u32,
+    count: u32,
+    db: &State<Database>,
+    settings: &State<Settings>,
+) -> Nip96Response {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let server_count = count.min(5_000).max(1);
+    match db.list_files(&pubkey_vec, page * server_count, server_count).await {
+        Ok((files, total)) => Nip96Response::FileList(Json(Nip96FileListResults {
+            count: server_count,
+            page,
+            total: total as u32,
+            files: files
+                .iter()
+                .map(|f| Nip96UploadResult::from_upload(settings, f).nip94_event.unwrap())
+                .collect(),
+        }
+        )),
+        Err(e) => Nip96Response::error(&format!("Could not list files: {}", e)),
     }
 }

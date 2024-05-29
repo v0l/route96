@@ -122,7 +122,9 @@ async fn upload(
         .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type, false)
         .await
     {
-        Ok(blob) => {
+        Ok(mut blob) => {
+            blob.upload.name = name.unwrap_or("".to_string());
+
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()) {
@@ -142,14 +144,7 @@ async fn upload(
                     return BlossomResponse::error(format!("Failed to save file (db): {}", e));
                 }
             };
-            let f = FileUpload {
-                id: blob.sha256,
-                name: name.unwrap_or("".to_string()),
-                size: blob.size,
-                mime_type: blob.mime_type,
-                created: Utc::now(),
-            };
-            if let Err(e) = db.add_file(&f, user_id).await {
+            if let Err(e) = db.add_file(&blob.upload, user_id).await {
                 error!("{}", e.to_string());
                 let _ = fs::remove_file(blob.path);
                 if let Some(dbe) = e.as_database_error() {
@@ -162,7 +157,7 @@ async fn upload(
                 BlossomResponse::error(format!("Error saving file (db): {}", e))
             } else {
                 BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
-                    &f,
+                    &blob.upload,
                     &settings.public_url,
                 )))
             }
@@ -185,11 +180,11 @@ async fn list_files(
     } else {
         return BlossomResponse::error("invalid pubkey");
     };
-    match db.list_files(&id).await {
-        Ok(files) => BlossomResponse::BlobDescriptorList(Json(
+    match db.list_files(&id, 0, 10_000).await {
+        Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(&f, &settings.public_url))
+                .map(|f| BlobDescriptor::from_upload(f, &settings.public_url))
                 .collect(),
         )),
         Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
