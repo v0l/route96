@@ -9,6 +9,7 @@ use crate::processing::probe::FFProbe;
 use crate::processing::webp::WebpProcessor;
 
 mod webp;
+#[cfg(feature = "labels")]
 pub mod labeling;
 mod probe;
 
@@ -50,7 +51,7 @@ pub fn compress_file(in_file: PathBuf, mime_type: &str) -> Result<FileProcessorR
     } else {
         None
     };
-    if let Some(mut proc) = proc {
+    if let Some(proc) = proc {
         proc.process_file(in_file, mime_type)
     } else {
         Ok(FileProcessorResult::Skip)
@@ -59,7 +60,7 @@ pub fn compress_file(in_file: PathBuf, mime_type: &str) -> Result<FileProcessorR
 
 pub fn probe_file(in_file: PathBuf) -> Result<FileProcessorResult, Error> {
     let proc = FFProbe::new();
-    proc.process_file(in_file, "")
+    proc.process_file(in_file)
 }
 
 unsafe fn resize_image(frame: *const AVFrame, width: usize, height: usize, pix_fmt: AVPixelFormat) -> Result<*mut AVFrame, Error> {

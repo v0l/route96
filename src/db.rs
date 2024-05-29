@@ -15,6 +15,7 @@ pub struct FileUpload {
     pub blur_hash: Option<String>,
 
     #[sqlx(skip)]
+    #[cfg(feature = "labels")]
     pub labels: Vec<FileLabel>,
 }
 
@@ -25,6 +26,7 @@ pub struct User {
     pub created: DateTime<Utc>,
 }
 
+#[cfg(feature = "labels")]
 #[derive(Clone, FromRow, Serialize)]
 pub struct FileLabel {
     pub file: Vec<u8>,
@@ -33,6 +35,7 @@ pub struct FileLabel {
     pub model: String,
 }
 
+#[cfg(feature = "labels")]
 impl FileLabel {
     pub fn new(label: String, model: String) -> Self {
         Self {
@@ -99,6 +102,7 @@ impl Database {
             .bind(user_id);
         tx.execute(q2).await?;
 
+        #[cfg(feature = "labels")]
         for lbl in &file.labels {
             let q3 = sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
                 .bind(&file.id)
@@ -124,6 +128,7 @@ impl Database {
             .await
     }
 
+    #[cfg(feature = "labels")]
     pub async fn get_file_labels(&self, file: &Vec<u8>) -> Result<Vec<FileLabel>, Error> {
         sqlx::query_as("select upload_labels.* from uploads, upload_labels where uploads.id = ? and uploads.id = upload_labels.file")
             .bind(file)

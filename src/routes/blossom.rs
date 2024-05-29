@@ -1,6 +1,5 @@
 use std::fs;
 
-use chrono::Utc;
 use log::error;
 use nostr::prelude::hex;
 use nostr::Tag;
@@ -13,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::blossom::BlossomAuth;
 use crate::blob::BlobDescriptor;
-use crate::db::{Database, FileUpload};
+use crate::db::{Database};
 use crate::filesystem::FileStore;
 use crate::routes::delete_file;
 use crate::settings::Settings;

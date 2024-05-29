@@ -130,6 +130,7 @@ impl Nip96UploadResult {
         if let (Some(w), Some(h)) = (upload.width, upload.height) {
             tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
         }
+        #[cfg(feature = "labels")]
         for l in &upload.labels {
             let val = if l.label.contains(',') {
                 let split_val: Vec<&str> = l.label.split(',').collect();

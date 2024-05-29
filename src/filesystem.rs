@@ -12,8 +12,11 @@ use sha2::{Digest, Sha256};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
-use crate::db::{FileLabel, FileUpload};
-use crate::processing::{compress_file, FileProcessorResult, probe_file, ProbeResult, ProbeStream};
+#[cfg(feature = "labels")]
+use crate::db::FileLabel;
+use crate::db::FileUpload;
+use crate::processing::{compress_file, FileProcessorResult, probe_file, ProbeStream};
+#[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 use crate::settings::Settings;
 
@@ -86,7 +89,7 @@ impl FileStore {
         if compress {
             let start = SystemTime::now();
             let proc_result = compress_file(tmp_path.clone(), mime_type)?;
-            if let FileProcessorResult::NewFile(mut new_temp) = proc_result {
+            if let FileProcessorResult::NewFile(new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
                 let time_compress = SystemTime::now().duration_since(start).unwrap();
@@ -99,6 +102,8 @@ impl FileStore {
                 )?;
                 let time_blur_hash = SystemTime::now().duration_since(start).unwrap();
                 let start = SystemTime::now();
+
+                #[cfg(feature = "labels")]
                 let labels = if let Some(mp) = &self.settings.vit_model_path {
                     label_frame(
                         new_temp.image.as_mut_slice(),
@@ -110,6 +115,7 @@ impl FileStore {
                 } else {
                     vec![]
                 };
+                
                 let time_labels = SystemTime::now().duration_since(start).unwrap();
 
                 // delete old temp
@@ -143,6 +149,7 @@ impl FileStore {
                         height: Some(new_temp.height as u32),
                         blur_hash: Some(blur_hash),
                         mime_type: new_temp.mime_type,
+                        #[cfg(feature = "labels")]
                         labels,
                         created: Utc::now(),
                     },

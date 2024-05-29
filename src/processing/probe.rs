@@ -16,7 +16,7 @@ impl FFProbe {
         Self {}
     }
 
-    pub fn process_file(mut self, in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error> {
+    pub fn process_file(self, in_file: PathBuf) -> Result<FileProcessorResult, Error> {
         unsafe {
             let mut dec_fmt: *mut AVFormatContext = ptr::null_mut();
             let ret = avformat_open_input(&mut dec_fmt,

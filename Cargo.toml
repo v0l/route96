@@ -5,6 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+labels = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
+
 [dependencies]
 log = "0.4.21"
 nostr = "0.30.0"
@@ -23,9 +26,10 @@ chrono = { version = "0.4.38", features = ["serde"] }
 ffmpeg-sys-the-third = { version = "1.1.1",features = ["default"] }
 libc = "0.2.153"
 blurhash = "0.2.1"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1" }
 ureq = { version = "2.9.7", features = ["json"] }
 url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true  }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true  }
+
