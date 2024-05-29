@@ -13,7 +13,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 
 use crate::db::{FileLabel, FileUpload};
-use crate::processing::{compress_file, FileProcessorResult};
+use crate::processing::{compress_file, FileProcessorResult, probe_file, ProbeResult, ProbeStream};
 use crate::processing::labeling::label_frame;
 use crate::settings::Settings;
 
@@ -148,7 +148,34 @@ impl FileStore {
                     },
                 });
             }
+        } else if let FileProcessorResult::Probe(p) = probe_file(tmp_path.clone())? {
+            let video_stream_size = p.streams.iter().find_map(|s| match s {
+                ProbeStream::Video { width, height, .. } => Some((width, height)),
+                _ => None
+            });
+            let n = file.metadata().await?.len();
+            let hash = FileStore::hash_file(&mut file).await?;
+            return Ok(FileSystemResult {
+                path: tmp_path,
+                upload: FileUpload {
+                    id: hash,
+                    name: "".to_string(),
+                    size: n,
+                    created: Utc::now(),
+                    mime_type: mime_type.to_string(),
+                    width: match video_stream_size {
+                        Some((w, _h)) => Some(*w),
+                        _ => None
+                    },
+                    height: match video_stream_size {
+                        Some((_w, h)) => Some(*h),
+                        _ => None
+                    },
+                    ..Default::default()
+                },
+            });
         }
+
         let n = file.metadata().await?.len();
         let hash = FileStore::hash_file(&mut file).await?;
         Ok(FileSystemResult {
@@ -158,6 +185,7 @@ impl FileStore {
                 name: "".to_string(),
                 size: n,
                 created: Utc::now(),
+                mime_type: mime_type.to_string(),
                 ..Default::default()
             },
         })

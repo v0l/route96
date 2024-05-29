@@ -4,6 +4,7 @@ use std::ptr;
 
 use anyhow::Error;
 use ffmpeg_sys_the_third::{av_frame_alloc, AVFrame, AVPixelFormat, sws_freeContext, sws_getContext, sws_scale_frame};
+use crate::processing::probe::FFProbe;
 
 use crate::processing::webp::WebpProcessor;
 
@@ -54,6 +55,11 @@ pub fn compress_file(in_file: PathBuf, mime_type: &str) -> Result<FileProcessorR
     } else {
         Ok(FileProcessorResult::Skip)
     }
+}
+
+pub fn probe_file(in_file: PathBuf) -> Result<FileProcessorResult, Error> {
+    let proc = FFProbe::new();
+    proc.process_file(in_file, "")
 }
 
 unsafe fn resize_image(frame: *const AVFrame, width: usize, height: usize, pix_fmt: AVPixelFormat) -> Result<*mut AVFrame, Error> {
