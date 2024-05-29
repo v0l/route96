@@ -13,7 +13,7 @@ RUN apt update && \
     nasm \
     libclang-dev && \
     rm -rf /var/lib/apt/lists/*
-RUN git clone --depth=1 https://git.ffmpeg.org/ffmpeg.git && \
+RUN git clone --depth=1 https://git.v0l.io/Kieran/FFmpeg.git && \
     cd ffmpeg && \
     ./configure \
     --prefix=$FFMPEG_DIR \
