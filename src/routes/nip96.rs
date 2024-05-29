@@ -117,6 +117,7 @@ struct Nip96Form<'r> {
     caption: Option<&'r str>,
     media_type: Option<&'r str>,
     content_type: Option<&'r str>,
+    no_transform: Option<bool>,
 }
 
 pub fn nip96_routes() -> Vec<Route> {
@@ -161,6 +162,9 @@ async fn upload(
             return Nip96Response::error("File too large");
         }
     }
+    if form.size > settings.max_upload_bytes {
+        return Nip96Response::error("File too large");
+    }
     let file = match form.file.open().await {
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),
@@ -175,7 +179,7 @@ async fn upload(
         }
     }
     match fs
-        .put(file, mime_type, true)
+        .put(file, mime_type, !form.no_transform.unwrap_or(false))
         .await
     {
         Ok(blob) => {
