@@ -87,7 +87,8 @@ impl Database {
 
     pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
-        let q = sqlx::query("insert ignore into uploads(id,name,size,mime_type,blur_hash,width,height) values(?,?,?,?,?,?,?)")
+        let q = sqlx::query("insert ignore into \
+        uploads(id,name,size,mime_type,blur_hash,width,height) values(?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -122,7 +123,9 @@ impl Database {
     }
 
     pub async fn get_file_owners(&self, file: &Vec<u8>) -> Result<Vec<User>, Error> {
-        sqlx::query_as("select users.* from users, user_uploads where user.id = user_uploads.user_id and user_uploads.file = ?")
+        sqlx::query_as("select users.* from users, user_uploads \
+        where users.id = user_uploads.user_id \
+        and user_uploads.file = ?")
             .bind(file)
             .fetch_all(&self.pool)
             .await
@@ -130,7 +133,8 @@ impl Database {
 
     #[cfg(feature = "labels")]
     pub async fn get_file_labels(&self, file: &Vec<u8>) -> Result<Vec<FileLabel>, Error> {
-        sqlx::query_as("select upload_labels.* from uploads, upload_labels where uploads.id = ? and uploads.id = upload_labels.file")
+        sqlx::query_as("select upload_labels.* from uploads, upload_labels \
+        where uploads.id = ? and uploads.id = upload_labels.file")
             .bind(file)
             .fetch_all(&self.pool)
             .await
