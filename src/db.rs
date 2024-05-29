@@ -94,13 +94,13 @@ impl Database {
             .bind(file.height);
         tx.execute(q).await?;
 
-        let q2 = sqlx::query("insert into user_uploads(file,user_id) values(?,?)")
+        let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
             .bind(&file.id)
             .bind(user_id);
         tx.execute(q2).await?;
 
         for lbl in &file.labels {
-            let q3 = sqlx::query("insert into upload_labels(file,label,model) values(?,?,?)")
+            let q3 = sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
                 .bind(&file.id)
                 .bind(&lbl.label)
                 .bind(&lbl.model);
