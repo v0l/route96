@@ -24,7 +24,8 @@ impl FFProbe {
                                           ptr::null_mut(),
                                           ptr::null_mut());
             if ret < 0 {
-                return Err(Error::msg("Failed to create input context"));
+                // input might not be media
+                return Ok(FileProcessorResult::Skip);
             }
 
             let ret = avformat_find_stream_info(dec_fmt, ptr::null_mut());
