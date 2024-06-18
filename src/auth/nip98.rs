@@ -1,6 +1,3 @@
-use std::ops::Sub;
-use std::time::Duration;
-
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use log::info;
@@ -41,9 +38,6 @@ impl<'r> FromRequest<'r> for Nip98Auth {
                         Status::new(401),
                         "Created timestamp is in the future",
                     ));
-                }
-                if event.created_at < Timestamp::now().sub(Duration::from_secs(60)) {
-                    return Outcome::Error((Status::new(401), "Created timestamp is too old"));
                 }
 
                 // check url tag

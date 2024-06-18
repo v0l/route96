@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
+use std::ops::Sub;
+use std::time::Duration;
 
 use log::error;
+use nostr::Timestamp;
 use rocket::{FromForm, Responder, Route, routes, State};
+use rocket::data::ToByteUnit;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::serde::json::Json;
@@ -123,6 +127,7 @@ impl Nip96UploadResult {
             ],
             vec!["x".to_string(), hex_id],
             vec!["m".to_string(), upload.mime_type.clone()],
+            vec!["size".to_string(), upload.size.to_string()],
         ];
         if let Some(bh) = &upload.blur_hash {
             tags.push(vec!["blurhash".to_string(), bh.clone()]);
@@ -231,7 +236,14 @@ async fn upload(
     if form.alt.is_some() {
         return Nip96Response::error("\"alt\" is not supported");
     }
-    
+
+    // account for upload speeds as slow as 1MB/s (8 Mbps)
+    let mbs = form.size / 1.megabytes().as_u64() as usize;
+    let max_time = 60.max(mbs) as u64;
+    if auth.event.created_at < Timestamp::now().sub(Duration::from_secs(max_time)) {
+        return Nip96Response::error("Auth event timestamp out of range");
+    }
+
     // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
