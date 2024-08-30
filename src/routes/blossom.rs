@@ -2,7 +2,7 @@ use std::fs;
 
 use log::error;
 use nostr::prelude::hex;
-use nostr::TagKind;
+use nostr::{Alphabet, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::http::Status;
 use rocket::response::Responder;
@@ -54,12 +54,16 @@ impl BlossomResponse {
 }
 
 fn check_method(event: &nostr::Event, method: &str) -> bool {
-    if let Some(t) = event.tags.iter().find_map(|t| if t.kind() == TagKind::Method {
-        t.content()
-    } else {
-        None
+    if let Some(t) = event.tags.iter().find_map(|t| {
+        if t.kind() == TagKind::Method
+            || t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::T))
+        {
+            t.content()
+        } else {
+            None
+        }
     }) {
-        return t == method;
+        return t.eq_ignore_ascii_case(method);
     }
     false
 }
@@ -90,24 +94,24 @@ async fn upload(
         return BlossomResponse::error("Invalid request method tag");
     }
 
-    let name = auth
-        .event
-        .tags
-        .iter()
-        .find_map(|t| if t.kind() == TagKind::Name { t.content() } else { None });
-    let size = match auth.event.tags.iter().find_map(|t| {
-        let values = t.as_vec();
-        if values.len() == 2 && values[0] == "size" {
-            Some(values[1].parse::<usize>().unwrap())
+    let name = auth.event.tags.iter().find_map(|t| {
+        if t.kind() == TagKind::Name {
+            t.content()
         } else {
             None
         }
-    }) {
-        Some(s) => s,
-        None => return BlossomResponse::error("Invalid request, no size tag"),
-    };
-    if size > settings.max_upload_bytes {
-        return BlossomResponse::error("File too large");
+    });
+    let size = auth.event.tags.iter().find_map(|t| {
+        if t.kind() == TagKind::Size {
+            t.content().and_then(|v| v.parse::<usize>().ok())
+        } else {
+            None
+        }
+    });
+    if let Some(z) = size {
+        if z > settings.max_upload_bytes {
+            return BlossomResponse::error("File too large");
+        }
     }
     let mime_type = auth
         .content_type

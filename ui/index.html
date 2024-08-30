@@ -66,36 +66,79 @@
                 const file = input.files[0];
                 console.debug(file);
 
-                const fd = new FormData();
-                fd.append("size", file.size.toString());
-                fd.append("caption", file.name);
-                fd.append("media_type", file.type);
-                fd.append("file", file);
-                fd.append("no_transform", document.querySelector("#no_transform").checked.toString())
-
-                const auth_event = await window.nostr.signEvent({
-                    kind: 27235,
-                    created_at: Math.floor(new Date().getTime() / 1000),
-                    content: "",
-                    tags: [
-                        ["u", `${window.location.protocol}//${window.location.host}/n96`],
-                        ["method", "POST"]
-                    ]
-                });
-                const rsp = await fetch("/n96", {
-                    body: fd,
-                    method: "POST",
-                    headers: {
-                        accept: "application/json",
-                        authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
-                    },
-                });
-                await dumpToLog(rsp);
+                const r_nip96 = document.querySelector("#method-nip96").checked;
+                const r_blossom = document.querySelector("#method-blossom").checked;
+                if (r_nip96) {
+                    await uploadFilesNip96(file)
+                } else if (r_blossom) {
+                    await uploadBlossom(file);
+                }
             } catch (ex) {
                 if (ex instanceof Error) {
                     alert(ex.message);
                 }
             }
+        }
+
+        function buf2hex(buffer) { // buffer is an ArrayBuffer
+            return [...new Uint8Array(buffer)]
+                .map(x => x.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        async function uploadBlossom(file) {
+            const hash = await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+
+            const now = Math.floor(new Date().getTime() / 1000);
+            const auth_event = await window.nostr.signEvent({
+                kind: 24242,
+                created_at: now,
+                content: `Upload ${file.name}`,
+                tags: [
+                    ["t", "upload"],
+                    ["u", `${window.location.protocol}//${window.location.host}/upload`],
+                    ["x", buf2hex(hash)],
+                    ["method", "PUT"],
+                    ["expiration", (now + 10).toString()]
+                ]
+            });
+            const rsp = await fetch("/upload", {
+                body: file,
+                method: "PUT",
+                headers: {
+                    accept: "application/json",
+                    authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
+                },
+            });
+            await dumpToLog(rsp);
+        }
+
+        async function uploadFilesNip96(file) {
+            const fd = new FormData();
+            fd.append("size", file.size.toString());
+            fd.append("caption", file.name);
+            fd.append("media_type", file.type);
+            fd.append("file", file);
+            fd.append("no_transform", document.querySelector("#no_transform").checked.toString())
+
+            const auth_event = await window.nostr.signEvent({
+                kind: 27235,
+                created_at: Math.floor(new Date().getTime() / 1000),
+                content: "",
+                tags: [
+                    ["u", `${window.location.protocol}//${window.location.host}/n96`],
+                    ["method", "POST"]
+                ]
+            });
+            const rsp = await fetch("/n96", {
+                body: fd,
+                method: "POST",
+                headers: {
+                    accept: "application/json",
+                    authorization: `Nostr ${btoa(JSON.stringify(auth_event))}`,
+                },
+            });
+            await dumpToLog(rsp);
         }
     </script>
 </head>
@@ -105,7 +148,14 @@
 </h1>
 <div class="flex flex-col gap-2">
     <div>
-        Upload a file using NIP-96
+        <label>
+            NIP-96
+            <input type="radio" name="method" id="method-nip96"/>
+        </label>
+        <label>
+            Blossom
+            <input type="radio" name="method" id="method-blossom"/>
+        </label>
     </div>
     <div style="color: #ff8383;">
         You must have a nostr extension for this to work
