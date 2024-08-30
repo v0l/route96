@@ -2,7 +2,7 @@ use std::fs;
 
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Tag, TagKind};
+use nostr::TagKind;
 use rocket::data::ByteUnit;
 use rocket::http::Status;
 use rocket::response::Responder;

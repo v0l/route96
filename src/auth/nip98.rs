@@ -20,7 +20,7 @@ impl<'r> FromRequest<'r> for Nip98Auth {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         return if let Some(auth) = request.headers().get_one("authorization") {
             if auth.starts_with("Nostr ") {
-                let event = if let Ok(j) = BASE64_STANDARD.decode(auth[6..].to_string()) {
+                let event = if let Ok(j) = BASE64_STANDARD.decode(&auth[6..]) {
                     if let Ok(ev) = Event::from_json(j) {
                         ev
                     } else {

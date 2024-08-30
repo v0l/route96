@@ -50,7 +50,7 @@ impl WebpProcessor {
         av_packet_rescale_ts(pkt, (*in_stream).time_base, (*out_stream).time_base);
 
         let dec_ctx = self.decoders.get_mut(&idx).expect("Missing decoder config");
-        let enc_ctx = self.encoders.get_mut(&out_idx).expect("Missing encoder config");
+        let enc_ctx = self.encoders.get_mut(out_idx).expect("Missing encoder config");
 
         let ret = avcodec_send_packet(*dec_ctx, pkt);
         if ret < 0 {
@@ -67,7 +67,7 @@ impl WebpProcessor {
                 return Err(Error::msg("Frame read error"));
             }
 
-            let frame_out = match self.scalers.get_mut(&out_idx) {
+            let frame_out = match self.scalers.get_mut(out_idx) {
                 Some(sws) => {
                     av_frame_copy_props(frame_out, frame);
                     let ret = sws_scale_frame(*sws, frame_out, frame);

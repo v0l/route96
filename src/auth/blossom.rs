@@ -1,6 +1,6 @@
 use base64::prelude::*;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, Tag, TagKind, Timestamp};
+use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
 use rocket::{async_trait, Request};
@@ -17,7 +17,7 @@ impl<'r> FromRequest<'r> for BlossomAuth {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         if let Some(auth) = request.headers().get_one("authorization") {
             if auth.starts_with("Nostr ") {
-                let event = if let Ok(j) = BASE64_STANDARD.decode(auth[6..].to_string()) {
+                let event = if let Ok(j) = BASE64_STANDARD.decode(&auth[6..]) {
                     if let Ok(ev) = Event::from_json(j) {
                         ev
                     } else {
@@ -51,7 +51,7 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     return Outcome::Error((Status::new(401), "Missing expiration tag"));
                 }
 
-                if let Err(_) = event.verify() {
+                if event.verify().is_err() {
                     return Outcome::Error((Status::new(401), "Event signature invalid"));
                 }
 
