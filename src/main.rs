@@ -20,9 +20,10 @@ mod blob;
 mod cors;
 mod db;
 mod filesystem;
+#[cfg(feature = "nip96")]
+mod processing;
 mod routes;
 mod settings;
-mod processing;
 mod webhook;
 
 #[rocket::main]
@@ -44,7 +45,7 @@ async fn main() -> Result<(), Error> {
     let mut config = rocket::Config::default();
     let ip: SocketAddr = match &settings.listen {
         Some(i) => i.parse().unwrap(),
-        None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000)
+        None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000),
     };
     config.address = ip.ip();
     config.port = ip.port();
@@ -56,20 +57,27 @@ async fn main() -> Result<(), Error> {
         .limit("form", upload_limit);
     config.ident = Ident::try_new("void-cat-rs").unwrap();
 
-    let rocket = rocket::Rocket::custom(config)
+    let mut rocket = rocket::Rocket::custom(config)
         .manage(FileStore::new(settings.clone()))
         .manage(settings.clone())
         .manage(db.clone())
-        .manage(settings.webhook_url.as_ref().map(|w| Webhook::new(w.clone())))
+        .manage(
+            settings
+                .webhook_url
+                .as_ref()
+                .map(|w| Webhook::new(w.clone())),
+        )
         .attach(CORS)
         .attach(Shield::new()) // disable
-        .mount("/", routes::blossom_routes())
-        .mount("/", routes::nip96_routes())
-        .mount("/", routes![root, get_blob, head_blob])
-        .launch()
-        .await;
+        .mount("/", routes![root, get_blob, head_blob]);
 
-    if let Err(e) = rocket {
+    #[cfg(feature = "blossom")] {
+        rocket = rocket.mount("/", routes::blossom_routes());
+    }
+    #[cfg(feature = "nip96")] {
+        rocket = rocket.mount("/", routes::nip96_routes());
+    }
+    if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
         Err(Error::from(e))
     } else {

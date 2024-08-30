@@ -2,17 +2,17 @@ use std::fs;
 
 use log::error;
 use nostr::prelude::hex;
-use nostr::Tag;
-use rocket::{Data, Route, routes, State};
+use nostr::{Tag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::http::Status;
 use rocket::response::Responder;
 use rocket::serde::json::Json;
+use rocket::{routes, Data, Route, State};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::blossom::BlossomAuth;
 use crate::blob::BlobDescriptor;
-use crate::db::{Database};
+use crate::db::Database;
 use crate::filesystem::FileStore;
 use crate::routes::delete_file;
 use crate::settings::Settings;
@@ -54,9 +54,10 @@ impl BlossomResponse {
 }
 
 fn check_method(event: &nostr::Event, method: &str) -> bool {
-    if let Some(t) = event.tags.iter().find_map(|t| match t {
-        Tag::Hashtag(tag) => Some(tag),
-        _ => None,
+    if let Some(t) = event.tags.iter().find_map(|t| if t.kind() == TagKind::Method {
+        t.content()
+    } else {
+        None
     }) {
         return t == method;
     }
@@ -89,10 +90,11 @@ async fn upload(
         return BlossomResponse::error("Invalid request method tag");
     }
 
-    let name = auth.event.tags.iter().find_map(|t| match t {
-        Tag::Name(s) => Some(s.clone()),
-        _ => None,
-    });
+    let name = auth
+        .event
+        .tags
+        .iter()
+        .find_map(|t| if t.kind() == TagKind::Name { t.content() } else { None });
     let size = match auth.event.tags.iter().find_map(|t| {
         let values = t.as_vec();
         if values.len() == 2 && values[0] == "size" {
@@ -102,7 +104,7 @@ async fn upload(
         }
     }) {
         Some(s) => s,
-        None => return BlossomResponse::error("Invalid request, no size tag")
+        None => return BlossomResponse::error("Invalid request, no size tag"),
     };
     if size > settings.max_upload_bytes {
         return BlossomResponse::error("File too large");
@@ -118,22 +120,31 @@ async fn upload(
         }
     }
     match fs
-        .put(data.open(ByteUnit::from(settings.max_upload_bytes)), &mime_type, false)
+        .put(
+            data.open(ByteUnit::from(settings.max_upload_bytes)),
+            &mime_type,
+            false,
+        )
         .await
     {
         Ok(mut blob) => {
-            blob.upload.name = name.unwrap_or("".to_string());
+            blob.upload.name = name.unwrap_or("").to_owned();
 
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()) {
-                    Ok(store) => if !store {
-                        let _ = fs::remove_file(blob.path);
-                        return BlossomResponse::error("Upload rejected");
+                    Ok(store) => {
+                        if !store {
+                            let _ = fs::remove_file(blob.path);
+                            return BlossomResponse::error("Upload rejected");
+                        }
                     }
                     Err(e) => {
                         let _ = fs::remove_file(blob.path);
-                        return BlossomResponse::error(format!("Internal error, failed to call webhook: {}", e));
+                        return BlossomResponse::error(format!(
+                            "Internal error, failed to call webhook: {}",
+                            e
+                        ));
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use base64::prelude::*;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, Tag, Timestamp};
+use nostr::{Event, JsonUtil, Kind, Tag, TagKind, Timestamp};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
 use rocket::{async_trait, Request};
@@ -15,7 +15,7 @@ impl<'r> FromRequest<'r> for BlossomAuth {
     type Error = &'static str;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        return if let Some(auth) = request.headers().get_one("authorization") {
+        if let Some(auth) = request.headers().get_one("authorization") {
             if auth.starts_with("Nostr ") {
                 let event = if let Ok(j) = BASE64_STANDARD.decode(auth[6..].to_string()) {
                     if let Ok(ev) = Event::from_json(j) {
@@ -38,11 +38,13 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 }
 
                 // check expiration tag
-                if let Some(expiration) = event.tags.iter().find_map(|t| match t {
-                    Tag::Expiration(v) => Some(v),
-                    _ => None,
+                if let Some(expiration) = event.tags.iter().find_map(|t| if t.kind() == TagKind::Expiration {
+                    t.content()
+                } else {
+                    None
                 }) {
-                    if *expiration <= Timestamp::now() {
+                    let u_exp: Timestamp = expiration.parse().unwrap();
+                    if u_exp <= Timestamp::now() {
                         return Outcome::Error((Status::new(401), "Expiration invalid"));
                     }
                 } else {
@@ -69,6 +71,6 @@ impl<'r> FromRequest<'r> for BlossomAuth {
             }
         } else {
             Outcome::Error((Status::new(403), "Auth header not found"))
-        };
+        }
     }
 }

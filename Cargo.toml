@@ -1,35 +1,38 @@
 [package]
 name = "void_cat"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-labels = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
+default = ["nip96", "blossom"]
+labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
+nip96 = ["dep:ffmpeg-sys-the-third", "dep:blurhash", "dep:libc"]
+blossom = []
 
 [dependencies]
 log = "0.4.21"
-nostr = "0.30.0"
+nostr = "0.34.1"
 pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.0", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
-base64 = "0.21.7"
+base64 = "0.22.1"
 hex = "0.4.3"
 serde = { version = "1.0.198", features = ["derive"] }
 uuid = { version = "1.8.0", features = ["v4"] }
 anyhow = "1.0.82"
 sha2 = "0.10.8"
-sqlx = { version = "0.7.4", features = ["mysql", "runtime-tokio", "chrono"] }
+sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono"] }
 config = { version = "0.14.0", features = ["toml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
-ffmpeg-sys-the-third = { version = "1.1.1",features = ["default"] }
-libc = "0.2.153"
-blurhash = "0.2.1"
+ffmpeg-sys-the-third = { version = "1.1.1", features = ["default"], optional = true }
+libc = { version = "0.2.153", optional = true }
+blurhash = { version = "0.2.1", optional = true }
 ureq = { version = "2.9.7", features = ["json"] }
 url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true  }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.5.1", optional = true  }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
 

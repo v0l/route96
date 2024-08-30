@@ -15,6 +15,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
 use crate::db::FileUpload;
+#[cfg(feature = "nip96")]
 use crate::processing::{compress_file, FileProcessorResult, probe_file, ProbeStream};
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
@@ -86,6 +87,7 @@ impl FileStore {
 
         info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
 
+        #[cfg(feature = "nip96")]
         if compress {
             let start = SystemTime::now();
             let proc_result = compress_file(tmp_path.clone(), mime_type)?;

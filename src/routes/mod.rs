@@ -11,10 +11,14 @@ use rocket::response::Responder;
 
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
+#[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
+#[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 
+#[cfg(feature = "blossom")]
 mod blossom;
+#[cfg(feature = "nip96")]
 mod nip96;
 
 pub struct FilePayload {
