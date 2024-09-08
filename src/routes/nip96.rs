@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use log::error;
 use nostr::Timestamp;
-use rocket::{FromForm, Responder, Route, routes, State};
 use rocket::data::ToByteUnit;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
+use rocket::{routes, FromForm, Responder, Route, State};
 
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload};
@@ -227,14 +227,10 @@ async fn upload(
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),
     };
-    let mime_type = form.media_type
-        .unwrap_or("application/octet-stream");
+    let mime_type = form.media_type.unwrap_or("application/octet-stream");
 
     if form.expiration.is_some() {
         return Nip96Response::error("Expiration not supported");
-    }
-    if form.alt.is_some() {
-        return Nip96Response::error("\"alt\" is not supported");
     }
 
     // account for upload speeds as slow as 1MB/s (8 Mbps)
@@ -259,16 +255,25 @@ async fn upload(
                 Some(c) => c.to_string(),
                 None => "".to_string(),
             };
+            blob.upload.alt = match &form.alt {
+                Some(s) => Some(s.to_string()),
+                None => None,
+            };
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()) {
-                    Ok(store) => if !store {
-                        let _ = fs::remove_file(blob.path);
-                        return Nip96Response::error("Upload rejected");
+                    Ok(store) => {
+                        if !store {
+                            let _ = fs::remove_file(blob.path);
+                            return Nip96Response::error("Upload rejected");
+                        }
                     }
                     Err(e) => {
                         let _ = fs::remove_file(blob.path);
-                        return Nip96Response::error(&format!("Internal error, failed to call webhook: {}", e));
+                        return Nip96Response::error(&format!(
+                            "Internal error, failed to call webhook: {}",
+                            e
+                        ));
                     }
                 }
             }
@@ -290,7 +295,10 @@ async fn upload(
                 return Nip96Response::error(&format!("Could not save file (db): {}", e));
             }
 
-            Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(settings, &blob.upload)))
+            Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
+                settings,
+                &blob.upload,
+            )))
         }
         Err(e) => {
             error!("{}", e.to_string());
@@ -312,7 +320,6 @@ async fn delete(
     }
 }
 
-
 #[rocket::get("/n96?<page>&<count>")]
 async fn list_files(
     auth: Nip98Auth,
@@ -323,17 +330,23 @@ async fn list_files(
 ) -> Nip96Response {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = count.min(5_000).max(1);
-    match db.list_files(&pubkey_vec, page * server_count, server_count).await {
+    match db
+        .list_files(&pubkey_vec, page * server_count, server_count)
+        .await
+    {
         Ok((files, total)) => Nip96Response::FileList(Json(Nip96FileListResults {
             count: server_count,
             page,
             total: total as u32,
             files: files
                 .iter()
-                .map(|f| Nip96UploadResult::from_upload(settings, f).nip94_event.unwrap())
+                .map(|f| {
+                    Nip96UploadResult::from_upload(settings, f)
+                        .nip94_event
+                        .unwrap()
+                })
                 .collect(),
-        }
-        )),
+        })),
         Err(e) => Nip96Response::error(&format!("Could not list files: {}", e)),
     }
 }

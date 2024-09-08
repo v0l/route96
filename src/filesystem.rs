@@ -154,6 +154,7 @@ impl FileStore {
                         #[cfg(feature = "labels")]
                         labels,
                         created: Utc::now(),
+                        ..Default::default()
                     },
                 });
             }

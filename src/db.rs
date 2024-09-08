@@ -13,6 +13,7 @@ pub struct FileUpload {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub blur_hash: Option<String>,
+    pub alt: Option<String>,
 
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
@@ -88,14 +89,15 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height) values(?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt) values(?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
             .bind(&file.mime_type)
             .bind(&file.blur_hash)
             .bind(file.width)
-            .bind(file.height);
+            .bind(file.height)
+            .bind(&file.alt);
         tx.execute(q).await?;
 
         let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
