@@ -180,7 +180,7 @@ impl WebpProcessor {
             AVMEDIA_TYPE_AUDIO => {
                 (*encoder_ctx).sample_rate = (*(*in_stream).codecpar).sample_rate;
                 (*encoder_ctx).sample_fmt = transmute((*(*in_stream).codecpar).format);
-                (*encoder_ctx).ch_layout = (*(*in_stream).codecpar).ch_layout;
+                (*encoder_ctx).ch_layout = (*(*in_stream).codecpar).ch_layout.clone();
                 (*encoder_ctx).time_base = (*in_stream).time_base;
                 (*stream).time_base = (*encoder_ctx).time_base;
             }

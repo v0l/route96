@@ -2,19 +2,20 @@ use std::fs;
 use std::fs::File;
 use std::str::FromStr;
 
-use anyhow::Error;
-use nostr::Event;
-use rocket::{Request, State};
-use rocket::fs::NamedFile;
-use rocket::http::{ContentType, Header, Status};
-use rocket::response::Responder;
-
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
+use crate::settings::Settings;
+use anyhow::Error;
+use nostr::Event;
+use rocket::fs::NamedFile;
+use rocket::http::{ContentType, Header, Status};
+use rocket::response::Responder;
+use rocket::serde::Serialize;
+use rocket::{Request, State};
 
 #[cfg(feature = "blossom")]
 mod blossom;
@@ -24,6 +25,51 @@ mod nip96;
 pub struct FilePayload {
     pub file: File,
     pub info: FileUpload,
+}
+
+#[derive(Clone, Debug, Serialize, Default)]
+#[serde(crate = "rocket::serde")]
+struct Nip94Event {
+    pub created_at: i64,
+    pub content: String,
+    pub tags: Vec<Vec<String>>,
+}
+
+impl Nip94Event {
+    pub fn from_upload(settings: &Settings, upload: &FileUpload) -> Self {
+        let hex_id = hex::encode(&upload.id);
+        let mut tags = vec![
+            vec![
+                "url".to_string(),
+                format!("{}/{}", &settings.public_url, &hex_id),
+            ],
+            vec!["x".to_string(), hex_id],
+            vec!["m".to_string(), upload.mime_type.clone()],
+            vec!["size".to_string(), upload.size.to_string()],
+        ];
+        if let Some(bh) = &upload.blur_hash {
+            tags.push(vec!["blurhash".to_string(), bh.clone()]);
+        }
+        if let (Some(w), Some(h)) = (upload.width, upload.height) {
+            tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
+        }
+        #[cfg(feature = "labels")]
+        for l in &upload.labels {
+            let val = if l.label.contains(',') {
+                let split_val: Vec<&str> = l.label.split(',').collect();
+                split_val[0].to_string()
+            } else {
+                l.label.clone()
+            };
+            tags.push(vec!["t".to_string(), val])
+        }
+
+        Self {
+            content: upload.name.clone(),
+            created_at: upload.created.timestamp(),
+            tags,
+        }
+    }
 }
 
 impl<'r> Responder<'r, 'static> for FilePayload {

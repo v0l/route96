@@ -2,7 +2,7 @@
 listen = "0.0.0.0:8000"
 
 # Database connection string (MYSQL)
-database = "mysql://root:root@db:3306/void_cat"
+database = "mysql://root:root@db:3306/route96"
 
 # Directory to store uploads
 storage_dir = "/app/data"

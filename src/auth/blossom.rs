@@ -7,6 +7,9 @@ use rocket::{async_trait, Request};
 
 pub struct BlossomAuth {
     pub content_type: Option<String>,
+    pub x_content_type: Option<String>,
+    pub x_sha_256: Option<String>,
+    pub x_content_length: Option<u64>,
     pub event: Event,
 }
 
@@ -60,6 +63,27 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     event,
                     content_type: request.headers().iter().find_map(|h| {
                         if h.name == "content-type" {
+                            Some(h.value.to_string())
+                        } else {
+                            None
+                        }
+                    }),
+                    x_sha_256: request.headers().iter().find_map(|h| {
+                        if h.name == "x-sha-256" {
+                            Some(h.value.to_string())
+                        } else {
+                            None
+                        }
+                    }),
+                    x_content_length: request.headers().iter().find_map(|h| {
+                        if h.name == "x-content-length" {
+                            Some(h.value.parse().unwrap())
+                        } else {
+                            None
+                        }
+                    }),
+                    x_content_type: request.headers().iter().find_map(|h| {
+                        if h.name == "x-content-type" {
                             Some(h.value.to_string())
                         } else {
                             None

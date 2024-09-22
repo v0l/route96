@@ -5,7 +5,7 @@ services:
     image: mariadb
     environment:
       - "MARIADB_ROOT_PASSWORD=root"
-      - "MARIADB_DATABASE=void_cat"
+      - "MARIADB_DATABASE=route96"
     ports:
       - "3366:3306"
     volumes:

@@ -15,7 +15,7 @@ use rocket::{routes, FromForm, Responder, Route, State};
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
-use crate::routes::delete_file;
+use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
 
@@ -46,7 +46,7 @@ struct Nip96Plan {
     /// landing page for this plan
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    pub max_byte_size: usize,
+    pub max_byte_size: u64,
     /// Range in days / 0 for no expiration
     /// [7, 0] means it may vary from 7 days to unlimited persistence,
     /// [0, 0] means it has no expiration
@@ -119,58 +119,19 @@ struct Nip96UploadResult {
 
 impl Nip96UploadResult {
     pub fn from_upload(settings: &Settings, upload: &FileUpload) -> Self {
-        let hex_id = hex::encode(&upload.id);
-        let mut tags = vec![
-            vec![
-                "url".to_string(),
-                format!("{}/{}", &settings.public_url, &hex_id),
-            ],
-            vec!["x".to_string(), hex_id],
-            vec!["m".to_string(), upload.mime_type.clone()],
-            vec!["size".to_string(), upload.size.to_string()],
-        ];
-        if let Some(bh) = &upload.blur_hash {
-            tags.push(vec!["blurhash".to_string(), bh.clone()]);
-        }
-        if let (Some(w), Some(h)) = (upload.width, upload.height) {
-            tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
-        }
-        #[cfg(feature = "labels")]
-        for l in &upload.labels {
-            let val = if l.label.contains(',') {
-                let split_val: Vec<&str> = l.label.split(',').collect();
-                split_val[0].to_string()
-            } else {
-                l.label.clone()
-            };
-            tags.push(vec!["t".to_string(), val])
-        }
-
         Self {
             status: "success".to_string(),
-            nip94_event: Some(Nip94Event {
-                content: upload.name.clone(),
-                created_at: upload.created.timestamp(),
-                tags,
-            }),
+            nip94_event: Some(Nip94Event::from_upload(settings, upload)),
             ..Default::default()
         }
     }
-}
-
-#[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
-struct Nip94Event {
-    pub created_at: i64,
-    pub content: String,
-    pub tags: Vec<Vec<String>>,
 }
 
 #[derive(FromForm)]
 struct Nip96Form<'r> {
     file: TempFile<'r>,
     expiration: Option<usize>,
-    size: usize,
+    size: u64,
     alt: Option<&'r str>,
     caption: Option<&'r str>,
     media_type: Option<&'r str>,
@@ -234,7 +195,7 @@ async fn upload(
     }
 
     // account for upload speeds as slow as 1MB/s (8 Mbps)
-    let mbs = form.size / 1.megabytes().as_u64() as usize;
+    let mbs = form.size / 1.megabytes().as_u64();
     let max_time = 60.max(mbs) as u64;
     if auth.event.created_at < Timestamp::now().sub(Duration::from_secs(max_time)) {
         return Nip96Response::error("Auth event timestamp out of range");

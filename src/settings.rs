@@ -13,7 +13,7 @@ pub struct Settings {
     pub database: String,
 
     /// Maximum support filesize for uploading
-    pub max_upload_bytes: usize,
+    pub max_upload_bytes: u64,
 
     /// Public facing url
     pub public_url: String,

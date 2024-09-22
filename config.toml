@@ -2,7 +2,7 @@
 listen = "127.0.0.1:8000"
 
 # Database connection string (MYSQL)
-database = "mysql://root:root@localhost:3366/void_cat"
+database = "mysql://root:root@localhost:3366/route96"
 
 # Directory to store uploads
 storage_dir = "./data"
@@ -20,4 +20,4 @@ public_url = "http://localhost:8000"
 # vit_model_path = "model.safetennsors"
 
 # Webhook api endpoint
-webhook_url = "https://api.snort.social/api/v1/media/webhook"
+# webhook_url = "https://api.snort.social/api/v1/media/webhook"

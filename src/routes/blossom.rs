@@ -4,19 +4,46 @@ use log::error;
 use nostr::prelude::hex;
 use nostr::{Alphabet, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
-use rocket::http::Status;
+use rocket::http::{Header, Status};
 use rocket::response::Responder;
 use rocket::serde::json::Json;
-use rocket::{routes, Data, Route, State};
+use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::blossom::BlossomAuth;
-use crate::blob::BlobDescriptor;
-use crate::db::Database;
+use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
-use crate::routes::delete_file;
+use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
+
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct BlobDescriptor {
+    pub url: String,
+    pub sha256: String,
+    pub size: u64,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    pub created: u64,
+    #[serde(rename = "nip94", skip_serializing_if = "Option::is_none")]
+    pub nip94: Option<Nip94Event>,
+}
+
+impl BlobDescriptor {
+    pub fn from_upload(settings: &Settings, value: &FileUpload) -> Self {
+        let id_hex = hex::encode(&value.id);
+        Self {
+            url: format!("{}/{}", settings.public_url, &id_hex),
+            sha256: id_hex,
+            size: value.size,
+            mime_type: Some(value.mime_type.clone()),
+            created: value.created.timestamp() as u64,
+            nip94: Some(Nip94Event::from_upload(settings, value)),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct BlossomError {
@@ -24,7 +51,7 @@ struct BlossomError {
 }
 
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files]
+    routes![delete_blob, upload, list_files, upload_head]
 }
 
 impl BlossomError {
@@ -50,6 +77,26 @@ enum BlossomResponse {
 impl BlossomResponse {
     pub fn error(msg: impl Into<String>) -> Self {
         Self::GenericError(Json(BlossomError::new(msg.into())))
+    }
+}
+
+struct BlossomHead {
+    pub msg: Option<&'static str>,
+}
+
+impl<'r> Responder<'r, 'static> for BlossomHead {
+    fn respond_to(self, _request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let mut response = Response::new();
+        match self.msg {
+            Some(m) => {
+                response.set_status(Status::InternalServerError);
+                response.set_header(Header::new("x-upload-message", m));
+            }
+            None => {
+                response.set_status(Status::Ok);
+            }
+        }
+        Ok(response)
     }
 }
 
@@ -103,7 +150,7 @@ async fn upload(
     });
     let size = auth.event.tags.iter().find_map(|t| {
         if t.kind() == TagKind::Size {
-            t.content().and_then(|v| v.parse::<usize>().ok())
+            t.content().and_then(|v| v.parse::<u64>().ok())
         } else {
             None
         }
@@ -171,8 +218,8 @@ async fn upload(
                 BlossomResponse::error(format!("Error saving file (db): {}", e))
             } else {
                 BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
-                    &blob.upload,
-                    &settings.public_url,
+                    &settings,
+                    &blob.upload
                 )))
             }
         }
@@ -198,9 +245,58 @@ async fn list_files(
         Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(f, &settings.public_url))
+                .map(|f| BlobDescriptor::from_upload(&settings, f))
                 .collect(),
         )),
         Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
+    }
+}
+
+#[rocket::head("/upload")]
+async fn upload_head(
+    auth: BlossomAuth,
+    settings: &State<Settings>,
+) -> BlossomHead {
+    if !check_method(&auth.event, "upload") {
+        return BlossomHead {
+            msg: Some("Invalid auth method tag")
+        };
+    }
+
+    if let Some(z) = auth.x_content_length {
+        if z > settings.max_upload_bytes {
+            return BlossomHead {
+                msg: Some("File too large")
+            };
+        }
+    } else {
+        return BlossomHead {
+            msg: Some("Missing x-content-length header")
+        };
+    }
+
+    if let None = auth.x_sha_256 {
+        return BlossomHead {
+            msg: Some("Missing x-sha-256 header")
+        };
+    }
+
+    if let None = auth.x_content_type {
+        return BlossomHead {
+            msg: Some("Missing x-content-type header")
+        };
+    }
+
+    // check whitelist
+    if let Some(wl) = &settings.whitelist {
+        if !wl.contains(&auth.event.pubkey.to_hex()) {
+            return BlossomHead {
+                msg: Some("Not on whitelist")
+            };
+        }
+    }
+
+    BlossomHead {
+        msg: None
     }
 }

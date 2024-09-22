@@ -1,9 +1,7 @@
 [package]
-name = "void_cat"
-version = "0.1.1"
+name = "route96"
+version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 default = ["nip96", "blossom"]
@@ -26,12 +24,13 @@ sha2 = "0.10.8"
 sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono"] }
 config = { version = "0.14.0", features = ["toml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
-ffmpeg-sys-the-third = { version = "1.1.1", features = ["default"], optional = true }
-libc = { version = "0.2.153", optional = true }
-blurhash = { version = "0.2.1", optional = true }
-ureq = { version = "2.9.7", features = ["json"] }
 url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }
+ureq = { version = "2.9.7", features = ["json"] }
+
+libc = { version = "0.2.153", optional = true }
+blurhash = { version = "0.2.1", optional = true }
+ffmpeg-sys-the-third = { version = "2.0.0+ffmpeg-7.0", features = ["default"], optional = true }
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }

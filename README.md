@@ -1,10 +1,13 @@
-# void-cat-rs
+# route96
 
 Image hosting service
 
 ## Features
 - [NIP-96 Support](https://github.com/nostr-protocol/nips/blob/master/96.md)
 - [Blossom Support](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
+  - [BUD-01](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
+  - [BUD-02](https://github.com/hzrd149/blossom/blob/master/buds/02.md)
+  - [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md)
 - Image compression to WebP (FFMPEG, NIP-96 only)
 - Blurhash calculation (NIP-96 only)
 - AI image labeling ([ViT224](https://huggingface.co/google/vit-base-patch16-224))
@@ -15,7 +18,7 @@ Image hosting service
 ## Running
 
 ### Docker Compose
-The easiest way to run `void-cat-rs` is to use `docker compose`
+The easiest way to run `route96` is to use `docker compose`
 
 ```bash
 docker compose -f docker-compose.prod.yml up
@@ -27,7 +30,7 @@ docker run --rm -it \
   -p 8000:8000 \
   -v ./config.toml:/app/config.toml \
   -e "RUST_LOG=info" \
-  voidic/void-cat-rs
+  voidic/route96
 ```
 
 ## Building

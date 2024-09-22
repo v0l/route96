@@ -38,4 +38,4 @@ RUN apt update && \
 COPY --from=build /app/build .
 COPY --from=build /app/src/ui ui
 COPY --from=build /app/ffmpeg/lib/ /lib
-ENTRYPOINT ["./bin/void_cat"]
+ENTRYPOINT ["./bin/route96"]

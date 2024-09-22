@@ -9,7 +9,7 @@ use rocket::request::{FromRequest, Outcome};
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
-    pub content_length: Option<usize>,
+    pub content_length: Option<u64>,
     pub event: Event,
 }
 

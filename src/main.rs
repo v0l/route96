@@ -16,7 +16,6 @@ use crate::settings::Settings;
 use crate::webhook::Webhook;
 
 mod auth;
-mod blob;
 mod cors;
 mod db;
 mod filesystem;
@@ -55,7 +54,7 @@ async fn main() -> Result<(), Error> {
         .limit("file", upload_limit)
         .limit("data-form", upload_limit)
         .limit("form", upload_limit);
-    config.ident = Ident::try_new("void-cat-rs").unwrap();
+    config.ident = Ident::try_new("route96").unwrap();
 
     let mut rocket = rocket::Rocket::custom(config)
         .manage(FileStore::new(settings.clone()))

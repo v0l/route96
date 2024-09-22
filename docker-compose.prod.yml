@@ -6,11 +6,11 @@ services:
     image: mariadb
     environment:
       - "MARIADB_ROOT_PASSWORD=root"
-      - "MARIADB_DATABASE=void_cat"
+      - "MARIADB_DATABASE=route96"
     volumes:
       - "db:/var/lib/mysql"
   app:
-    image: voidic/void-cat-rs
+    image: voidic/route96
     #build: .
     environment:
       - "RUST_LOG=info"
