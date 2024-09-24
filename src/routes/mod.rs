@@ -134,7 +134,11 @@ async fn delete_file(
 
 #[rocket::get("/")]
 pub async fn root() -> Result<NamedFile, Status> {
-    if let Ok(f) = NamedFile::open("./ui/index.html").await {
+    #[cfg(debug_assertions)]
+    let index = "./ui_src/dist/index.html";
+    #[cfg(not(debug_assertions))]
+    let index = "./ui/index.html";
+    if let Ok(f) = NamedFile::open(index).await {
         Ok(f)
     } else {
         Err(Status::InternalServerError)

@@ -102,8 +102,7 @@ impl<'r> Responder<'r, 'static> for BlossomHead {
 
 fn check_method(event: &nostr::Event, method: &str) -> bool {
     if let Some(t) = event.tags.iter().find_map(|t| {
-        if t.kind() == TagKind::Method
-            || t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::T))
+        if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::T))
         {
             t.content()
         } else {
