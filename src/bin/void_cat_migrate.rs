@@ -1,3 +1,4 @@
+use std::fs;
 use anyhow::Error;
 use chrono::{DateTime, Utc};
 use clap::Parser;
@@ -77,6 +78,8 @@ async fn migrate_file(
             src_path.to_str().unwrap(),
             dst_path.to_str().unwrap()
         );
+
+        tokio::fs::create_dir_all(dst_path.parent().unwrap()).await?;
         tokio::fs::copy(src_path, dst_path).await?;
     } else if dst_path.exists() {
         info!("File already exists {}, continuing...", &f.id);
