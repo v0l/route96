@@ -8,22 +8,13 @@ use rocket::data::{ByteUnit, Limits};
 use rocket::routes;
 use rocket::shield::Shield;
 
-use crate::cors::CORS;
-use crate::db::Database;
-use crate::filesystem::FileStore;
-use crate::routes::{get_blob, head_blob, root};
-use crate::settings::Settings;
-use crate::webhook::Webhook;
-
-mod auth;
-mod cors;
-mod db;
-mod filesystem;
-#[cfg(feature = "nip96")]
-mod processing;
-mod routes;
-mod settings;
-mod webhook;
+use route96::cors::CORS;
+use route96::db::Database;
+use route96::filesystem::FileStore;
+use route96::routes;
+use route96::routes::{get_blob, head_blob, root};
+use route96::settings::Settings;
+use route96::webhook::Webhook;
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
@@ -70,10 +61,12 @@ async fn main() -> Result<(), Error> {
         .attach(Shield::new()) // disable
         .mount("/", routes![root, get_blob, head_blob]);
 
-    #[cfg(feature = "blossom")] {
+    #[cfg(feature = "blossom")]
+    {
         rocket = rocket.mount("/", routes::blossom_routes());
     }
-    #[cfg(feature = "nip96")] {
+    #[cfg(feature = "nip96")]
+    {
         rocket = rocket.mount("/", routes::nip96_routes());
     }
     if let Err(e) = rocket.launch().await {

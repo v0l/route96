@@ -220,7 +220,7 @@ impl FileStore {
         temp_dir().join(id.to_string())
     }
 
-    fn map_path(&self, id: &Vec<u8>) -> PathBuf {
+    pub fn map_path(&self, id: &Vec<u8>) -> PathBuf {
         let id = hex::encode(id);
         Path::new(&self.settings.storage_dir)
             .join(&id[0..2])

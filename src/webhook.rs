@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::filesystem::FileSystemResult;
 
-pub(crate) struct Webhook {
+pub struct Webhook {
     url: String,
 }
 
