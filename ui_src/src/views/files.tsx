@@ -44,7 +44,7 @@ export default function FileList({
     if ("created_at" in f) {
       return {
         id: f.tags.find((a) => a[0] === "x")![1],
-        url: f.tags.find((a) => a[0] === "url")?.at(1),
+        url: f.tags.find((a) => a[0] === "url")![1],
         name: f.content,
         type: f.tags.find((a) => a[0] === "m")?.at(1),
         size: Number(f.tags.find((a) => a[0] === "size")?.at(1)),
