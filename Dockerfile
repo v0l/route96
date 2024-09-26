@@ -31,7 +31,7 @@ RUN git clone --depth=1 https://git.v0l.io/Kieran/FFmpeg.git && \
     --disable-static \
     --enable-shared && \
     make -j8 && make install
-RUN cargo install --path . --root /app/build --bins --features bin-migrate
+RUN cargo install --path . --root /app/build
 
 FROM node:bookworm as ui_builder
 WORKDIR /app/src
