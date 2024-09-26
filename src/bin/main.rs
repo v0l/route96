@@ -7,7 +7,10 @@ use rocket::config::Ident;
 use rocket::data::{ByteUnit, Limits};
 use rocket::routes;
 use rocket::shield::Shield;
-
+#[cfg(feature = "analytics")]
+use route96::analytics::plausible::PlausibleAnalytics;
+#[cfg(feature = "analytics")]
+use route96::analytics::AnalyticsFairing;
 use route96::cors::CORS;
 use route96::db::Database;
 use route96::filesystem::FileStore;
@@ -61,6 +64,12 @@ async fn main() -> Result<(), Error> {
         .attach(Shield::new()) // disable
         .mount("/", routes![root, get_blob, head_blob]);
 
+    #[cfg(feature = "analytics")]
+    {
+        if settings.plausible_url.is_some() {
+            rocket = rocket.attach(AnalyticsFairing::new(PlausibleAnalytics::new(&settings)))
+        }
+    }
     #[cfg(feature = "blossom")]
     {
         rocket = rocket.mount("/", routes::blossom_routes());

@@ -21,3 +21,6 @@ public_url = "http://localhost:8000"
 
 # Webhook api endpoint
 # webhook_url = "https://api.snort.social/api/v1/media/webhook"
+
+# Analytics support
+# plausible_url = "https://plausible.com/"

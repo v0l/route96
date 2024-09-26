@@ -15,11 +15,13 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom"]
+default = ["nip96", "blossom", "analytics"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["dep:ffmpeg-sys-the-third", "dep:blurhash", "dep:libc"]
 blossom = []
 bin-void-cat-migrate = ["dep:sqlx-postgres", "dep:clap", "dep:clap_derive"]
+torrent-v2 = []
+analytics = []
 
 [dependencies]
 log = "0.4.21"

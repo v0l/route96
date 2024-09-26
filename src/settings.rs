@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -20,10 +20,13 @@ pub struct Settings {
 
     /// Whitelisted pubkeys
     pub whitelist: Option<Vec<String>>,
-    
+
     /// Path for ViT image model
     pub vit_model_path: Option<PathBuf>,
-    
+
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
+
+    /// Analytics tracking
+    pub plausible_url: Option<String>,
 }

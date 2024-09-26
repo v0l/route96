@@ -8,3 +8,5 @@ pub mod processing;
 pub mod routes;
 pub mod settings;
 pub mod webhook;
+#[cfg(feature = "analytics")]
+pub mod analytics;
