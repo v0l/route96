@@ -22,7 +22,7 @@ export class Nip96 {
     return this.#info;
   }
 
-  async listFiles(page = 0, count = 50) {
+  async listFiles(page = 0, count = 10) {
     const rsp = await this.#req(`?page=${page}&count=${count}`, "GET");
     const data = await this.#handleResponse<Nip96FileList>(rsp);
     return data;
@@ -37,7 +37,7 @@ export class Nip96 {
 
     const rsp = await this.#req("", "POST", fd);
     const data = await this.#handleResponse<Nip96Result>(rsp);
-    if(data.status !== "success") {
+    if (data.status !== "success") {
       throw new Error(data.message);
     }
     return data;
@@ -93,16 +93,19 @@ export interface Nip96Info {
   download_url?: string;
 }
 
-export interface Nip96Status {status: string, message?: string}
+export interface Nip96Status {
+  status: string;
+  message?: string;
+}
 
 export type Nip96Result = Nip96Status & {
   processing_url?: string;
   nip94_event: NostrEvent;
-}
+};
 
 export type Nip96FileList = Nip96Status & {
   count: number;
   total: number;
   page: number;
   files: Array<NostrEvent>;
-}
+};
