@@ -89,7 +89,7 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height,alt) values(?,?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created) values(?,?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -97,7 +97,8 @@ impl Database {
             .bind(&file.blur_hash)
             .bind(file.width)
             .bind(file.height)
-            .bind(&file.alt);
+            .bind(&file.alt)
+            .bind(&file.created);
         tx.execute(q).await?;
 
         let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
