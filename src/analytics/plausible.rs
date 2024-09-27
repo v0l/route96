@@ -14,6 +14,8 @@ struct Event {
     pub referrer: Option<String>,
     #[serde(skip_serializing)]
     pub user_agent: Option<String>,
+    #[serde(skip_serializing)]
+    pub xff: Option<String>,
 }
 
 pub struct PlausibleAnalytics {
@@ -35,6 +37,13 @@ impl PlausibleAnalytics {
                     .set(
                         "user-agent",
                         match &msg.user_agent {
+                            Some(s) => s,
+                            None => "",
+                        },
+                    )
+                    .set(
+                        "x-forwarded-for",
+                        match &msg.xff {
                             Some(s) => s,
                             None => "",
                         },
@@ -68,6 +77,10 @@ impl Analytics for PlausibleAnalytics {
                 Some(s) => Some(s.to_string()),
                 None => None,
             },
+            xff: match req.headers().get_one("X-Forwarded-For") {
+                Some(s) => Some(s.to_string()),
+                None => None,
+            }
         })?)
     }
 }
