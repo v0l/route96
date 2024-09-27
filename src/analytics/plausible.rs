@@ -12,6 +12,8 @@ struct Event {
     pub domain: String,
     pub url: String,
     pub referrer: Option<String>,
+    #[serde(skip_serializing)]
+    pub user_agent: Option<String>,
 }
 
 pub struct PlausibleAnalytics {
@@ -29,7 +31,16 @@ impl PlausibleAnalytics {
         tokio::spawn(async move {
             while let Some(mut msg) = rx.recv().await {
                 msg.url = format!("{}{}", pub_url, msg.url);
-                match ureq::post(&format!("{}/api/event", url)).send_json(&msg) {
+                match ureq::post(&format!("{}/api/event", url))
+                    .set(
+                        "user-agent",
+                        match &msg.user_agent {
+                            Some(s) => s,
+                            None => "",
+                        },
+                    )
+                    .send_json(&msg)
+                {
                     Ok(v) => info!("Sent {:?}", msg),
                     Err(e) => warn!("Failed to track: {}", e),
                 }
@@ -49,7 +60,14 @@ impl Analytics for PlausibleAnalytics {
                 None => return Ok(()), // ignore request
             },
             url: req.uri().to_string(),
-            referrer: None,
+            referrer: match req.headers().get_one("Referer") {
+                Some(s) => Some(s.to_string()),
+                None => None,
+            },
+            user_agent: match req.headers().get_one("User-Agent") {
+                Some(s) => Some(s.to_string()),
+                None => None,
+            },
         })?)
     }
 }
