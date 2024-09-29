@@ -1,4 +1,5 @@
 ARG IMAGE=rust:bookworm
+ARG FEATURES=labels
 
 FROM $IMAGE as build
 WORKDIR /app/src
@@ -31,7 +32,7 @@ RUN git clone --depth=1 https://git.v0l.io/Kieran/FFmpeg.git && \
     --disable-static \
     --enable-shared && \
     make -j8 && make install
-RUN cargo install --path . --root /app/build
+RUN cargo install --path . --root /app/build --features "${FEATURES}"
 
 FROM node:bookworm as ui_builder
 WORKDIR /app/src
