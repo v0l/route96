@@ -30,7 +30,7 @@ pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.0", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
 base64 = "0.22.1"
-hex = "0.4.3"
+hex = { version = "0.4.3", features = ["serde"] }
 serde = { version = "1.0.198", features = ["derive"] }
 uuid = { version = "1.8.0", features = ["v4"] }
 anyhow = "1.0.82"

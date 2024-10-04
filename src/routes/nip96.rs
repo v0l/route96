@@ -15,7 +15,7 @@ use rocket::{routes, FromForm, Responder, Route, State};
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
-use crate::routes::{delete_file, Nip94Event};
+use crate::routes::{delete_file, Nip94Event, PagedResult};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
 
@@ -66,15 +66,6 @@ struct Nip96MediaTransformations {
     pub video: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
-struct Nip96FileListResults {
-    pub count: u32,
-    pub page: u32,
-    pub total: u32,
-    pub files: Vec<Nip94Event>,
-}
-
 #[derive(Responder)]
 enum Nip96Response {
     #[response(status = 500)]
@@ -84,11 +75,11 @@ enum Nip96Response {
     UploadResult(Json<Nip96UploadResult>),
 
     #[response(status = 200)]
-    FileList(Json<Nip96FileListResults>),
+    FileList(Json<PagedResult<Nip94Event>>),
 }
 
 impl Nip96Response {
-    fn error(msg: &str) -> Self {
+    pub(crate)fn error(msg: &str) -> Self {
         Nip96Response::GenericError(Json(Nip96UploadResult {
             status: "error".to_string(),
             message: Some(msg.to_string()),
@@ -295,7 +286,7 @@ async fn list_files(
         .list_files(&pubkey_vec, page * server_count, server_count)
         .await
     {
-        Ok((files, total)) => Nip96Response::FileList(Json(Nip96FileListResults {
+        Ok((files, total)) => Nip96Response::FileList(Json(PagedResult {
             count: server_count,
             page,
             total: total as u32,

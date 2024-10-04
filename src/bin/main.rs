@@ -62,7 +62,8 @@ async fn main() -> Result<(), Error> {
         )
         .attach(CORS)
         .attach(Shield::new()) // disable
-        .mount("/", routes![root, get_blob, head_blob]);
+        .mount("/", routes![root, get_blob, head_blob])
+        .mount("/admin", routes::admin_routes());
 
     #[cfg(feature = "analytics")]
     {

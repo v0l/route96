@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
+pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
@@ -22,6 +23,8 @@ mod blossom;
 #[cfg(feature = "nip96")]
 mod nip96;
 
+mod admin;
+
 pub struct FilePayload {
     pub file: File,
     pub info: FileUpload,
@@ -33,6 +36,15 @@ struct Nip94Event {
     pub created_at: i64,
     pub content: String,
     pub tags: Vec<Vec<String>>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(crate = "rocket::serde")]
+struct PagedResult<T> {
+    pub count: u32,
+    pub page: u32,
+    pub total: u32,
+    pub files: Vec<T>,
 }
 
 impl Nip94Event {

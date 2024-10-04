@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{Error, Executor, FromRow, Row};
 use sqlx::migrate::MigrateError;
+use sqlx::{Error, Executor, FromRow, Row};
 
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
+    #[serde(with = "hex")]
     pub id: Vec<u8>,
     pub name: String,
     pub size: u64,
@@ -20,11 +21,13 @@ pub struct FileUpload {
     pub labels: Vec<FileLabel>,
 }
 
-#[derive(Clone, FromRow)]
+#[derive(Clone, FromRow, Serialize)]
 pub struct User {
     pub id: u64,
+    #[serde(with = "hex")]
     pub pubkey: Vec<u8>,
     pub created: DateTime<Utc>,
+    pub is_admin: bool,
 }
 
 #[cfg(feature = "labels")]
@@ -50,7 +53,7 @@ impl FileLabel {
 
 #[derive(Clone)]
 pub struct Database {
-    pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
+    pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
 }
 
 impl Database {
@@ -76,6 +79,13 @@ impl Database {
                 .try_get(0),
             Some(res) => res.try_get(0),
         }
+    }
+
+    pub async fn get_user(&self, pubkey: &Vec<u8>) -> Result<User, Error> {
+        sqlx::query_as("select * from users where pubkey = ?")
+            .bind(pubkey)
+            .fetch_one(&self.pool)
+            .await
     }
 
     pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
@@ -178,8 +188,7 @@ impl Database {
             "select count(uploads.id) from uploads, users, user_uploads \
             where users.pubkey = ? \
             and users.id = user_uploads.user_id \
-            and user_uploads.file = uploads.id \
-            order by uploads.created desc")
+            and user_uploads.file = uploads.id")
             .bind(pubkey)
             .fetch_one(&self.pool)
             .await?
