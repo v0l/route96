@@ -1,17 +1,23 @@
-use std::fs;
 use anyhow::Error;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use config::Config;
 use log::{info, warn};
+use nostr::bitcoin::base58;
 use route96::db::{Database, FileUpload};
 use route96::filesystem::FileStore;
 use route96::settings::Settings;
-use sqlx::FromRow;
-use sqlx_postgres::{PgPool, Postgres};
+use sqlx::{FromRow};
+use sqlx_postgres::{PgPool, PgPoolOptions};
 use std::path::PathBuf;
-use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ArgOperation {
+    Migrate,
+    ExportNginxRedirects,
+}
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -23,6 +29,9 @@ struct Args {
     /// Path to filestore on void.cat
     #[arg(long)]
     pub data_path: String,
+
+    #[arg(long)]
+    pub operation: ArgOperation,
 }
 
 #[tokio::main]
@@ -43,19 +52,43 @@ async fn main() -> Result<(), Error> {
 
     let db_void = VoidCatDb::connect(&args.database).await?;
 
-    let mut page = 0;
-    loop {
-        let files = db_void.list_files(page).await?;
-        if files.len() == 0 {
-            break;
-        }
-        for f in files {
-            if let Err(e) = migrate_file(&f, &db, &fs, &args).await {
-                warn!("Failed to migrate file: {}, {}", &f.id, e);
+    match args.operation {
+        ArgOperation::Migrate => {
+            let mut page = 0;
+            loop {
+                let files = db_void.list_files(page).await?;
+                if files.len() == 0 {
+                    break;
+                }
+                for f in files {
+                    if let Err(e) = migrate_file(&f, &db, &fs, &args).await {
+                        warn!("Failed to migrate file: {}, {}", &f.id, e);
+                    }
+                }
+                page += 1;
             }
         }
-        page += 1;
+        ArgOperation::ExportNginxRedirects => {
+            let path: PathBuf = args.data_path.parse()?;
+            let conf_path = &path.join("nginx.conf");
+            info!("Writing redirects to {}", conf_path.to_str().unwrap());
+            let mut fout = BufWriter::new(tokio::fs::File::create(conf_path).await?);
+            let mut page = 0;
+            loop {
+                let files = db_void.list_files(page).await?;
+                if files.len() == 0 {
+                    break;
+                }
+                for f in files {
+                    let legacy_id = base58::encode(f.id.to_bytes_le().as_slice());
+                    let redirect = format!("location ^\\/d\\/{}(?:\\.\\w+)?$ {{\n\treturn 301 https://nostr.download/{};\n}}\n", &legacy_id, &f.digest);
+                    fout.write_all(redirect.as_bytes()).await?;
+                }
+                page += 1;
+            }
+        }
     }
+
     Ok(())
 }
 
@@ -156,7 +189,9 @@ struct VoidCatDb {
 
 impl VoidCatDb {
     async fn connect(conn: &str) -> Result<Self, sqlx::Error> {
-        let pool = PgPool::connect(conn).await?;
+        let pool = PgPoolOptions::new()
+            .max_connections(50)
+            .connect(conn).await?;
         Ok(Self { pool })
     }
 
