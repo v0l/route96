@@ -108,7 +108,7 @@ impl Database {
             .bind(file.width)
             .bind(file.height)
             .bind(&file.alt)
-            .bind(&file.created);
+            .bind(file.created);
         tx.execute(q).await?;
 
         let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")

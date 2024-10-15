@@ -69,18 +69,9 @@ impl Analytics for PlausibleAnalytics {
                 None => return Ok(()), // ignore request
             },
             url: req.uri().to_string(),
-            referrer: match req.headers().get_one("Referer") {
-                Some(s) => Some(s.to_string()),
-                None => None,
-            },
-            user_agent: match req.headers().get_one("User-Agent") {
-                Some(s) => Some(s.to_string()),
-                None => None,
-            },
-            xff: match req.headers().get_one("X-Forwarded-For") {
-                Some(s) => Some(s.to_string()),
-                None => None,
-            },
+            referrer: req.headers().get_one("Referer").map(|s| s.to_string()),
+            user_agent: req.headers().get_one("User-Agent").map(|s| s.to_string()),
+            xff: req.headers().get_one("X-Forwarded-For").map(|s| s.to_string()),
         })?)
     }
 }

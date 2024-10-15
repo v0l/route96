@@ -188,7 +188,7 @@ async fn upload(
 
     // account for upload speeds as slow as 1MB/s (8 Mbps)
     let mbs = form.size / 1.megabytes().as_u64();
-    let max_time = 60.max(mbs) as u64;
+    let max_time = 60.max(mbs);
     if auth.event.created_at < Timestamp::now().sub(Duration::from_secs(max_time)) {
         return Nip96Response::error("Auth event timestamp out of range");
     }
@@ -208,10 +208,7 @@ async fn upload(
                 Some(c) => c.to_string(),
                 None => "".to_string(),
             };
-            blob.upload.alt = match &form.alt {
-                Some(s) => Some(s.to_string()),
-                None => None,
-            };
+            blob.upload.alt = form.alt.as_ref().map(|s| s.to_string());
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()) {

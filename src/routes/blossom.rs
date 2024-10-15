@@ -147,7 +147,7 @@ async fn list_files(
         Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(&settings, f))
+                .map(|f| BlobDescriptor::from_upload(settings, f))
                 .collect(),
         )),
         Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
@@ -174,13 +174,13 @@ async fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHe
         };
     }
 
-    if let None = auth.x_sha_256 {
+    if auth.x_sha_256.is_none() {
         return BlossomHead {
             msg: Some("Missing x-sha-256 header"),
         };
     }
 
-    if let None = auth.x_content_type {
+    if auth.x_content_type.is_none() {
         return BlossomHead {
             msg: Some("Missing x-content-type header"),
         };
@@ -313,7 +313,7 @@ async fn process_upload(
                 BlossomResponse::error(format!("Error saving file (db): {}", e))
             } else {
                 BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
-                    &settings,
+                    settings,
                     &blob.upload,
                 )))
             }
