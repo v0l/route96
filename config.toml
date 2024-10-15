@@ -24,3 +24,6 @@ public_url = "http://localhost:8000"
 
 # Analytics support
 # plausible_url = "https://plausible.com/"
+
+# Support legacy void
+# void_cat_database = "postgres://postgres:postgres@localhost:41911/void"

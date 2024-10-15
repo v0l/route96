@@ -1,5 +1,4 @@
 use anyhow::Error;
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use config::Config;
 use log::{info, warn};
@@ -8,11 +7,8 @@ use route96::db::{Database, FileUpload};
 use route96::filesystem::FileStore;
 use route96::settings::Settings;
 use route96::void_db::{VoidCatDb, VoidFile};
-use sqlx::FromRow;
-use sqlx_postgres::{PgPool, PgPoolOptions};
 use std::path::PathBuf;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 enum ArgOperation {
@@ -123,10 +119,7 @@ async fn migrate_file(
     let uid = db.upsert_user(&pubkey_vec).await?;
     info!("Mapped user {} => {}", &f.email, uid);
 
-    let md: Option<Vec<&str>> = match &f.media_dimensions {
-        Some(s) => Some(s.split("x").collect()),
-        _ => None,
-    };
+    let md: Option<Vec<&str>> = f.media_dimensions.as_ref().map(|s| s.split("x").collect());
     let fu = FileUpload {
         id: id_vec,
         name: match &f.name {
@@ -146,6 +139,7 @@ async fn migrate_file(
         },
         blur_hash: None,
         alt: f.description.clone(),
+        ..Default::default()
     };
     db.add_file(&fu, uid).await?;
     Ok(())
