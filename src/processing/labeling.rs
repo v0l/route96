@@ -1,19 +1,24 @@
-use std::{fs, ptr, slice};
 use std::mem::transmute;
 use std::path::PathBuf;
+use std::{fs, ptr, slice};
 
 use anyhow::Error;
-use candle_core::{D, Device, DType, IndexOp, Tensor};
+use candle_core::{DType, Device, IndexOp, Tensor, D};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
-use ffmpeg_sys_the_third::{av_frame_alloc, av_frame_free};
 use ffmpeg_sys_the_third::AVColorRange::AVCOL_RANGE_JPEG;
 use ffmpeg_sys_the_third::AVColorSpace::AVCOL_SPC_RGB;
 use ffmpeg_sys_the_third::AVPixelFormat::{AV_PIX_FMT_RGB24, AV_PIX_FMT_RGBA};
+use ffmpeg_sys_the_third::{av_frame_alloc, av_frame_free};
 
 use crate::processing::resize_image;
 
-pub fn label_frame(frame: &mut [u8], width: usize, height: usize, model: PathBuf) -> Result<Vec<String>, Error> {
+pub fn label_frame(
+    frame: &mut [u8],
+    width: usize,
+    height: usize,
+    model: PathBuf,
+) -> Result<Vec<String>, Error> {
     unsafe {
         let device = Device::Cpu;
         let image = load_frame_224(frame, width, height)?.to_device(&device)?;
@@ -26,10 +31,12 @@ pub fn label_frame(frame: &mut [u8], width: usize, height: usize, model: PathBuf
             .to_vec1::<f32>()?;
         let mut prs = prs.iter().enumerate().collect::<Vec<_>>();
         prs.sort_by(|(_, p1), (_, p2)| p2.total_cmp(p1));
-        let res =  prs.iter()
+        let res = prs
+            .iter()
             //.filter(|&(_c, q)| **q >= 0.50f32)
             .take(5)
-            .map(|&(c, _q)| CLASSES[c].to_string()).collect();
+            .map(|&(c, _q)| CLASSES[c].to_string())
+            .collect();
         Ok(res)
     }
 }
@@ -37,7 +44,16 @@ pub fn label_frame(frame: &mut [u8], width: usize, height: usize, model: PathBuf
 unsafe fn load_frame_224(data: &mut [u8], width: usize, height: usize) -> Result<Tensor, Error> {
     let frame = av_frame_alloc();
     (*frame).extended_data = &mut data.as_mut_ptr();
-    (*frame).data = [*(*frame).extended_data, ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), ptr::null_mut(), ptr::null_mut()];
+    (*frame).data = [
+        *(*frame).extended_data,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+    ];
     (*frame).linesize = [(width * 4) as libc::c_int, 0, 0, 0, 0, 0, 0, 0];
     (*frame).format = transmute(AV_PIX_FMT_RGBA);
     (*frame).width = width as libc::c_int;
@@ -45,14 +61,15 @@ unsafe fn load_frame_224(data: &mut [u8], width: usize, height: usize) -> Result
     (*frame).color_range = AVCOL_RANGE_JPEG;
     (*frame).colorspace = AVCOL_SPC_RGB;
 
-    let mut dst_frame = resize_image(frame,
-                                     224,
-                                     224,
-                                     AV_PIX_FMT_RGB24)?;
-    let pic_slice = slice::from_raw_parts_mut((*dst_frame).data[0], ((*dst_frame).width * (*dst_frame).height * 3) as usize);
+    let mut dst_frame = resize_image(frame, 224, 224, AV_PIX_FMT_RGB24)?;
+    let pic_slice = slice::from_raw_parts_mut(
+        (*dst_frame).data[0],
+        ((*dst_frame).width * (*dst_frame).height * 3) as usize,
+    );
 
     fs::write("frame_224.raw", &pic_slice)?;
-    let data = Tensor::from_vec(pic_slice.to_vec(), (224, 224, 3), &Device::Cpu)?.permute((2, 0, 1))?;
+    let data =
+        Tensor::from_vec(pic_slice.to_vec(), (224, 224, 3), &Device::Cpu)?.permute((2, 0, 1))?;
     let mean = Tensor::new(&[0.485f32, 0.456, 0.406], &Device::Cpu)?.reshape((3, 1, 1))?;
     let std = Tensor::new(&[0.229f32, 0.224, 0.225], &Device::Cpu)?.reshape((3, 1, 1))?;
     let res = (data.to_dtype(DType::F32)? / 255.)?
@@ -61,7 +78,6 @@ unsafe fn load_frame_224(data: &mut [u8], width: usize, height: usize) -> Result
     av_frame_free(&mut dst_frame);
     Ok(res)
 }
-
 
 pub const CLASSES: [&str; 1000] = [
     "tench, Tinca tinca",

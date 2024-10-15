@@ -16,9 +16,7 @@ struct WebhookRequest<T> {
 
 impl Webhook {
     pub fn new(url: String) -> Self {
-        Self {
-            url
-        }
+        Self { url }
     }
 
     /// Ask webhook api if this file can be accepted

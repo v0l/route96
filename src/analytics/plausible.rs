@@ -50,7 +50,7 @@ impl PlausibleAnalytics {
                     )
                     .send_json(&msg)
                 {
-                    Ok(v) => info!("Sent {:?}", msg),
+                    Ok(_v) => info!("Sent {:?}", msg),
                     Err(e) => warn!("Failed to track: {}", e),
                 }
             }
@@ -80,7 +80,7 @@ impl Analytics for PlausibleAnalytics {
             xff: match req.headers().get_one("X-Forwarded-For") {
                 Some(s) => Some(s.to_string()),
                 None => None,
-            }
+            },
         })?)
     }
 }

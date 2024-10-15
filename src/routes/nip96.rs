@@ -79,7 +79,7 @@ enum Nip96Response {
 }
 
 impl Nip96Response {
-    pub(crate)fn error(msg: &str) -> Self {
+    pub(crate) fn error(msg: &str) -> Self {
         Nip96Response::GenericError(Json(Nip96UploadResult {
             status: "error".to_string(),
             message: Some(msg.to_string()),
@@ -126,6 +126,7 @@ struct Nip96Form<'r> {
     alt: Option<&'r str>,
     caption: Option<&'r str>,
     media_type: Option<&'r str>,
+    #[allow(dead_code)]
     content_type: Option<&'r str>,
     no_transform: Option<bool>,
 }

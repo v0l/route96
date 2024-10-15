@@ -41,10 +41,12 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 }
 
                 // check expiration tag
-                if let Some(expiration) = event.tags.iter().find_map(|t| if t.kind() == TagKind::Expiration {
-                    t.content()
-                } else {
-                    None
+                if let Some(expiration) = event.tags.iter().find_map(|t| {
+                    if t.kind() == TagKind::Expiration {
+                        t.content()
+                    } else {
+                        None
+                    }
                 }) {
                     let u_exp: Timestamp = expiration.parse().unwrap();
                     if u_exp <= Timestamp::now() {

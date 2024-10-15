@@ -118,10 +118,11 @@ impl Database {
 
         #[cfg(feature = "labels")]
         for lbl in &file.labels {
-            let q3 = sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
-                .bind(&file.id)
-                .bind(&lbl.label)
-                .bind(&lbl.model);
+            let q3 =
+                sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
+                    .bind(&file.id)
+                    .bind(&lbl.label)
+                    .bind(&lbl.model);
             tx.execute(q3).await?;
         }
         tx.commit().await?;
@@ -136,21 +137,25 @@ impl Database {
     }
 
     pub async fn get_file_owners(&self, file: &Vec<u8>) -> Result<Vec<User>, Error> {
-        sqlx::query_as("select users.* from users, user_uploads \
+        sqlx::query_as(
+            "select users.* from users, user_uploads \
         where users.id = user_uploads.user_id \
-        and user_uploads.file = ?")
-            .bind(file)
-            .fetch_all(&self.pool)
-            .await
+        and user_uploads.file = ?",
+        )
+        .bind(file)
+        .fetch_all(&self.pool)
+        .await
     }
 
     #[cfg(feature = "labels")]
     pub async fn get_file_labels(&self, file: &Vec<u8>) -> Result<Vec<FileLabel>, Error> {
-        sqlx::query_as("select upload_labels.* from uploads, upload_labels \
-        where uploads.id = ? and uploads.id = upload_labels.file")
-            .bind(file)
-            .fetch_all(&self.pool)
-            .await
+        sqlx::query_as(
+            "select upload_labels.* from uploads, upload_labels \
+        where uploads.id = ? and uploads.id = upload_labels.file",
+        )
+        .bind(file)
+        .fetch_all(&self.pool)
+        .await
     }
 
     pub async fn delete_file_owner(&self, file: &Vec<u8>, owner: u64) -> Result<(), Error> {
@@ -170,7 +175,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn list_files(&self, pubkey: &Vec<u8>, offset: u32, limit: u32) -> Result<(Vec<FileUpload>, i64), Error> {
+    pub async fn list_files(
+        &self,
+        pubkey: &Vec<u8>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<FileUpload>, i64), Error> {
         let results: Vec<FileUpload> = sqlx::query_as(
             "select uploads.* from uploads, users, user_uploads \
             where users.pubkey = ? \
@@ -179,20 +189,21 @@ impl Database {
             order by uploads.created desc \
             limit ? offset ?",
         )
-            .bind(pubkey)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(pubkey)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
         let count: i64 = sqlx::query(
             "select count(uploads.id) from uploads, users, user_uploads \
             where users.pubkey = ? \
             and users.id = user_uploads.user_id \
-            and user_uploads.file = uploads.id")
-            .bind(pubkey)
-            .fetch_one(&self.pool)
-            .await?
-            .try_get(0)?;
+            and user_uploads.file = uploads.id",
+        )
+        .bind(pubkey)
+        .fetch_one(&self.pool)
+        .await?
+        .try_get(0)?;
 
         Ok((results, count))
     }

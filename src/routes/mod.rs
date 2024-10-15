@@ -124,7 +124,7 @@ async fn delete_file(
 
         let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
             Some(o) => o,
-            None => return Err(Error::msg("You dont own this file, you cannot delete it"))
+            None => return Err(Error::msg("You dont own this file, you cannot delete it")),
         };
         if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
             return Err(Error::msg(format!("Failed to delete (db): {}", e)));

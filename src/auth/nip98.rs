@@ -1,11 +1,11 @@
-use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use log::info;
 use nostr::{Event, JsonUtil, Kind, Timestamp};
-use rocket::{async_trait, Request};
-use rocket::http::Status;
 use rocket::http::uri::{Absolute, Uri};
+use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
+use rocket::{async_trait, Request};
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
@@ -42,7 +42,7 @@ impl<'r> FromRequest<'r> for Nip98Auth {
 
                 // check url tag
                 if let Some(url) = event.tags.iter().find_map(|t| {
-                    let vec = t.as_vec();
+                    let vec = t.as_slice();
                     if vec[0] == "u" {
                         Some(vec[1].clone())
                     } else {
@@ -62,7 +62,7 @@ impl<'r> FromRequest<'r> for Nip98Auth {
 
                 // check method tag
                 if let Some(method) = event.tags.iter().find_map(|t| {
-                    let vec = t.as_vec();
+                    let vec = t.as_slice();
                     if vec[0] == "method" {
                         Some(vec[1].clone())
                     } else {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 
 use log::error;
@@ -17,7 +18,6 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
 
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(crate = "rocket::serde")]
 pub struct BlobDescriptor {
@@ -28,7 +28,7 @@ pub struct BlobDescriptor {
     pub mime_type: Option<String>,
     pub created: u64,
     #[serde(rename = "nip94", skip_serializing_if = "Option::is_none")]
-    pub nip94: Option<Nip94Event>,
+    pub nip94: Option<HashMap<String, String>>,
 }
 
 impl BlobDescriptor {
@@ -40,7 +40,13 @@ impl BlobDescriptor {
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
             created: value.created.timestamp() as u64,
-            nip94: Some(Nip94Event::from_upload(settings, value)),
+            nip94: Some(
+                Nip94Event::from_upload(settings, value)
+                    .tags
+                    .iter()
+                    .map(|r| (r[0].clone(), r[1].clone()))
+                    .collect(),
+            ),
         }
     }
 }
@@ -51,7 +57,7 @@ struct BlossomError {
 }
 
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head]
+    routes![delete_blob, upload, list_files, upload_head, upload_media]
 }
 
 impl BlossomError {
@@ -102,8 +108,7 @@ impl<'r> Responder<'r, 'static> for BlossomHead {
 
 fn check_method(event: &nostr::Event, method: &str) -> bool {
     if let Some(t) = event.tags.iter().find_map(|t| {
-        if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::T))
-        {
+        if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::T)) {
             t.content()
         } else {
             None
@@ -127,6 +132,72 @@ async fn delete_blob(
     }
 }
 
+#[rocket::get("/list/<pubkey>")]
+async fn list_files(
+    db: &State<Database>,
+    settings: &State<Settings>,
+    pubkey: &str,
+) -> BlossomResponse {
+    let id = if let Ok(i) = hex::decode(pubkey) {
+        i
+    } else {
+        return BlossomResponse::error("invalid pubkey");
+    };
+    match db.list_files(&id, 0, 10_000).await {
+        Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
+            files
+                .iter()
+                .map(|f| BlobDescriptor::from_upload(&settings, f))
+                .collect(),
+        )),
+        Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
+    }
+}
+
+#[rocket::head("/upload")]
+async fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
+    if !check_method(&auth.event, "upload") {
+        return BlossomHead {
+            msg: Some("Invalid auth method tag"),
+        };
+    }
+
+    if let Some(z) = auth.x_content_length {
+        if z > settings.max_upload_bytes {
+            return BlossomHead {
+                msg: Some("File too large"),
+            };
+        }
+    } else {
+        return BlossomHead {
+            msg: Some("Missing x-content-length header"),
+        };
+    }
+
+    if let None = auth.x_sha_256 {
+        return BlossomHead {
+            msg: Some("Missing x-sha-256 header"),
+        };
+    }
+
+    if let None = auth.x_content_type {
+        return BlossomHead {
+            msg: Some("Missing x-content-type header"),
+        };
+    }
+
+    // check whitelist
+    if let Some(wl) = &settings.whitelist {
+        if !wl.contains(&auth.event.pubkey.to_hex()) {
+            return BlossomHead {
+                msg: Some("Not on whitelist"),
+            };
+        }
+    }
+
+    BlossomHead { msg: None }
+}
+
 #[rocket::put("/upload", data = "<data>")]
 async fn upload(
     auth: BlossomAuth,
@@ -136,7 +207,32 @@ async fn upload(
     webhook: &State<Option<Webhook>>,
     data: Data<'_>,
 ) -> BlossomResponse {
-    if !check_method(&auth.event, "upload") {
+    process_upload("upload", false, auth, fs, db, settings, webhook, data).await
+}
+
+#[rocket::put("/media", data = "<data>")]
+async fn upload_media(
+    auth: BlossomAuth,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+    data: Data<'_>,
+) -> BlossomResponse {
+    process_upload("media", true, auth, fs, db, settings, webhook, data).await
+}
+
+async fn process_upload(
+    method: &str,
+    compress: bool,
+    auth: BlossomAuth,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+    data: Data<'_>,
+) -> BlossomResponse {
+    if !check_method(&auth.event, method) {
         return BlossomResponse::error("Invalid request method tag");
     }
 
@@ -173,7 +269,7 @@ async fn upload(
         .put(
             data.open(ByteUnit::from(settings.max_upload_bytes)),
             &mime_type,
-            false,
+            compress,
         )
         .await
     {
@@ -218,7 +314,7 @@ async fn upload(
             } else {
                 BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
                     &settings,
-                    &blob.upload
+                    &blob.upload,
                 )))
             }
         }
@@ -226,76 +322,5 @@ async fn upload(
             error!("{}", e.to_string());
             BlossomResponse::error(format!("Error saving file (disk): {}", e))
         }
-    }
-}
-
-#[rocket::get("/list/<pubkey>")]
-async fn list_files(
-    db: &State<Database>,
-    settings: &State<Settings>,
-    pubkey: &str,
-) -> BlossomResponse {
-    let id = if let Ok(i) = hex::decode(pubkey) {
-        i
-    } else {
-        return BlossomResponse::error("invalid pubkey");
-    };
-    match db.list_files(&id, 0, 10_000).await {
-        Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
-            files
-                .iter()
-                .map(|f| BlobDescriptor::from_upload(&settings, f))
-                .collect(),
-        )),
-        Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
-    }
-}
-
-#[rocket::head("/upload")]
-async fn upload_head(
-    auth: BlossomAuth,
-    settings: &State<Settings>,
-) -> BlossomHead {
-    if !check_method(&auth.event, "upload") {
-        return BlossomHead {
-            msg: Some("Invalid auth method tag")
-        };
-    }
-
-    if let Some(z) = auth.x_content_length {
-        if z > settings.max_upload_bytes {
-            return BlossomHead {
-                msg: Some("File too large")
-            };
-        }
-    } else {
-        return BlossomHead {
-            msg: Some("Missing x-content-length header")
-        };
-    }
-
-    if let None = auth.x_sha_256 {
-        return BlossomHead {
-            msg: Some("Missing x-sha-256 header")
-        };
-    }
-
-    if let None = auth.x_content_type {
-        return BlossomHead {
-            msg: Some("Missing x-content-type header")
-        };
-    }
-
-    // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return BlossomHead {
-                msg: Some("Not on whitelist")
-            };
-        }
-    }
-
-    BlossomHead {
-        msg: None
     }
 }

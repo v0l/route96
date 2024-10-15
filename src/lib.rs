@@ -1,4 +1,5 @@
-
+#[cfg(feature = "analytics")]
+pub mod analytics;
 pub mod auth;
 pub mod cors;
 pub mod db;
@@ -8,5 +9,3 @@ pub mod processing;
 pub mod routes;
 pub mod settings;
 pub mod webhook;
-#[cfg(feature = "analytics")]
-pub mod analytics;

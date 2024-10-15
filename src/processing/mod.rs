@@ -3,15 +3,17 @@ use std::path::PathBuf;
 use std::ptr;
 
 use anyhow::Error;
-use ffmpeg_sys_the_third::{av_frame_alloc, AVFrame, AVPixelFormat, sws_freeContext, sws_getContext, sws_scale_frame};
+use ffmpeg_sys_the_third::{
+    av_frame_alloc, sws_freeContext, sws_getContext, sws_scale_frame, AVFrame, AVPixelFormat,
+};
 
 use crate::processing::probe::FFProbe;
 use crate::processing::webp::WebpProcessor;
 
-mod webp;
 #[cfg(feature = "labels")]
 pub mod labeling;
 mod probe;
+mod webp;
 
 pub struct ProbeResult {
     pub streams: Vec<ProbeStream>,
@@ -29,13 +31,13 @@ pub enum ProbeStream {
     },
 }
 
-pub(crate) enum FileProcessorResult {
+pub enum FileProcessorResult {
     NewFile(NewFileProcessorResult),
     Probe(ProbeResult),
     Skip,
 }
 
-pub(crate) struct NewFileProcessorResult {
+pub struct NewFileProcessorResult {
     pub result: PathBuf,
     pub mime_type: String,
     pub width: usize,
@@ -63,14 +65,24 @@ pub fn probe_file(in_file: PathBuf) -> Result<FileProcessorResult, Error> {
     proc.process_file(in_file)
 }
 
-unsafe fn resize_image(frame: *const AVFrame, width: usize, height: usize, pix_fmt: AVPixelFormat) -> Result<*mut AVFrame, Error> {
-    let sws_ctx = sws_getContext((*frame).width,
-                                 (*frame).height,
-                                 transmute((*frame).format),
-                                 width as libc::c_int,
-                                 height as libc::c_int,
-                                 pix_fmt,
-                                 0, ptr::null_mut(), ptr::null_mut(), ptr::null_mut());
+unsafe fn resize_image(
+    frame: *const AVFrame,
+    width: usize,
+    height: usize,
+    pix_fmt: AVPixelFormat,
+) -> Result<*mut AVFrame, Error> {
+    let sws_ctx = sws_getContext(
+        (*frame).width,
+        (*frame).height,
+        transmute((*frame).format),
+        width as libc::c_int,
+        height as libc::c_int,
+        pix_fmt,
+        0,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+    );
     if sws_ctx.is_null() {
         return Err(Error::msg("Failed to create sws context"));
     }

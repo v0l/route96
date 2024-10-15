@@ -7,7 +7,7 @@ use nostr::bitcoin::base58;
 use route96::db::{Database, FileUpload};
 use route96::filesystem::FileStore;
 use route96::settings::Settings;
-use sqlx::{FromRow};
+use sqlx::FromRow;
 use sqlx_postgres::{PgPool, PgPoolOptions};
 use std::path::PathBuf;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -191,7 +191,8 @@ impl VoidCatDb {
     async fn connect(conn: &str) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new()
             .max_connections(50)
-            .connect(conn).await?;
+            .connect(conn)
+            .await?;
         Ok(Self { pool })
     }
 

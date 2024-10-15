@@ -1,11 +1,11 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, User};
 use crate::routes::{Nip94Event, PagedResult};
+use crate::settings::Settings;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
 use rocket::{routes, Responder, Route, State};
 use sqlx::{Error, Row};
-use crate::settings::Settings;
 
 pub fn admin_routes() -> Vec<Route> {
     routes![admin_list_files, admin_get_self]
@@ -13,8 +13,7 @@ pub fn admin_routes() -> Vec<Route> {
 
 #[derive(Serialize, Default)]
 #[serde(crate = "rocket::serde")]
-struct AdminResponseBase<T>
-{
+struct AdminResponseBase<T> {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
@@ -23,8 +22,7 @@ struct AdminResponseBase<T>
 }
 
 #[derive(Responder)]
-enum AdminResponse<T>
-{
+enum AdminResponse<T> {
     #[response(status = 500)]
     GenericError(Json<AdminResponseBase<T>>),
 
@@ -32,8 +30,7 @@ enum AdminResponse<T>
     Ok(Json<AdminResponseBase<T>>),
 }
 
-impl<T> AdminResponse<T>
-{
+impl<T> AdminResponse<T> {
     pub fn error(msg: &str) -> Self {
         Self::GenericError(Json(AdminResponseBase {
             status: "error".to_string(),
@@ -52,16 +49,11 @@ impl<T> AdminResponse<T>
 }
 
 #[rocket::get("/self")]
-async fn admin_get_self(
-    auth: Nip98Auth,
-    db: &State<Database>,
-) -> AdminResponse<User> {
+async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<User> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     match db.get_user(&pubkey_vec).await {
         Ok(user) => AdminResponse::success(user),
-        Err(_) => {
-            AdminResponse::error("User not found")
-        }
+        Err(_) => AdminResponse::error("User not found"),
     }
 }
 
@@ -78,18 +70,13 @@ async fn admin_list_files(
 
     let user = match db.get_user(&pubkey_vec).await {
         Ok(user) => user,
-        Err(_) => {
-            return AdminResponse::error("User not found")
-        }
+        Err(_) => return AdminResponse::error("User not found"),
     };
 
     if !user.is_admin {
         return AdminResponse::error("User is not an admin");
     }
-    match db
-        .list_all_files(page * server_count, server_count)
-        .await
-    {
+    match db.list_all_files(page * server_count, server_count).await {
         Ok((files, count)) => AdminResponse::success(PagedResult {
             count: files.len() as u32,
             page,
@@ -104,19 +91,22 @@ async fn admin_list_files(
 }
 
 impl Database {
-    pub async fn list_all_files(&self, offset: u32, limit: u32) -> Result<(Vec<FileUpload>, i64), Error> {
+    pub async fn list_all_files(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<FileUpload>, i64), Error> {
         let results: Vec<FileUpload> = sqlx::query_as(
             "select u.* \
             from uploads u \
             order by u.created desc \
             limit ? offset ?",
         )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
-        let count: i64 = sqlx::query(
-            "select count(u.id) from uploads u")
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let count: i64 = sqlx::query("select count(u.id) from uploads u")
             .fetch_one(&self.pool)
             .await?
             .try_get(0)?;

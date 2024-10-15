@@ -15,10 +15,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
 use crate::db::FileUpload;
-#[cfg(feature = "nip96")]
-use crate::processing::{compress_file, FileProcessorResult, probe_file, ProbeStream};
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
+#[cfg(feature = "nip96")]
+use crate::processing::{compress_file, probe_file, FileProcessorResult, ProbeStream};
 use crate::settings::Settings;
 
 #[derive(Clone, Default, Serialize)]
@@ -33,9 +33,7 @@ pub struct FileStore {
 
 impl FileStore {
     pub fn new(settings: Settings) -> Self {
-        Self {
-            settings,
-        }
+        Self { settings }
     }
 
     /// Get a file path by id
@@ -44,11 +42,18 @@ impl FileStore {
     }
 
     /// Store a new file
-    pub async fn put<TStream>(&self, stream: TStream, mime_type: &str, compress: bool) -> Result<FileSystemResult, Error>
-        where
-            TStream: AsyncRead + Unpin,
+    pub async fn put<TStream>(
+        &self,
+        stream: TStream,
+        mime_type: &str,
+        compress: bool,
+    ) -> Result<FileSystemResult, Error>
+    where
+        TStream: AsyncRead + Unpin,
     {
-        let result = self.store_compress_file(stream, mime_type, compress).await?;
+        let result = self
+            .store_compress_file(stream, mime_type, compress)
+            .await?;
         let dst_path = self.map_path(&result.upload.id);
         if dst_path.exists() {
             fs::remove_file(result.path)?;
@@ -70,9 +75,14 @@ impl FileStore {
         }
     }
 
-    async fn store_compress_file<TStream>(&self, mut stream: TStream, mime_type: &str, compress: bool) -> Result<FileSystemResult, Error>
-        where
-            TStream: AsyncRead + Unpin,
+    async fn store_compress_file<TStream>(
+        &self,
+        mut stream: TStream,
+        mime_type: &str,
+        compress: bool,
+    ) -> Result<FileSystemResult, Error>
+    where
+        TStream: AsyncRead + Unpin,
     {
         let random_id = uuid::Uuid::new_v4();
         let tmp_path = FileStore::map_temp(random_id);
@@ -97,7 +107,8 @@ impl FileStore {
                 let time_compress = SystemTime::now().duration_since(start).unwrap();
                 let start = SystemTime::now();
                 let blur_hash = blurhash::encode(
-                    9, 9,
+                    9,
+                    9,
                     new_temp.width as u32,
                     new_temp.height as u32,
                     new_temp.image.as_slice(),
@@ -111,13 +122,15 @@ impl FileStore {
                         new_temp.image.as_mut_slice(),
                         new_temp.width,
                         new_temp.height,
-                        mp.clone())?
-                        .iter().map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
-                        .collect()
+                        mp.clone(),
+                    )?
+                    .iter()
+                    .map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
+                    .collect()
                 } else {
                     vec![]
                 };
-                
+
                 let time_labels = SystemTime::now().duration_since(start).unwrap();
 
                 // delete old temp
@@ -161,7 +174,7 @@ impl FileStore {
         } else if let FileProcessorResult::Probe(p) = probe_file(tmp_path.clone())? {
             let video_stream_size = p.streams.iter().find_map(|s| match s {
                 ProbeStream::Video { width, height, .. } => Some((width, height)),
-                _ => None
+                _ => None,
             });
             let n = file.metadata().await?.len();
             let hash = FileStore::hash_file(&mut file).await?;
@@ -175,11 +188,11 @@ impl FileStore {
                     mime_type: mime_type.to_string(),
                     width: match video_stream_size {
                         Some((w, _h)) => Some(*w),
-                        _ => None
+                        _ => None,
                     },
                     height: match video_stream_size {
                         Some((_w, h)) => Some(*h),
-                        _ => None
+                        _ => None,
                     },
                     ..Default::default()
                 },
