@@ -47,9 +47,9 @@ reqwest = "0.12.8"
 libc = { version = "0.2.153", optional = true }
 blurhash = { version = "0.2.1", optional = true }
 ffmpeg-sys-the-third = { version = "2.0.0", features = ["default"], optional = true }
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "^0.6.1", optional = true }
+candle-core = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
+candle-nn = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
+candle-transformers = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
 clap = { version = "4.5.18", features = ["derive"], optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
 clap_derive = { version = "4.5.18", optional = true }

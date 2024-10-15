@@ -459,8 +459,8 @@ checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 
 [[package]]
 name = "candle-core"
-version = "0.6.1"
-source = "git+https://github.com/huggingface/candle.git#c02b7c327297f25fc9cc60b8f39c9aa32e40ff21"
+version = "0.7.2"
+source = "git+https://git.v0l.io/Kieran/candle.git#a01aa897991fbc3da2dfda568b4254f697fdd598"
 dependencies = [
  "byteorder",
  "gemm",
@@ -479,8 +479,8 @@ dependencies = [
 
 [[package]]
 name = "candle-nn"
-version = "0.6.1"
-source = "git+https://github.com/huggingface/candle.git#c02b7c327297f25fc9cc60b8f39c9aa32e40ff21"
+version = "0.7.2"
+source = "git+https://git.v0l.io/Kieran/candle.git#a01aa897991fbc3da2dfda568b4254f697fdd598"
 dependencies = [
  "candle-core",
  "half",
@@ -493,8 +493,8 @@ dependencies = [
 
 [[package]]
 name = "candle-transformers"
-version = "0.6.1"
-source = "git+https://github.com/huggingface/candle.git#c02b7c327297f25fc9cc60b8f39c9aa32e40ff21"
+version = "0.7.2"
+source = "git+https://git.v0l.io/Kieran/candle.git#a01aa897991fbc3da2dfda568b4254f697fdd598"
 dependencies = [
  "byteorder",
  "candle-core",
