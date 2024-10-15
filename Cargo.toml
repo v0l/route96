@@ -16,9 +16,10 @@ name = "route96"
 
 [features]
 default = ["nip96", "blossom", "analytics"]
+media-compression = ["dep:ffmpeg-sys-the-third", "dep:blurhash", "dep:libc"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
-nip96 = ["dep:ffmpeg-sys-the-third", "dep:blurhash", "dep:libc"]
-blossom = ["dep:ffmpeg-sys-the-third", "dep:libc"]
+nip96 = ["media-compression"]
+blossom = []
 bin-void-cat-migrate = ["dep:sqlx-postgres", "dep:clap", "dep:clap_derive"]
 torrent-v2 = []
 analytics = []

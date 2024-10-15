@@ -4,7 +4,7 @@ pub mod auth;
 pub mod cors;
 pub mod db;
 pub mod filesystem;
-#[cfg(feature = "nip96")]
+#[cfg(feature = "media-compression")]
 pub mod processing;
 pub mod routes;
 pub mod settings;

@@ -56,8 +56,14 @@ struct BlossomError {
     pub message: String,
 }
 
+#[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
     routes![delete_blob, upload, list_files, upload_head, upload_media]
+}
+
+#[cfg(not(feature = "media-compression"))]
+pub fn blossom_routes() -> Vec<Route> {
+    routes![delete_blob, upload, list_files, upload_head]
 }
 
 impl BlossomError {
@@ -210,6 +216,7 @@ async fn upload(
     process_upload("upload", false, auth, fs, db, settings, webhook, data).await
 }
 
+#[cfg(feature = "media-compression")]
 #[rocket::put("/media", data = "<data>")]
 async fn upload_media(
     auth: BlossomAuth,

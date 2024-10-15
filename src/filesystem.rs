@@ -17,7 +17,7 @@ use crate::db::FileLabel;
 use crate::db::FileUpload;
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
-#[cfg(feature = "nip96")]
+#[cfg(feature = "media-compression")]
 use crate::processing::{compress_file, probe_file, FileProcessorResult, ProbeStream};
 use crate::settings::Settings;
 
@@ -97,14 +97,14 @@ impl FileStore {
 
         info!("File saved to temp path: {}", tmp_path.to_str().unwrap());
 
-        #[cfg(feature = "nip96")]
+        #[cfg(feature = "media-compression")]
         if compress {
             let start = SystemTime::now();
             let proc_result = compress_file(tmp_path.clone(), mime_type)?;
             if let FileProcessorResult::NewFile(new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
-                let time_compress = SystemTime::now().duration_since(start).unwrap();
+                let time_compress = SystemTime::now().duration_since(start)?;
                 let start = SystemTime::now();
                 let blur_hash = blurhash::encode(
                     9,
@@ -113,7 +113,7 @@ impl FileStore {
                     new_temp.height as u32,
                     new_temp.image.as_slice(),
                 )?;
-                let time_blur_hash = SystemTime::now().duration_since(start).unwrap();
+                let time_blur_hash = SystemTime::now().duration_since(start)?;
                 let start = SystemTime::now();
 
                 #[cfg(feature = "labels")]
@@ -131,7 +131,7 @@ impl FileStore {
                     vec![]
                 };
 
-                let time_labels = SystemTime::now().duration_since(start).unwrap();
+                let time_labels = SystemTime::now().duration_since(start)?;
 
                 // delete old temp
                 fs::remove_file(tmp_path)?;
