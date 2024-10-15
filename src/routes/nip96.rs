@@ -211,7 +211,7 @@ async fn upload(
             blob.upload.alt = form.alt.as_ref().map(|s| s.to_string());
             let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
-                match wh.store_file(&pubkey_vec, blob.clone()) {
+                match wh.store_file(&pubkey_vec, blob.clone()).await {
                     Ok(store) => {
                         if !store {
                             let _ = fs::remove_file(blob.path);

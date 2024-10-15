@@ -2,8 +2,10 @@ use crate::analytics::Analytics;
 use crate::settings::Settings;
 use anyhow::Error;
 use log::{info, warn};
+use reqwest::ClientBuilder;
 use rocket::Request;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,25 +32,30 @@ impl PlausibleAnalytics {
             _ => "".to_string(),
         };
         let pub_url = settings.public_url.clone();
+        let c = ClientBuilder::new().build().unwrap();
         tokio::spawn(async move {
             while let Some(mut msg) = rx.recv().await {
                 msg.url = format!("{}{}", pub_url, msg.url);
-                match ureq::post(&format!("{}/api/event", url))
-                    .set(
+                match c
+                    .post(format!("{}/api/event", url))
+                    .header(
                         "user-agent",
                         match &msg.user_agent {
                             Some(s) => s,
                             None => "",
                         },
                     )
-                    .set(
+                    .header(
                         "x-forwarded-for",
                         match &msg.xff {
                             Some(s) => s,
                             None => "",
                         },
                     )
-                    .send_json(&msg)
+                    .json(&msg)
+                    .timeout(Duration::from_secs(30))
+                    .send()
+                    .await
                 {
                     Ok(_v) => info!("Sent {:?}", msg),
                     Err(e) => warn!("Failed to track: {}", e),
@@ -71,7 +78,10 @@ impl Analytics for PlausibleAnalytics {
             url: req.uri().to_string(),
             referrer: req.headers().get_one("Referer").map(|s| s.to_string()),
             user_agent: req.headers().get_one("User-Agent").map(|s| s.to_string()),
-            xff: req.headers().get_one("X-Forwarded-For").map(|s| s.to_string()),
+            xff: req
+                .headers()
+                .get_one("X-Forwarded-For")
+                .map(|s| s.to_string()),
         })?)
     }
 }
