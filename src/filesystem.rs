@@ -101,7 +101,7 @@ impl FileStore {
         if compress {
             let start = SystemTime::now();
             let proc_result = compress_file(tmp_path.clone(), mime_type)?;
-            if let FileProcessorResult::NewFile(new_temp) = proc_result {
+            if let FileProcessorResult::NewFile(mut new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
                 let time_compress = SystemTime::now().duration_since(start)?;

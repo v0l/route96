@@ -29,4 +29,7 @@ pub struct Settings {
 
     /// Analytics tracking
     pub plausible_url: Option<String>,
+
+    #[cfg(feature = "void-cat-redirects")]
+    pub void_cat_database: Option<String>,
 }

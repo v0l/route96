@@ -23,6 +23,7 @@ blossom = []
 bin-void-cat-migrate = ["dep:sqlx-postgres", "dep:clap", "dep:clap_derive"]
 torrent-v2 = []
 analytics = []
+void-cat-redirects = ["dep:sqlx-postgres"]
 
 [dependencies]
 log = "0.4.21"

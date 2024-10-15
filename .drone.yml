@@ -18,5 +18,5 @@ steps:
       - dockerd &
       - docker login -u kieran -p $TOKEN git.v0l.io
       - docker login -u voidic -p $TOKEN_DOCKER
-      - docker buildx build --push -t git.v0l.io/kieran/route96:latest -t voidic/route96:latest --build-arg FEATURES="labels" .
+      - docker buildx build --push -t git.v0l.io/kieran/route96:latest -t voidic/route96:latest --build-arg FEATURES="labels,void-cat-redirects" .
       - kill $(cat /var/run/docker.pid)

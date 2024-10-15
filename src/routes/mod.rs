@@ -10,10 +10,14 @@ pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
+#[cfg(feature = "void-cat-redirects")]
+use crate::void_db::VoidCatDb;
 use anyhow::Error;
 use nostr::Event;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
+#[cfg(feature = "void-cat-redirects")]
+use rocket::response::Redirect;
 use rocket::response::Responder;
 use rocket::serde::Serialize;
 use rocket::{Request, State};
@@ -205,5 +209,29 @@ pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
         Status::Ok
     } else {
         Status::NotFound
+    }
+}
+
+#[cfg(feature = "void-cat-redirects")]
+#[rocket::get("/d/<id>")]
+pub async fn void_cat_redirect(
+    id: &str,
+    settings: &State<Settings>,
+    vdb: &State<VoidCatDb>,
+) -> Option<Redirect> {
+    let id = if id.contains(".") {
+        id.split('.').next().unwrap()
+    } else {
+        id
+    };
+    let uuid =
+        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
+    if let Ok(Some(d)) = vdb.get_digest(&uuid).await {
+        Some(Redirect::permanent(format!(
+            "{}/{}",
+            &settings.public_url, &d
+        )))
+    } else {
+        None
     }
 }

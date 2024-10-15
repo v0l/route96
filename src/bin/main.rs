@@ -17,6 +17,8 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
+#[cfg(feature = "void-cat-redirects")]
+use route96::void_db::VoidCatDb;
 use route96::webhook::Webhook;
 
 #[rocket::main]
@@ -78,6 +80,15 @@ async fn main() -> Result<(), Error> {
     #[cfg(feature = "nip96")]
     {
         rocket = rocket.mount("/", routes::nip96_routes());
+    }
+    #[cfg(feature = "void-cat-redirects")]
+    {
+        if let Some(conn) = settings.void_cat_database {
+            let vdb = VoidCatDb::connect(&conn).await?;
+            rocket = rocket
+                .mount("/", routes![routes::void_cat_redirect])
+                .manage(vdb);
+        }
     }
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
