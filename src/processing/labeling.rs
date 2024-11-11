@@ -1,27 +1,18 @@
-use std::mem::transmute;
-use std::path::PathBuf;
-use std::{fs, ptr, slice};
+use std::path::{Path, PathBuf};
+use std::slice;
 
-use anyhow::Error;
+use anyhow::{Error, Result};
 use candle_core::{DType, Device, IndexOp, Tensor, D};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
-use ffmpeg_sys_the_third::AVColorRange::AVCOL_RANGE_JPEG;
-use ffmpeg_sys_the_third::AVColorSpace::AVCOL_SPC_RGB;
-use ffmpeg_sys_the_third::AVPixelFormat::{AV_PIX_FMT_RGB24, AV_PIX_FMT_RGBA};
-use ffmpeg_sys_the_third::{av_frame_alloc, av_frame_free};
+use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
+use ffmpeg_rs_raw::ffmpeg_sys_the_third::{av_frame_free, av_packet_free};
+use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 
-use crate::processing::resize_image;
-
-pub fn label_frame(
-    frame: &mut [u8],
-    width: usize,
-    height: usize,
-    model: PathBuf,
-) -> Result<Vec<String>, Error> {
+pub fn label_frame(frame: &Path, model: PathBuf) -> Result<Vec<String>> {
     unsafe {
         let device = Device::Cpu;
-        let image = load_frame_224(frame, width, height)?.to_device(&device)?;
+        let image = load_frame_224(frame)?.to_device(&device)?;
 
         let vb = VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device)?;
         let model = vit::Model::new(&vit::Config::vit_base_patch16_224(), 1000, vb)?;
@@ -41,41 +32,50 @@ pub fn label_frame(
     }
 }
 
-unsafe fn load_frame_224(data: &mut [u8], width: usize, height: usize) -> Result<Tensor, Error> {
-    let frame = av_frame_alloc();
-    (*frame).extended_data = &mut data.as_mut_ptr();
-    (*frame).data = [
-        *(*frame).extended_data,
-        ptr::null_mut(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-        ptr::null_mut(),
-    ];
-    (*frame).linesize = [(width * 4) as libc::c_int, 0, 0, 0, 0, 0, 0, 0];
-    (*frame).format = transmute(AV_PIX_FMT_RGBA);
-    (*frame).width = width as libc::c_int;
-    (*frame).height = height as libc::c_int;
-    (*frame).color_range = AVCOL_RANGE_JPEG;
-    (*frame).colorspace = AVCOL_SPC_RGB;
+/// Load an image from disk into RGB pixel buffer
+unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>> {
+    let mut demux = Demuxer::new(path_buf.to_str().unwrap())?;
+    let info = demux.probe_input()?;
+    let image_stream = info
+        .best_video()
+        .ok_or(Error::msg("No image stream found"))?;
 
-    let mut dst_frame = resize_image(frame, 224, 224, AV_PIX_FMT_RGB24)?;
-    let pic_slice = slice::from_raw_parts_mut(
-        (*dst_frame).data[0],
-        ((*dst_frame).width * (*dst_frame).height * 3) as usize,
-    );
+    let mut decoder = Decoder::new();
+    decoder.setup_decoder(image_stream, None)?;
 
-    fs::write("frame_224.raw", &pic_slice)?;
-    let data =
-        Tensor::from_vec(pic_slice.to_vec(), (224, 224, 3), &Device::Cpu)?.permute((2, 0, 1))?;
+    let mut scaler = Scaler::new();
+    while let Ok((mut pkt, _)) = demux.get_packet() {
+        if let Some(mut frame) = decoder.decode_pkt(pkt)?.into_iter().next() {
+            let mut new_frame =
+                scaler.process_frame(frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
+            let mut dst_vec = Vec::with_capacity(3 * width * height);
+
+            for row in 0..height {
+                let line_size = (*new_frame).linesize[0] as usize;
+                let row_offset = line_size * row;
+                let row_slice =
+                    slice::from_raw_parts((*new_frame).data[0].add(row_offset), line_size);
+                dst_vec.extend_from_slice(row_slice);
+            }
+            av_frame_free(&mut frame);
+            av_frame_free(&mut new_frame);
+            av_packet_free(&mut pkt);
+            return Ok(dst_vec);
+        }
+    }
+    Err(Error::msg("No image data found"))
+}
+
+unsafe fn load_frame_224(path: &Path) -> Result<Tensor> {
+    let pic = load_image(path, 224, 224)?;
+
+    //fs::write("frame_224.raw", &pic_slice)?;
+    let data = Tensor::from_vec(pic, (224, 224, 3), &Device::Cpu)?.permute((2, 0, 1))?;
     let mean = Tensor::new(&[0.485f32, 0.456, 0.406], &Device::Cpu)?.reshape((3, 1, 1))?;
     let std = Tensor::new(&[0.229f32, 0.224, 0.225], &Device::Cpu)?.reshape((3, 1, 1))?;
     let res = (data.to_dtype(DType::F32)? / 255.)?
         .broadcast_sub(&mean)?
         .broadcast_div(&std)?;
-    av_frame_free(&mut dst_frame);
     Ok(res)
 }
 

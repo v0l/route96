@@ -18,7 +18,7 @@ use crate::db::FileUpload;
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
-use crate::processing::{compress_file, probe_file, FileProcessorResult, ProbeStream};
+use crate::processing::{compress_file, probe_file, FileProcessorResult};
 use crate::settings::Settings;
 
 #[derive(Clone, Default, Serialize)]
@@ -101,32 +101,18 @@ impl FileStore {
         if compress {
             let start = SystemTime::now();
             let proc_result = compress_file(tmp_path.clone(), mime_type)?;
-            if let FileProcessorResult::NewFile(mut new_temp) = proc_result {
+            if let FileProcessorResult::NewFile(new_temp) = proc_result {
                 let old_size = tmp_path.metadata()?.len();
                 let new_size = new_temp.result.metadata()?.len();
                 let time_compress = SystemTime::now().duration_since(start)?;
                 let start = SystemTime::now();
-                let blur_hash = blurhash::encode(
-                    9,
-                    9,
-                    new_temp.width as u32,
-                    new_temp.height as u32,
-                    new_temp.image.as_slice(),
-                )?;
-                let time_blur_hash = SystemTime::now().duration_since(start)?;
-                let start = SystemTime::now();
 
                 #[cfg(feature = "labels")]
                 let labels = if let Some(mp) = &self.settings.vit_model_path {
-                    label_frame(
-                        new_temp.image.as_mut_slice(),
-                        new_temp.width,
-                        new_temp.height,
-                        mp.clone(),
-                    )?
-                    .iter()
-                    .map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
-                    .collect()
+                    label_frame(&new_temp.result, mp.clone())?
+                        .iter()
+                        .map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
+                        .collect()
                 } else {
                     vec![]
                 };
@@ -145,12 +131,11 @@ impl FileStore {
                 let n = file.metadata().await?.len();
                 let hash = FileStore::hash_file(&mut file).await?;
 
-                info!("Processed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration_compress={:.2}ms, duration_blur_hash={:.2}ms, duration_labels={:.2}ms",
+                info!("Processed media: ratio={:.2}x, old_size={:.3}kb, new_size={:.3}kb, duration_compress={:.2}ms, duration_labels={:.2}ms",
                     old_size as f32 / new_size as f32,
                     old_size as f32 / 1024.0,
                     new_size as f32 / 1024.0,
                     time_compress.as_micros() as f64 / 1000.0,
-                    time_blur_hash.as_micros() as f64 / 1000.0,
                     time_labels.as_micros() as f64 / 1000.0
                 );
 
@@ -162,7 +147,7 @@ impl FileStore {
                         size: n,
                         width: Some(new_temp.width as u32),
                         height: Some(new_temp.height as u32),
-                        blur_hash: Some(blur_hash),
+                        blur_hash: None,
                         mime_type: new_temp.mime_type,
                         #[cfg(feature = "labels")]
                         labels,
@@ -171,11 +156,7 @@ impl FileStore {
                     },
                 });
             }
-        } else if let FileProcessorResult::Probe(p) = probe_file(tmp_path.clone())? {
-            let video_stream_size = p.streams.iter().find_map(|s| match s {
-                ProbeStream::Video { width, height, .. } => Some((width, height)),
-                _ => None,
-            });
+        } else if let Ok(p) = probe_file(tmp_path.clone()) {
             let n = file.metadata().await?.len();
             let hash = FileStore::hash_file(&mut file).await?;
             return Ok(FileSystemResult {
@@ -186,14 +167,8 @@ impl FileStore {
                     size: n,
                     created: Utc::now(),
                     mime_type: mime_type.to_string(),
-                    width: match video_stream_size {
-                        Some((w, _h)) => Some(*w),
-                        _ => None,
-                    },
-                    height: match video_stream_size {
-                        Some((_w, h)) => Some(*h),
-                        _ => None,
-                    },
+                    width: p.map(|v| v.0 as u32),
+                    height: p.map(|v| v.1 as u32),
                     ..Default::default()
                 },
             });
