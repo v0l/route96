@@ -1,5 +1,5 @@
 ARG IMAGE=rust:bookworm
-ARG FEATURES=labels
+ARG FEATURES
 
 FROM $IMAGE as build
 WORKDIR /app/src
@@ -17,22 +17,22 @@ RUN apt update && \
     nasm \
     libclang-dev && \
     rm -rf /var/lib/apt/lists/*
-RUN git clone --depth=1 https://git.v0l.io/Kieran/FFmpeg.git && \
+RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFmpeg.git && \
     cd FFmpeg && \
     ./configure \
-    --prefix=$FFMPEG_DIR \
+    --prefix=${FFMPEG_DIR} \
     --disable-programs \
     --disable-doc \
     --disable-network \
     --enable-gpl \
-    --enable-version3 \
     --enable-libx264 \
     --enable-libwebp \
     --enable-libvpx \
     --disable-static \
+    --disable-postproc \
     --enable-shared && \
-    make -j8 && make install
-RUN cargo install --path . --root /app/build --all-features
+    make -j$(nproc) install
+RUN cargo install --path . --root /app/build --features "${FEATURES}"
 
 FROM node:bookworm as ui_builder
 WORKDIR /app/src

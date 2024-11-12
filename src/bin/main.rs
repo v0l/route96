@@ -1,6 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 
 use anyhow::Error;
+use clap::Parser;
 use config::Config;
 use log::{error, info};
 use rocket::config::Ident;
@@ -21,6 +22,11 @@ use route96::settings::Settings;
 use route96::void_db::VoidCatDb;
 use route96::webhook::Webhook;
 
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+}
+
 #[rocket::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
@@ -34,12 +40,14 @@ async fn main() -> Result<(), Error> {
 
     let db = Database::new(&settings.database).await?;
 
+    let _args: Args = Args::parse();
+    
     info!("Running DB migration");
     db.migrate().await?;
 
     let mut config = rocket::Config::default();
     let ip: SocketAddr = match &settings.listen {
-        Some(i) => i.parse().unwrap(),
+        Some(i) => i.parse()?,
         None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000),
     };
     config.address = ip.ip();

@@ -2975,7 +2975,7 @@ dependencies = [
 
 [[package]]
 name = "route96"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2984,7 +2984,6 @@ dependencies = [
  "candle-transformers",
  "chrono",
  "clap",
- "clap_derive",
  "config",
  "ffmpeg-rs-raw",
  "hex",
