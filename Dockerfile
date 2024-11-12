@@ -1,7 +1,7 @@
 ARG IMAGE=rust:bookworm
 ARG FEATURES
 
-FROM $IMAGE as build
+FROM $IMAGE AS build
 WORKDIR /app/src
 COPY src src
 COPY migrations migrations
@@ -34,12 +34,12 @@ RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFm
     make -j$(nproc) install
 RUN cargo install --path . --root /app/build --features "${FEATURES}"
 
-FROM node:bookworm as ui_builder
+FROM node:bookworm AS ui_builder
 WORKDIR /app/src
 COPY ui_src .
 RUN yarn && yarn build
 
-FROM $IMAGE as runner
+FROM $IMAGE AS runner
 WORKDIR /app
 RUN apt update && \
     apt install -y libx264-164 libwebp7 libvpx7 && \
@@ -47,4 +47,5 @@ RUN apt update && \
 COPY --from=build /app/build .
 COPY --from=ui_builder /app/src/dist ui
 COPY --from=build /app/ffmpeg/lib/ /lib
+RUN ./bin/route96 --version
 ENTRYPOINT ["./bin/route96"]

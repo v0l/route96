@@ -31,6 +31,8 @@ struct Args {
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
+    let _args: Args = Args::parse();
+
     let builder = Config::builder()
         .add_source(config::File::with_name("config.toml"))
         .add_source(config::Environment::with_prefix("APP"))
@@ -40,8 +42,6 @@ async fn main() -> Result<(), Error> {
 
     let db = Database::new(&settings.database).await?;
 
-    let _args: Args = Args::parse();
-    
     info!("Running DB migration");
     db.migrate().await?;
 
