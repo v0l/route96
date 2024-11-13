@@ -1077,7 +1077,7 @@ checksum = "e8c02a5121d4ea3eb16a80748c74f5549a5665e4c21333c6098f283870fbdea6"
 [[package]]
 name = "ffmpeg-rs-raw"
 version = "0.1.0"
-source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=363ad4f55ce3b7047d13197bdff6ed9bd059c099#363ad4f55ce3b7047d13197bdff6ed9bd059c099"
+source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=bde945fe887dfdb38fff096bbf1928b9e8e8469f#bde945fe887dfdb38fff096bbf1928b9e8e8469f"
 dependencies = [
  "anyhow",
  "ffmpeg-sys-the-third",
@@ -1089,7 +1089,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-sys-the-third"
 version = "2.1.0+ffmpeg-7.1"
-source = "git+https://github.com/shssoichiro/ffmpeg-the-third.git?branch=master#1b5d24091a4345dc65f0520974732cd58661c3e2"
+source = "git+https://git.v0l.io/ffmpeg/ffmpeg-the-third.git?branch=master#0fdfa9ab506f5c92aad5a175db081c8a2c1579a1"
 dependencies = [
  "bindgen",
  "cc",
