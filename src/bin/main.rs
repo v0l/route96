@@ -25,16 +25,22 @@ use route96::webhook::Webhook;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Args {
+    #[arg(long)]
+    pub config: Option<String>,
 }
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
-    let _args: Args = Args::parse();
+    let args: Args = Args::parse();
 
     let builder = Config::builder()
-        .add_source(config::File::with_name("config.toml"))
+        .add_source(config::File::with_name(if let Some(ref c) = args.config {
+            c.as_str()
+        } else {
+            "config.toml"
+        }))
         .add_source(config::Environment::with_prefix("APP"))
         .build()?;
 
