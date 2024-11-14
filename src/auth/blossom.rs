@@ -24,18 +24,18 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     if let Ok(ev) = Event::from_json(j) {
                         ev
                     } else {
-                        return Outcome::Error((Status::new(403), "Invalid nostr event"));
+                        return Outcome::Error((Status::new(400), "Invalid nostr event"));
                     }
                 } else {
-                    return Outcome::Error((Status::new(403), "Invalid auth string"));
+                    return Outcome::Error((Status::new(400), "Invalid auth string"));
                 };
 
                 if event.kind != Kind::Custom(24242) {
-                    return Outcome::Error((Status::new(401), "Wrong event kind"));
+                    return Outcome::Error((Status::new(400), "Wrong event kind"));
                 }
                 if event.created_at > Timestamp::now() {
                     return Outcome::Error((
-                        Status::new(401),
+                        Status::new(400),
                         "Created timestamp is in the future",
                     ));
                 }
@@ -50,14 +50,14 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 }) {
                     let u_exp: Timestamp = expiration.parse().unwrap();
                     if u_exp <= Timestamp::now() {
-                        return Outcome::Error((Status::new(401), "Expiration invalid"));
+                        return Outcome::Error((Status::new(400), "Expiration invalid"));
                     }
                 } else {
-                    return Outcome::Error((Status::new(401), "Missing expiration tag"));
+                    return Outcome::Error((Status::new(400), "Missing expiration tag"));
                 }
 
                 if event.verify().is_err() {
-                    return Outcome::Error((Status::new(401), "Event signature invalid"));
+                    return Outcome::Error((Status::new(400), "Event signature invalid"));
                 }
 
                 info!("{}", event.as_json());
@@ -93,10 +93,10 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     }),
                 })
             } else {
-                Outcome::Error((Status::new(403), "Auth scheme must be Nostr"))
+                Outcome::Error((Status::new(400), "Auth scheme must be Nostr"))
             }
         } else {
-            Outcome::Error((Status::new(403), "Auth header not found"))
+            Outcome::Error((Status::new(401), "Auth header not found"))
         }
     }
 }
