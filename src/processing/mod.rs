@@ -52,7 +52,7 @@ impl WebpProcessor {
                 .open(None)?;
 
             trans.transcode_stream(image_stream, enc)?;
-            trans.run()?;
+            trans.run(None)?;
 
             Ok(FileProcessorResult::NewFile(NewFileProcessorResult {
                 result: out_path,
