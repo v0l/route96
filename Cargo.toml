@@ -47,7 +47,7 @@ clap = { version = "4.5.18", features = ["derive"] }
 
 libc = { version = "0.2.153", optional = true }
 ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "4c3e1dfccc46d5487110dd9de5ba672c4d32697f", optional = true }
-candle-core = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
-candle-nn = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
-candle-transformers = { git = "https://git.v0l.io/Kieran/candle.git", version = "^0.7.2", optional = true }
+candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2", optional = true }
+candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2", optional = true }
+candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2", optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
