@@ -180,7 +180,7 @@ async fn upload(
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),
     };
-    let mime_type = form.media_type.unwrap_or("application/octet-stream");
+    let content_type = form.content_type.unwrap_or("application/octet-stream");
 
     if form.expiration.is_some() {
         return Nip96Response::error("Expiration not supported");
@@ -200,7 +200,7 @@ async fn upload(
         }
     }
     match fs
-        .put(file, mime_type, !form.no_transform.unwrap_or(false))
+        .put(file, content_type, !form.no_transform.unwrap_or(false))
         .await
     {
         Ok(mut blob) => {
