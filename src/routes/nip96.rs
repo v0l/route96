@@ -125,8 +125,6 @@ struct Nip96Form<'r> {
     size: u64,
     alt: Option<&'r str>,
     caption: Option<&'r str>,
-    media_type: Option<&'r str>,
-    #[allow(dead_code)]
     content_type: Option<&'r str>,
     no_transform: Option<bool>,
 }
