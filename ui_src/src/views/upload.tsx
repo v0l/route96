@@ -23,8 +23,7 @@ export default function Upload() {
   const login = useLogin();
   const pub = usePublisher();
 
-  const url = `${location.protocol}//${location.host}`;
-  //const url = "http://localhost:8000";
+  const url = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
   async function doUpload() {
     if (!pub) return;
     if (!toUpload) return;
