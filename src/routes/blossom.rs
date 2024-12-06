@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::fs;
-
 use log::error;
 use nostr::prelude::hex;
 use nostr::{Alphabet, SingleLetterTag, TagKind};
@@ -10,6 +7,8 @@ use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
 
 use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
@@ -84,6 +83,9 @@ enum BlossomResponse {
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
 
     StatusOnly(Status),
+    
+    #[response(status = 403)]
+    Forbidden(Json<BlossomError>),
 }
 
 impl BlossomResponse {
@@ -269,7 +271,9 @@ async fn process_upload(
     // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return BlossomResponse::error("Not on whitelist");
+            return BlossomResponse::Forbidden(Json(BlossomError::new(
+                "Not on whitelist".to_string(),
+            )));
         }
     }
     match fs

@@ -76,23 +76,18 @@ enum Nip96Response {
 
     #[response(status = 200)]
     FileList(Json<PagedResult<Nip94Event>>),
+
+    #[response(status = 403)]
+    Forbidden(Json<Nip96UploadResult>),
 }
 
 impl Nip96Response {
     pub(crate) fn error(msg: &str) -> Self {
-        Nip96Response::GenericError(Json(Nip96UploadResult {
-            status: "error".to_string(),
-            message: Some(msg.to_string()),
-            ..Default::default()
-        }))
+        Nip96Response::GenericError(Json(Nip96UploadResult::error(msg)))
     }
 
     fn success(msg: &str) -> Self {
-        Nip96Response::UploadResult(Json(Nip96UploadResult {
-            status: "success".to_string(),
-            message: Some(msg.to_string()),
-            ..Default::default()
-        }))
+        Nip96Response::UploadResult(Json(Nip96UploadResult::success(msg)))
     }
 }
 
@@ -113,6 +108,22 @@ impl Nip96UploadResult {
         Self {
             status: "success".to_string(),
             nip94_event: Some(Nip94Event::from_upload(settings, upload)),
+            ..Default::default()
+        }
+    }
+
+    pub fn success(msg: &str) -> Self {
+        Nip96UploadResult {
+            status: "error".to_string(),
+            message: Some(msg.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn error(msg: &str) -> Self {
+        Nip96UploadResult {
+            status: "error".to_string(),
+            message: Some(msg.to_string()),
             ..Default::default()
         }
     }
@@ -194,7 +205,7 @@ async fn upload(
     // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return Nip96Response::error("Not on whitelist");
+            return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
         }
     }
     match fs
