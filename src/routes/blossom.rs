@@ -6,7 +6,7 @@ use rocket::http::{Header, Status};
 use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 
@@ -50,11 +50,6 @@ impl BlobDescriptor {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct BlossomError {
-    pub message: String,
-}
-
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
     routes![delete_blob, upload, list_files, upload_head, upload_media]
@@ -65,32 +60,39 @@ pub fn blossom_routes() -> Vec<Route> {
     routes![delete_blob, upload, list_files, upload_head]
 }
 
-impl BlossomError {
-    pub fn new(msg: String) -> Self {
-        Self { message: msg }
-    }
+/// Generic holder response, mostly for errors
+struct BlossomGenericResponse {
+    pub message: Option<String>,
+    pub status: Status,
 }
 
+impl<'r> Responder<'r, 'static> for BlossomGenericResponse {
+    fn respond_to(self, _request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let mut r = Response::new();
+        r.set_status(self.status);
+        if let Some(message) = self.message {
+            r.set_raw_header("X-Reason", message);
+        }
+        Ok(r)
+    }
+}
 #[derive(Responder)]
 enum BlossomResponse {
-    #[response(status = 500)]
-    GenericError(Json<BlossomError>),
+    Generic(BlossomGenericResponse),
 
     #[response(status = 200)]
     BlobDescriptor(Json<BlobDescriptor>),
 
     #[response(status = 200)]
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
-
-    StatusOnly(Status),
-    
-    #[response(status = 403)]
-    Forbidden(Json<BlossomError>),
 }
 
 impl BlossomResponse {
     pub fn error(msg: impl Into<String>) -> Self {
-        Self::GenericError(Json(BlossomError::new(msg.into())))
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: Status::InternalServerError,
+        })
     }
 }
 
@@ -135,7 +137,10 @@ async fn delete_blob(
     db: &State<Database>,
 ) -> BlossomResponse {
     match delete_file(sha256, &auth.event, fs, db).await {
-        Ok(()) => BlossomResponse::StatusOnly(Status::Ok),
+        Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
+            status: Status::Ok,
+            message: None,
+        }),
         Err(e) => BlossomResponse::error(format!("Failed to delete file: {}", e)),
     }
 }
@@ -271,9 +276,10 @@ async fn process_upload(
     // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return BlossomResponse::Forbidden(Json(BlossomError::new(
-                "Not on whitelist".to_string(),
-            )));
+            return BlossomResponse::Generic(BlossomGenericResponse {
+                status: Status::Forbidden,
+                message: Some("Not on whitelist".to_string()),
+            });
         }
     }
     match fs
