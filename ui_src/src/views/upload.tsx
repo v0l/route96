@@ -31,7 +31,7 @@ export default function Upload() {
       setError(undefined);
       if (type === "blossom") {
         const uploader = new Blossom(url, pub);
-        const result = await uploader.upload(toUpload);
+        const result = noCompress ? await uploader.upload(toUpload) : await uploader.media(toUpload);
         setResults((s) => [...s, result]);
       }
       if (type === "nip96") {
@@ -128,15 +128,13 @@ export default function Upload() {
         </div>
       </div>
 
-      {type === "nip96" && (
-        <div
-          className="flex gap-2 cursor-pointer"
-          onClick={() => setNoCompress((s) => !s)}
-        >
-          Disable Compression
-          <input type="checkbox" checked={noCompress} />
-        </div>
-      )}
+      <div
+        className="flex gap-2 cursor-pointer"
+        onClick={() => setNoCompress((s) => !s)}
+      >
+        Disable Compression
+        <input type="checkbox" checked={noCompress} />
+      </div>
 
       <Button
         onClick={async () => {

@@ -51,3 +51,4 @@ candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2"
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.7.2", optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
+mime2ext = "0.1.53"

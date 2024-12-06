@@ -57,7 +57,14 @@ impl Nip94Event {
         let mut tags = vec![
             vec![
                 "url".to_string(),
-                format!("{}/{}", &settings.public_url, &hex_id),
+                format!(
+                    "{}/{}{}",
+                    &settings.public_url,
+                    &hex_id,
+                    mime2ext::mime2ext(&upload.mime_type)
+                        .map(|m| format!(".{m}"))
+                        .unwrap_or("".to_string())
+                ),
             ],
             vec!["x".to_string(), hex_id],
             vec!["m".to_string(), upload.mime_type.clone()],

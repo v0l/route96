@@ -34,6 +34,22 @@ export class Blossom {
     }
   }
 
+  async media(file: File) {
+    const hash = await window.crypto.subtle.digest(
+      "SHA-256",
+      await file.arrayBuffer(),
+    );
+    const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
+
+    const rsp = await this.#req("/media", "PUT", file, tags);
+    if (rsp.ok) {
+      return (await rsp.json()) as BlobDescriptor;
+    } else {
+      const text = await rsp.text();
+      throw new Error(text);
+    }
+  }
+
   async #req(
     path: string,
     method: "GET" | "POST" | "DELETE" | "PUT",
@@ -42,7 +58,7 @@ export class Blossom {
   ) {
     throwIfOffline();
 
-    const url = `${this.url}upload`;
+    const url = `${this.url}${path}`;
     const now = unixNow();
     const auth = async (url: string, method: string) => {
       const auth = await this.publisher.generic((eb) => {

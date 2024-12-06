@@ -34,7 +34,14 @@ impl BlobDescriptor {
     pub fn from_upload(settings: &Settings, value: &FileUpload) -> Self {
         let id_hex = hex::encode(&value.id);
         Self {
-            url: format!("{}/{}", settings.public_url, &id_hex),
+            url: format!(
+                "{}/{}{}",
+                settings.public_url,
+                &id_hex,
+                mime2ext::mime2ext(&value.mime_type)
+                    .map(|m| format!(".{m}"))
+                    .unwrap_or("".to_string())
+            ),
             sha256: id_hex,
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
