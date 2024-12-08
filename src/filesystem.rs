@@ -109,9 +109,14 @@ impl FileStore {
 
                 #[cfg(feature = "labels")]
                 let labels = if let Some(mp) = &self.settings.vit_model_path {
-                    label_frame(&new_temp.result, mp.clone())?
+                    let config_path = if let Some(c) = &self.settings.vit_model_config_path {
+                        c
+                    } else {
+                        bail!("Missing vit_model_config_path");
+                    };
+                    label_frame(&new_temp.result, mp.clone(), config_path.clone())?
                         .iter()
-                        .map(|l| FileLabel::new(l.clone(), "vit224".to_string()))
+                        .map(|l| FileLabel::new(l.0.clone(), "vit224".to_string()))
                         .collect()
                 } else {
                     vec![]

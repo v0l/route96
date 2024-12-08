@@ -24,6 +24,9 @@ pub struct Settings {
     /// Path for ViT image model
     pub vit_model_path: Option<PathBuf>,
 
+    /// Path for ViT image model config.json
+    pub vit_model_config_path: Option<PathBuf>,
+
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
 

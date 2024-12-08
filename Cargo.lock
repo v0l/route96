@@ -453,8 +453,8 @@ checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 
 [[package]]
 name = "candle-core"
-version = "0.7.2"
-source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.7.2#3a3c48b14b861da0d275cae44edb1b0191f83bf4"
+version = "0.8.1"
+source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.8.1#67cab7d6b8279f953b0a8cc5012b135b9743cdc8"
 dependencies = [
  "byteorder",
  "gemm",
@@ -467,14 +467,15 @@ dependencies = [
  "rayon",
  "safetensors",
  "thiserror",
+ "ug",
  "yoke",
  "zip",
 ]
 
 [[package]]
 name = "candle-nn"
-version = "0.7.2"
-source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.7.2#3a3c48b14b861da0d275cae44edb1b0191f83bf4"
+version = "0.8.1"
+source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.8.1#67cab7d6b8279f953b0a8cc5012b135b9743cdc8"
 dependencies = [
  "candle-core",
  "half",
@@ -487,8 +488,8 @@ dependencies = [
 
 [[package]]
 name = "candle-transformers"
-version = "0.7.2"
-source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.7.2#3a3c48b14b861da0d275cae44edb1b0191f83bf4"
+version = "0.8.1"
+source = "git+https://git.v0l.io/huggingface/candle.git?tag=0.8.1#67cab7d6b8279f953b0a8cc5012b135b9743cdc8"
 dependencies = [
  "byteorder",
  "candle-core",
@@ -2150,6 +2151,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "num"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
+dependencies = [
+ "num-bigint",
+ "num-complex",
+ "num-integer",
+ "num-iter",
+ "num-rational",
+ "num-traits",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2198,6 +2223,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1429034a0490724d0075ebb2bc9e875d6503c3cf69e235a8941aa757d83ef5bf"
 dependencies = [
  "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
+dependencies = [
+ "num-bigint",
  "num-integer",
  "num-traits",
 ]
@@ -4103,6 +4139,19 @@ name = "ucd-trie"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9"
+
+[[package]]
+name = "ug"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4eef2ebfc18c67a6dbcacd9d8a4d85e0568cc58c82515552382312c2730ea13"
+dependencies = [
+ "half",
+ "num",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "uncased"
