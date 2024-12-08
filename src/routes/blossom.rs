@@ -59,7 +59,14 @@ impl BlobDescriptor {
 
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head, upload_media]
+    routes![
+        delete_blob,
+        upload,
+        list_files,
+        upload_head,
+        upload_media,
+        head_media
+    ]
 }
 
 #[cfg(not(feature = "media-compression"))]
@@ -175,7 +182,42 @@ async fn list_files(
 }
 
 #[rocket::head("/upload")]
-async fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
+fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
+    check_head(auth, settings)
+}
+
+#[rocket::put("/upload", data = "<data>")]
+async fn upload(
+    auth: BlossomAuth,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+    data: Data<'_>,
+) -> BlossomResponse {
+    process_upload("upload", false, auth, fs, db, settings, webhook, data).await
+}
+
+#[cfg(feature = "media-compression")]
+#[rocket::head("/media")]
+fn head_media(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
+    check_head(auth, settings)
+}
+
+#[cfg(feature = "media-compression")]
+#[rocket::put("/media", data = "<data>")]
+async fn upload_media(
+    auth: BlossomAuth,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+    data: Data<'_>,
+) -> BlossomResponse {
+    process_upload("media", true, auth, fs, db, settings, webhook, data).await
+}
+
+fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -216,31 +258,6 @@ async fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHe
     }
 
     BlossomHead { msg: None }
-}
-
-#[rocket::put("/upload", data = "<data>")]
-async fn upload(
-    auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
-    data: Data<'_>,
-) -> BlossomResponse {
-    process_upload("upload", false, auth, fs, db, settings, webhook, data).await
-}
-
-#[cfg(feature = "media-compression")]
-#[rocket::put("/media", data = "<data>")]
-async fn upload_media(
-    auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
-    data: Data<'_>,
-) -> BlossomResponse {
-    process_upload("media", true, auth, fs, db, settings, webhook, data).await
 }
 
 async fn process_upload(
