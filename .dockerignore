@@ -6,3 +6,4 @@ docker-compose.yml
 .dockerignore
 .gitignore
 ui_src/.node_modules
+docs/
