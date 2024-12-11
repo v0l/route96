@@ -18,4 +18,4 @@ services:
       - "8000:8000"
     volumes:
       - "files:/app/data"
-      - "./config.prod.toml:/app/config.toml"
+      - "./config.prod.yaml:/app/config.yaml"

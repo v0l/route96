@@ -39,7 +39,7 @@ async fn main() -> Result<(), Error> {
         .add_source(config::File::with_name(if let Some(ref c) = args.config {
             c.as_str()
         } else {
-            "config.toml"
+            "config.yaml"
         }))
         .add_source(config::Environment::with_prefix("APP"))
         .build()?;

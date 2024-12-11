@@ -2,6 +2,7 @@ use crate::analytics::Analytics;
 use crate::settings::Settings;
 use anyhow::Error;
 use log::{info, warn};
+use nostr::serde_json;
 use reqwest::ClientBuilder;
 use rocket::Request;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,8 @@ impl PlausibleAnalytics {
         tokio::spawn(async move {
             while let Some(mut msg) = rx.recv().await {
                 msg.url = format!("{}{}", pub_url, msg.url);
+
+                let body = serde_json::to_string(&msg).unwrap();
                 match c
                     .post(format!("{}/api/event", url))
                     .header(
@@ -52,7 +55,8 @@ impl PlausibleAnalytics {
                             None => "",
                         },
                     )
-                    .json(&msg)
+                    .header("content-type", "application/json")
+                    .body(body)
                     .timeout(Duration::from_secs(30))
                     .send()
                     .await

@@ -27,7 +27,7 @@ void-cat-redirects = ["dep:sqlx-postgres"]
 
 [dependencies]
 log = "0.4.21"
-nostr = "0.36.0"
+nostr = "0.37.0"
 pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.0", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
@@ -38,7 +38,7 @@ uuid = { version = "1.8.0", features = ["v4"] }
 anyhow = "^1.0.82"
 sha2 = "0.10.8"
 sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
-config = { version = "0.14.0", features = ["toml"] }
+config = { version = "0.14.0", features = ["yaml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }

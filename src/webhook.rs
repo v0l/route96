@@ -1,4 +1,5 @@
 use anyhow::Error;
+use nostr::serde_json;
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 
@@ -31,11 +32,13 @@ impl Webhook {
             subject: Some(hex::encode(pubkey)),
             payload: fs,
         };
+        let body = serde_json::to_string(&body)?;
         let req = self
             .client
             .post(&self.url)
             .header("accept", "application/json")
-            .json(&body)
+            .header("content-type", "application/json")
+            .body(body)
             .send()
             .await?;
 

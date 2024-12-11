@@ -36,7 +36,7 @@ async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
     let builder = Config::builder()
-        .add_source(config::File::with_name("config.toml"))
+        .add_source(config::File::with_name("config.yaml"))
         .add_source(config::Environment::with_prefix("APP"))
         .build()?;
 

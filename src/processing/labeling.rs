@@ -55,6 +55,7 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
     let mut decoder = Decoder::new();
     decoder.setup_decoder(image_stream, None)?;
 
+    // TODO: crop image square
     let mut scaler = Scaler::new();
     while let Ok((mut pkt, _)) = demux.get_packet() {
         if let Some(mut frame) = decoder.decode_pkt(pkt)?.into_iter().next() {

@@ -22,10 +22,7 @@ pub struct Settings {
     pub whitelist: Option<Vec<String>>,
 
     /// Path for ViT image model
-    pub vit_model_path: Option<PathBuf>,
-
-    /// Path for ViT image model config.json
-    pub vit_model_config_path: Option<PathBuf>,
+    pub vit_model: Option<VitModelConfig>,
 
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
@@ -35,4 +32,10 @@ pub struct Settings {
 
     #[cfg(feature = "void-cat-redirects")]
     pub void_cat_database: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VitModelConfig {
+    pub model: PathBuf,
+    pub config: PathBuf,
 }

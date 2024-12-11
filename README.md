@@ -33,12 +33,12 @@ docker compose -f docker-compose.prod.yml up
 
 ### Manual
 
-Assuming you already created your `config.toml` and configured the `database` run:
+Assuming you already created your `config.yaml` and configured the `database` run:
 
 ```bash
 docker run --rm -it \
   -p 8000:8000 \
-  -v ./config.toml:/app/config.toml \
+  -v ./config.yaml:/app/config.yaml \
   -e "RUST_LOG=info" \
   voidic/route96
 ```
