@@ -46,7 +46,7 @@ reqwest = "0.12.8"
 clap = { version = "4.5.18", features = ["derive"] }
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "df69b2f05da4279e36ad55086d77b45b2caf5174", optional = true }
+ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "b358b3e4209da827e021d979c7d35876594d0285", optional = true }
 candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }

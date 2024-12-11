@@ -31,7 +31,7 @@ The easiest way to run `route96` is to use `docker compose`
 docker compose -f docker-compose.prod.yml up
 ```
 
-### Manual
+### Docker
 
 Assuming you already created your `config.yaml` and configured the `database` run:
 
@@ -43,29 +43,5 @@ docker run --rm -it \
   voidic/route96
 ```
 
-## Building
-
-### Feature Flags
-
-Default = `nip96` & `blossom` & `analytics`
-
-- `nip96`: Enable NIP-96 support
-- `blossom`: Enable blossom support
-- `labels`: Enable AI image labeling (Depends on `nip96`)
-- `analytics`: Enable pageview analytics reporting (Plausible)
-
-### Default build:
-
-`cargo build --release`
-
-### Build only Blossom support
-
-`cargo build --release --no-default-features --features blossom`
-
-### Build dependencies
-
-If you want to support NIP-96 you will need the following dependencies:
-
-```bash
-libavcodec-dev libavformat-dev libswscale-dev libavutil-dev libavdevice-dev libavfilter-dev
-```
+### Manual
+See [install.md](docs/debian.md)
