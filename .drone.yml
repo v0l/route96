@@ -1,10 +1,15 @@
 kind: pipeline
 type: kubernetes
 name: default
-
 metadata:
   namespace: git
-
+concurrency:
+  limit: 1
+trigger:
+  branch:
+    - main
+  event:
+    - push
 steps:
   - name: build
     image: docker
@@ -19,4 +24,30 @@ steps:
       - docker login -u kieran -p $TOKEN git.v0l.io
       - docker login -u voidic -p $TOKEN_DOCKER
       - docker buildx build --push -t git.v0l.io/kieran/route96:latest -t voidic/route96:latest .
+      - kill $(cat /var/run/docker.pid)
+---
+kind: pipeline
+type: kubernetes
+name: docker-tagged
+concurrency:
+  limit: 1
+trigger:
+  event:
+    - tag
+metadata:
+  namespace: git
+steps:
+  - name: build
+    image: docker
+    privileged: true
+    environment:
+      TOKEN:
+        from_secret: gitea
+      TOKEN_DOCKER:
+        from_secret: docker_hub
+    commands:
+      - dockerd &
+      - docker login -u kieran -p $TOKEN git.v0l.io
+      - docker login -u voidic -p $TOKEN_DOCKER
+      - docker buildx build --push -t git.v0l.io/kieran/route96:$DRONE_TAG -t voidic/route96:$DRONE_TAG .
       - kill $(cat /var/run/docker.pid)
