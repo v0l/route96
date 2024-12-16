@@ -9,7 +9,7 @@ use crate::settings::Settings;
 use crate::void_file::VoidFile;
 use anyhow::Error;
 use http_range_header::{parse_range_header, EndPosition, StartPosition};
-use log::warn;
+use log::{debug, warn};
 use nostr::Event;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
@@ -365,6 +365,7 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
             uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice())
                 .unwrap();
         let f = base.join(VoidFile::map_to_path(&uuid));
+        debug!("Legacy file map: {} => {}", id, f.display());
         if let Ok(f) = NamedFile::open(f).await {
             Some(f)
         } else {
