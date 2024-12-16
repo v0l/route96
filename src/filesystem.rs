@@ -6,7 +6,9 @@ use std::time::SystemTime;
 
 use anyhow::Error;
 use chrono::Utc;
+use ffmpeg_rs_raw::DemuxerInfo;
 use log::info;
+use rocket::form::validate::Contains;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
@@ -42,14 +44,14 @@ impl FileStore {
     }
 
     /// Store a new file
-    pub async fn put<TStream>(
+    pub async fn put<S>(
         &self,
-        stream: TStream,
+        stream: S,
         mime_type: &str,
         compress: bool,
     ) -> Result<FileSystemResult, Error>
     where
-        TStream: AsyncRead + Unpin,
+        S: AsyncRead + Unpin,
     {
         let result = self
             .store_compress_file(stream, mime_type, compress)
@@ -75,14 +77,35 @@ impl FileStore {
         }
     }
 
-    async fn store_compress_file<TStream>(
+    /// Try to replace the mime-type when unknown using ffmpeg probe result
+    fn hack_mime_type(mime_type: &str, p: &DemuxerInfo) -> String {
+        if mime_type == "application/octet-stream" {
+            if p.format.contains("mp4") {
+                "video/mp4".to_string()
+            } else if p.format.contains("webp") {
+                "image/webp".to_string()
+            } else if p.format.contains("jpeg") {
+                "image/jpeg".to_string()
+            } else if p.format.contains("png") {
+                "image/png".to_string()
+            } else if p.format.contains("gif") {
+                "image/gif".to_string()
+            } else {
+                mime_type.to_string()
+            }
+        } else {
+            mime_type.to_string()
+        }
+    }
+
+    async fn store_compress_file<S>(
         &self,
-        mut stream: TStream,
+        mut stream: S,
         mime_type: &str,
         compress: bool,
     ) -> Result<FileSystemResult, Error>
     where
-        TStream: AsyncRead + Unpin,
+        S: AsyncRead + Unpin,
     {
         let random_id = uuid::Uuid::new_v4();
         let tmp_path = FileStore::map_temp(random_id);
@@ -159,6 +182,7 @@ impl FileStore {
         } else if let Ok(p) = probe_file(tmp_path.clone()) {
             let n = file.metadata().await?.len();
             let hash = FileStore::hash_file(&mut file).await?;
+            let v_stream = p.best_video();
             return Ok(FileSystemResult {
                 path: tmp_path,
                 upload: FileUpload {
@@ -166,9 +190,9 @@ impl FileStore {
                     name: "".to_string(),
                     size: n,
                     created: Utc::now(),
-                    mime_type: mime_type.to_string(),
-                    width: p.map(|v| v.0 as u32),
-                    height: p.map(|v| v.1 as u32),
+                    mime_type: Self::hack_mime_type(mime_type, &p),
+                    width: v_stream.map(|v| v.width as u32),
+                    height: v_stream.map(|v| v.height as u32),
                     ..Default::default()
                 },
             });

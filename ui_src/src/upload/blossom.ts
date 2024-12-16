@@ -50,6 +50,18 @@ export class Blossom {
     }
   }
 
+  async mirror(url: string) {
+    const rsp = await this.#req("mirror", "PUT", "mirror", JSON.stringify({ url }), undefined, {
+      "content-type": "application/json"
+    });
+    if (rsp.ok) {
+      return (await rsp.json()) as BlobDescriptor;
+    } else {
+      const text = await rsp.text();
+      throw new Error(text);
+    }
+  }
+
   async list(pk: string) {
     const rsp = await this.#req(`list/${pk}`, "GET", "list");
     if (rsp.ok) {
@@ -76,6 +88,7 @@ export class Blossom {
     term: string,
     body?: BodyInit,
     tags?: Array<Array<string>>,
+    headers?: Record<string, string>,
   ) {
     throwIfOffline();
 
@@ -100,6 +113,7 @@ export class Blossom {
       method,
       body,
       headers: {
+        ...headers,
         accept: "application/json",
         authorization: await auth(url, method),
       },

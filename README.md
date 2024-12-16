@@ -8,6 +8,7 @@ Image hosting service
 - [Blossom Support](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
   - [BUD-01](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
   - [BUD-02](https://github.com/hzrd149/blossom/blob/master/buds/02.md)
+  - [BUD-04](https://github.com/hzrd149/blossom/blob/master/buds/04.md)
   - [BUD-05](https://github.com/hzrd149/blossom/blob/master/buds/05.md)
   - [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md)
   - [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md)

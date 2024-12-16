@@ -17,6 +17,7 @@ export default function Upload() {
   const [toUpload, setToUpload] = useState<File>();
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
+  const [bulkPrgress, setBulkProgress] = useState<number>();
   const [results, setResults] = useState<Array<object>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
@@ -26,7 +27,8 @@ export default function Upload() {
   const login = useLogin();
   const pub = usePublisher();
 
-  const myLegacyFiles = login ? (Report as Record<string, Array<string>>)[login.pubkey] : [];
+  const legacyFiles = Report as Record<string, Array<string>>;
+  const myLegacyFiles = login ? legacyFiles[login.pubkey] : [];
 
   const url = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
   async function doUpload() {
@@ -110,6 +112,20 @@ export default function Upload() {
     }
   }
 
+  async function migrateLegacy() {
+    if (!pub) return;
+    const uploader = new Blossom(url, pub);
+    let ctr = 0;
+    for (const f of myLegacyFiles) {
+      try {
+        await uploader.mirror(`https://void.cat/d/${f}`);
+      } catch (e) {
+        console.error(e);
+      }
+      setBulkProgress(ctr++ / myLegacyFiles.length);
+    }
+  }
+
   useEffect(() => {
     listUploads(listedPage);
   }, [listedPage]);
@@ -190,13 +206,14 @@ export default function Upload() {
         <div className="flex flex-col gap-4 font-bold">
           You have {myLegacyFiles.length.toLocaleString()} files which can be migrated from void.cat
           <div className="flex gap-2">
-            <Button>
+            <Button onClick={() => migrateLegacy()}>
               Migrate Files
             </Button>
-            <Button onClick={() => setShowLegacy(true)}>
-              Show Files
+            <Button onClick={() => setShowLegacy(s => !s)}>
+              {!showLegacy ? "Show Files" : "Hide Files"}
             </Button>
           </div>
+          {bulkPrgress !== undefined && <progress value={bulkPrgress} />}
         </div>
       )}
       {showLegacy && (

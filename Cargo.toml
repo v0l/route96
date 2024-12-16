@@ -49,12 +49,13 @@ config = { version = "0.14.0", features = ["yaml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }
-reqwest = "0.12.8"
+reqwest = { version = "0.12.8", features = ["stream"] }
 clap = { version = "4.5.18", features = ["derive"] }
 mime2ext = "0.1.53"
+tokio-util = { version = "0.7.13", features = ["io"] }
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "b358b3e4209da827e021d979c7d35876594d0285", optional = true }
+ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "76333375d8c7c825cd9e45c041866f2c655c7bbd", optional = true }
 candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
@@ -62,4 +63,5 @@ sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uui
 http-range-header = { version = "0.4.2", optional = true }
 nostr-cursor = { git = "https://git.v0l.io/Kieran/nostr_backup_proc.git", branch = "main", optional = true }
 regex = { version = "1.11.1", optional = true }
+
 

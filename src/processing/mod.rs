@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::processing::probe::FFProbe;
 use anyhow::{bail, Error, Result};
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
+use ffmpeg_rs_raw::{DemuxerInfo, Encoder, StreamType, Transcoder};
 
 #[cfg(feature = "labels")]
 pub mod labeling;
@@ -64,22 +64,6 @@ impl WebpProcessor {
     }
 }
 
-pub struct ProbeResult {
-    pub streams: Vec<ProbeStream>,
-}
-
-pub enum ProbeStream {
-    Video {
-        width: u32,
-        height: u32,
-        codec: String,
-    },
-    Audio {
-        sample_rate: u32,
-        codec: String,
-    },
-}
-
 pub enum FileProcessorResult {
     NewFile(NewFileProcessorResult),
     Skip,
@@ -105,8 +89,8 @@ pub fn compress_file(in_file: PathBuf, mime_type: &str) -> Result<FileProcessorR
     }
 }
 
-pub fn probe_file(in_file: PathBuf) -> Result<Option<(usize, usize)>> {
+pub fn probe_file(in_file: PathBuf) -> Result<DemuxerInfo> {
     let proc = FFProbe::new();
     let info = proc.process_file(in_file)?;
-    Ok(info.best_video().map(|v| (v.width, v.height)))
+    Ok(info)
 }

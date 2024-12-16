@@ -1,21 +1,23 @@
-use log::error;
-use nostr::prelude::hex;
-use nostr::{Alphabet, SingleLetterTag, TagKind};
-use rocket::data::ByteUnit;
-use rocket::http::{Header, Status};
-use rocket::response::Responder;
-use rocket::serde::json::Json;
-use rocket::{routes, Data, Request, Response, Route, State};
-use serde::Serialize;
-use std::collections::HashMap;
-use std::fs;
-
 use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
+use log::error;
+use nostr::prelude::hex;
+use nostr::{Alphabet, SingleLetterTag, TagKind};
+use rocket::data::ByteUnit;
+use rocket::futures::StreamExt;
+use rocket::http::{Header, Status};
+use rocket::response::Responder;
+use rocket::serde::json::Json;
+use rocket::{routes, Data, Request, Response, Route, State};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use tokio::io::AsyncRead;
+use tokio_util::io::StreamReader;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(crate = "rocket::serde")]
@@ -57,6 +59,11 @@ impl BlobDescriptor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MirrorRequest {
+    pub url: String,
+}
+
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
     routes![
@@ -65,13 +72,14 @@ pub fn blossom_routes() -> Vec<Route> {
         list_files,
         upload_head,
         upload_media,
-        head_media
+        head_media,
+        mirror
     ]
 }
 
 #[cfg(not(feature = "media-compression"))]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head]
+    routes![delete_blob, upload, list_files, upload_head, mirror]
 }
 
 /// Generic holder response, mostly for errors
@@ -143,6 +151,19 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
     false
 }
 
+fn check_whitelist(auth: &BlossomAuth, settings: &Settings) -> Option<BlossomResponse> {
+    // check whitelist
+    if let Some(wl) = &settings.whitelist {
+        if !wl.contains(&auth.event.pubkey.to_hex()) {
+            return Some(BlossomResponse::Generic(BlossomGenericResponse {
+                status: Status::Forbidden,
+                message: Some("Not on whitelist".to_string()),
+            }));
+        }
+    }
+    None
+}
+
 #[rocket::delete("/<sha256>")]
 async fn delete_blob(
     sha256: &str,
@@ -196,6 +217,55 @@ async fn upload(
     data: Data<'_>,
 ) -> BlossomResponse {
     process_upload("upload", false, auth, fs, db, settings, webhook, data).await
+}
+
+#[rocket::put("/mirror", data = "<req>", format = "json")]
+async fn mirror(
+    auth: BlossomAuth,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+    req: Json<MirrorRequest>,
+) -> BlossomResponse {
+    if !check_method(&auth.event, "mirror") {
+        return BlossomResponse::error("Invalid request method tag");
+    }
+    if let Some(e) = check_whitelist(&auth, settings) {
+        return e;
+    }
+
+    // download file
+    let rsp = match reqwest::get(&req.url).await {
+        Err(e) => {
+            error!("Error downloading file: {}", e);
+            return BlossomResponse::error("Failed to mirror file");
+        }
+        Ok(rsp) => rsp,
+    };
+
+    let mime_type = rsp
+        .headers()
+        .get("content-type")
+        .map(|h| h.to_str().unwrap())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let pubkey = auth.event.pubkey.to_bytes().to_vec();
+
+    process_stream(
+        StreamReader::new(rsp.bytes_stream().map(|result| {
+            result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+        })),
+        &mime_type,
+        &None,
+        &pubkey,
+        false,
+        fs,
+        db,
+        settings,
+        webhook,
+    )
+    .await
 }
 
 #[cfg(feature = "media-compression")]
@@ -293,33 +363,47 @@ async fn process_upload(
             return BlossomResponse::error("File too large");
         }
     }
-    let mime_type = auth
-        .content_type
-        .unwrap_or("application/octet-stream".to_string());
 
     // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return BlossomResponse::Generic(BlossomGenericResponse {
-                status: Status::Forbidden,
-                message: Some("Not on whitelist".to_string()),
-            });
-        }
+    if let Some(e) = check_whitelist(&auth, settings) {
+        return e;
     }
-    match fs
-        .put(
-            data.open(ByteUnit::from(settings.max_upload_bytes)),
-            &mime_type,
-            compress,
-        )
-        .await
-    {
+
+    process_stream(
+        data.open(ByteUnit::Byte(settings.max_upload_bytes)),
+        &auth
+            .content_type
+            .unwrap_or("application/octet-stream".to_string()),
+        &name,
+        &auth.event.pubkey.to_bytes().to_vec(),
+        compress,
+        fs,
+        db,
+        settings,
+        webhook,
+    )
+    .await
+}
+
+async fn process_stream<S>(
+    stream: S,
+    mime_type: &str,
+    name: &Option<&str>,
+    pubkey: &Vec<u8>,
+    compress: bool,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    webhook: &State<Option<Webhook>>,
+) -> BlossomResponse
+where
+    S: AsyncRead + Unpin,
+{
+    match fs.put(stream, mime_type, compress).await {
         Ok(mut blob) => {
             blob.upload.name = name.unwrap_or("").to_owned();
-
-            let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
             if let Some(wh) = webhook.as_ref() {
-                match wh.store_file(&pubkey_vec, blob.clone()).await {
+                match wh.store_file(pubkey, blob.clone()).await {
                     Ok(store) => {
                         if !store {
                             let _ = fs::remove_file(blob.path);
@@ -335,7 +419,7 @@ async fn process_upload(
                     }
                 }
             }
-            let user_id = match db.upsert_user(&pubkey_vec).await {
+            let user_id = match db.upsert_user(pubkey).await {
                 Ok(u) => u,
                 Err(e) => {
                     return BlossomResponse::error(format!("Failed to save file (db): {}", e));
