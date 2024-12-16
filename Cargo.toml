@@ -15,7 +15,7 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics"]
+default = ["nip96", "blossom", "analytics", "ranges"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
@@ -24,6 +24,7 @@ bin-void-cat-migrate = ["dep:sqlx-postgres"]
 torrent-v2 = []
 analytics = []
 void-cat-redirects = ["dep:sqlx-postgres"]
+ranges = ["dep:http-range-header"]
 
 [dependencies]
 log = "0.4.21"
@@ -44,6 +45,7 @@ url = "2.5.0"
 serde_with = { version = "3.8.1", features = ["hex"] }
 reqwest = "0.12.8"
 clap = { version = "4.5.18", features = ["derive"] }
+mime2ext = "0.1.53"
 
 libc = { version = "0.2.153", optional = true }
 ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "b358b3e4209da827e021d979c7d35876594d0285", optional = true }
@@ -51,5 +53,5 @@ candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1"
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
-mime2ext = "0.1.53"
-http-range-header = "0.4.2"
+http-range-header = { version = "0.4.2", optional = true }
+

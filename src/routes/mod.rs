@@ -12,6 +12,7 @@ use anyhow::Error;
 use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
+use log::{debug, warn};
 use nostr::Event;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
@@ -100,13 +101,27 @@ impl Nip94Event {
     }
 }
 
+/// Range request handler over file handle
 struct RangeBody {
-    pub file: File,
-    pub file_size: u64,
-    pub ranges: Vec<SyntacticallyCorrectRange>,
-
+    file: File,
+    file_size: u64,
+    ranges: Vec<SyntacticallyCorrectRange>,
     current_range_index: usize,
     current_offset: u64,
+    poll_complete: bool,
+}
+
+impl RangeBody {
+    pub fn new(file: File, file_size: u64, ranges: Vec<SyntacticallyCorrectRange>) -> Self {
+        Self {
+            file,
+            file_size,
+            ranges,
+            current_offset: 0,
+            current_range_index: 0,
+            poll_complete: false,
+        }
+    }
 }
 
 impl AsyncRead for RangeBody {
@@ -138,23 +153,32 @@ impl AsyncRead for RangeBody {
             return self.poll_read(cx, buf);
         }
 
-        let pinned = pin!(&mut self.file);
-        pinned.start_seek(SeekFrom::Start(range_start))?;
+        if !self.poll_complete {
+            // start seeking to our read position
+            let pinned = pin!(&mut self.file);
+            pinned.start_seek(SeekFrom::Start(range_start))?;
+            self.poll_complete = true;
+        }
 
-        let pinned = pin!(&mut self.file);
-        match pinned.poll_complete(cx) {
-            Poll::Ready(Ok(_)) => {}
-            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-            Poll::Pending => return Poll::Pending,
+        if self.poll_complete {
+            let pinned = pin!(&mut self.file);
+            match pinned.poll_complete(cx) {
+                Poll::Ready(Ok(_)) => {
+                    self.poll_complete = false;
+                }
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
         }
 
         // Read data from the file
         let pinned = pin!(&mut self.file);
-        let n = pinned.poll_read(cx, &mut buf.take(bytes_to_read as usize));
+        let n = pinned.poll_read(cx, buf);
         if let Poll::Ready(Ok(())) = n {
             self.current_offset += bytes_to_read;
             Poll::Ready(Ok(()))
         } else {
+            self.poll_complete = true;
             Poll::Pending
         }
     }
@@ -170,30 +194,51 @@ impl<'r> Responder<'r, 'static> for FilePayload {
             response.set_header(Header::new("accept-ranges", "bytes"));
             if let Some(r) = request.headers().get("range").next() {
                 if let Ok(ranges) = parse_range_header(r) {
-                    let r_body = RangeBody {
-                        file_size: self.info.size, // TODO: handle filesize mismatch
-                        file: self.file,
-                        ranges: ranges.ranges,
-                        current_range_index: 0,
-                        current_offset: 0,
-                    };
-                    response.set_streamed_body(Box::pin(r_body));
+                    if ranges.ranges.len() > 1 {
+                        warn!("Multipart ranges are not supported, fallback to non-range request");
+                        response.set_streamed_body(self.file);
+                    } else {
+                        let single_range = ranges.ranges.first().unwrap();
+                        let range_start = match single_range.start {
+                            StartPosition::Index(i) => i,
+                            StartPosition::FromLast(i) => self.info.size - i,
+                        };
+                        let range_end = match single_range.end {
+                            EndPosition::Index(i) => i,
+                            EndPosition::LastByte => self.info.size,
+                        };
+                        debug!("Range: {:?} {:?}", range_start..range_end, single_range);
+                        let r_len = range_end - range_start;
+                        let r_body = RangeBody::new(self.file, self.info.size, ranges.ranges);
+
+                        response.set_status(Status::PartialContent);
+                        response.set_header(Header::new("content-length", r_len.to_string()));
+                        response.set_header(Header::new(
+                            "content-range",
+                            format!("bytes {}-{}/{}", range_start, range_end, self.info.size),
+                        ));
+                        response.set_streamed_body(Box::pin(r_body));
+                    }
                 }
             } else {
                 response.set_streamed_body(self.file);
             }
         }
         #[cfg(not(feature = "ranges"))]
-        response.set_streamed_body(self.file);
-        response.set_header(Header::new("content-length", self.info.size.to_string()));
+        {
+            response.set_streamed_body(self.file);
+            response.set_header(Header::new("content-length", self.info.size.to_string()));
+        }
 
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
             response.set_header(ct);
         }
-        response.set_header(Header::new(
-            "content-disposition",
-            format!("inline; filename=\"{}\"", self.info.name),
-        ));
+        if !self.info.name.is_empty() {
+            response.set_header(Header::new(
+                "content-disposition",
+                format!("inline; filename=\"{}\"", self.info.name),
+            ));
+        }
         Ok(response)
     }
 }
@@ -247,7 +292,7 @@ async fn delete_file(
 #[rocket::get("/")]
 pub async fn root() -> Result<NamedFile, Status> {
     #[cfg(debug_assertions)]
-    let index = "./ui_src/dist/index.html";
+    let index = "./index.html";
     #[cfg(not(debug_assertions))]
     let index = "./ui/index.html";
     if let Ok(f) = NamedFile::open(index).await {
