@@ -1,5 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, User};
+use crate::db::{Database, FileUpload};
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
@@ -48,11 +48,30 @@ impl<T> AdminResponse<T> {
     }
 }
 
+#[derive(Serialize)]
+pub struct SelfUser {
+    pub is_admin: bool,
+    pub file_count: u64,
+    pub total_size: u64,
+}
+
 #[rocket::get("/self")]
-async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<User> {
+async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     match db.get_user(&pubkey_vec).await {
-        Ok(user) => AdminResponse::success(user),
+        Ok(user) => {
+            let s = match db.get_user_stats(user.id).await {
+                Ok(r) => r,
+                Err(e) => {
+                    return AdminResponse::error(&format!("Failed to load user stats: {}", e))
+                }
+            };
+            AdminResponse::success(SelfUser {
+                is_admin: user.is_admin,
+                file_count: s.file_count,
+                total_size: s.total_size,
+            })
+        }
         Err(_) => AdminResponse::error("User not found"),
     }
 }
@@ -66,7 +85,7 @@ async fn admin_list_files(
     settings: &State<Settings>,
 ) -> AdminResponse<PagedResult<Nip94Event>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let server_count = count.min(5_000).max(1);
+    let server_count = count.clamp(1, 5_000);
 
     let user = match db.get_user(&pubkey_vec).await {
         Ok(user) => user,

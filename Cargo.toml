@@ -15,7 +15,7 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "ranges"]
+default = ["nip96", "blossom", "analytics", "ranges", "react-ui"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
@@ -25,6 +25,7 @@ torrent-v2 = []
 analytics = []
 void-cat-redirects = ["dep:sqlx-postgres"]
 ranges = ["dep:http-range-header"]
+react-ui = []
 
 [dependencies]
 log = "0.4.21"

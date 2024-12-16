@@ -6,13 +6,14 @@ import { Blossom } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
-import { Route96 } from "../upload/admin";
+import { AdminSelf, Route96 } from "../upload/admin";
+import { FormatBytes } from "../const";
 
 export default function Upload() {
-  const [type, setType] = useState<"blossom" | "nip96">("nip96");
+  const [type, setType] = useState<"blossom" | "nip96">("blossom");
   const [noCompress, setNoCompress] = useState(false);
   const [toUpload, setToUpload] = useState<File>();
-  const [self, setSelf] = useState<{ is_admin: boolean }>();
+  const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
   const [results, setResults] = useState<Array<object>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
@@ -88,6 +89,23 @@ export default function Upload() {
     }
   }
 
+  async function deleteFile(id: string) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const uploader = new Blossom(url, pub);
+      await uploader.delete(id);
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message.length > 0 ? e.message : "Upload failed");
+      } else if (typeof e === "string") {
+        setError(e);
+      } else {
+        setError("List files failed");
+      }
+    }
+  }
+
   useEffect(() => {
     listUploads(listedPage);
   }, [listedPage]);
@@ -104,7 +122,7 @@ export default function Upload() {
   }, [pub, self]);
 
   return (
-    <div className="flex flex-col gap-2 bg-neutral-700 p-8 rounded-xl w-full">
+    <div className="flex flex-col gap-2 bg-neutral-800 p-8 rounded-xl w-full">
       <h1 className="text-lg font-bold">
         Welcome to {window.location.hostname}
       </h1>
@@ -136,41 +154,62 @@ export default function Upload() {
         <input type="checkbox" checked={noCompress} />
       </div>
 
-      <Button
-        onClick={async () => {
-          const f = await openFile();
-          setToUpload(f);
-        }}
-      >
-        Choose Files
-      </Button>
-      <FileList files={toUpload ? [toUpload] : []} />
-      <Button onClick={doUpload} disabled={login === undefined}>
-        Upload
-      </Button>
-      <Button disabled={login === undefined} onClick={() => listUploads(0)}>
+      {toUpload && <FileList files={toUpload ? [toUpload] : []} />}
+      <div className="flex gap-4">
+        <Button
+          className="flex-1"
+          onClick={async () => {
+            const f = await openFile();
+            setToUpload(f);
+          }}
+        >
+          Choose Files
+        </Button>
+        <Button
+          className="flex-1"
+          onClick={doUpload} disabled={login === undefined}>
+          Upload
+        </Button>
+      </div>
+      <hr />
+      {!listedFiles && <Button disabled={login === undefined} onClick={() => listUploads(0)}>
         List Uploads
-      </Button>
+      </Button>}
+
+      {self && <div className="flex justify-between font-medium">
+        <div>Uploads: {self.file_count.toLocaleString()}</div>
+        <div>Total Size: {FormatBytes(self.total_size)}</div>
+      </div>}
 
       {listedFiles && (
         <FileList
           files={listedFiles.files}
-          pages={listedFiles.total / listedFiles.count}
+          pages={Math.ceil(listedFiles.total / listedFiles.count)}
           page={listedFiles.page}
           onPage={(x) => setListedPage(x)}
+          onDelete={async (x) => {
+            await deleteFile(x);
+            await listUploads(listedPage);
+          }}
         />
       )}
 
       {self?.is_admin && (
         <>
+          <hr />
           <h3>Admin File List:</h3>
           <Button onClick={() => listAllUploads(0)}>List All Uploads</Button>
           {adminListedFiles && (
             <FileList
               files={adminListedFiles.files}
-              pages={adminListedFiles.total / adminListedFiles.count}
+              pages={Math.ceil(adminListedFiles.total / adminListedFiles.count)}
               page={adminListedFiles.page}
               onPage={(x) => setAdminListedPage(x)}
+              onDelete={async (x) => {
+                await deleteFile(x);
+                await listAllUploads(adminListedPage);
+              }
+              }
             />
           )}
         </>

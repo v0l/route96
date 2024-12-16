@@ -253,22 +253,34 @@ async fn delete_file(
     }
     if let Ok(Some(_info)) = db.get_file(&id).await {
         let pubkey_vec = auth.pubkey.to_bytes().to_vec();
+        let auth_user = db.get_user(&pubkey_vec).await?;
         let owners = db.get_file_owners(&id).await?;
-
-        let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
-            Some(o) => o,
-            None => return Err(Error::msg("You dont own this file, you cannot delete it")),
-        };
-        if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
-            return Err(Error::msg(format!("Failed to delete (db): {}", e)));
-        }
-        // only 1 owner was left, delete file completely
-        if owners.len() == 1 {
+        if auth_user.is_admin {
+            if let Err(e) = db.delete_all_file_owner(&id).await {
+                return Err(Error::msg(format!("Failed to delete (db): {}", e)));
+            }
             if let Err(e) = db.delete_file(&id).await {
                 return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
             }
             if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
-                return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+                warn!("Failed to delete (fs): {}", e);
+            }
+        } else {
+            let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
+                Some(o) => o,
+                None => return Err(Error::msg("You dont own this file, you cannot delete it")),
+            };
+            if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
+                return Err(Error::msg(format!("Failed to delete (db): {}", e)));
+            }
+            // only 1 owner was left, delete file completely
+            if owners.len() == 1 {
+                if let Err(e) = db.delete_file(&id).await {
+                    return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+                }
+                if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
+                    warn!("Failed to delete (fs): {}", e);
+                }
             }
         }
         Ok(())
@@ -279,10 +291,12 @@ async fn delete_file(
 
 #[rocket::get("/")]
 pub async fn root() -> Result<NamedFile, Status> {
-    #[cfg(debug_assertions)]
-    let index = "./index.html";
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(debug_assertions, feature = "react-ui"))]
+    let index = "./ui_src/dist/index.html";
+    #[cfg(all(not(debug_assertions), feature = "react-ui"))]
     let index = "./ui/index.html";
+    #[cfg(not(feature = "react-ui"))]
+    let index = "./index.html";
     if let Ok(f) = NamedFile::open(index).await {
         Ok(f)
     } else {

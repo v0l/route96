@@ -2,6 +2,8 @@ import { base64 } from "@scure/base";
 import { throwIfOffline } from "@snort/shared";
 import { EventKind, EventPublisher, NostrEvent } from "@snort/system";
 
+export interface AdminSelf { is_admin: boolean, file_count: number, total_size: number }
+
 export class Route96 {
   constructor(
     readonly url: string,
@@ -11,15 +13,15 @@ export class Route96 {
   }
 
   async getSelf() {
-    const rsp = await this.#req("/admin/self", "GET");
+    const rsp = await this.#req("admin/self", "GET");
     const data =
-      await this.#handleResponse<AdminResponse<{ is_admin: boolean }>>(rsp);
+      await this.#handleResponse<AdminResponse<AdminSelf>>(rsp);
     return data;
   }
 
   async listFiles(page = 0, count = 10) {
     const rsp = await this.#req(
-      `/admin/files?page=${page}&count=${count}`,
+      `admin/files?page=${page}&count=${count}`,
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);

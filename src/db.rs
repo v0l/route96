@@ -51,6 +51,12 @@ impl FileLabel {
     }
 }
 
+#[derive(Clone, FromRow, Serialize)]
+pub struct UserStats {
+    pub file_count: u64,
+    pub total_size: u64,
+}
+
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
@@ -86,6 +92,19 @@ impl Database {
             .bind(pubkey)
             .fetch_one(&self.pool)
             .await
+    }
+
+    pub async fn get_user_stats(&self, id: u64) -> Result<UserStats, Error> {
+        sqlx::query_as(
+            "select cast(count(user_uploads.file) as unsigned integer) as file_count, \
+        cast(sum(uploads.size) as unsigned integer) as total_size \
+        from user_uploads,uploads \
+        where user_uploads.user_id = ? \
+        and user_uploads.file = uploads.id",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
     }
 
     pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
@@ -162,6 +181,14 @@ impl Database {
         sqlx::query("delete from user_uploads where file = ? and user_id = ?")
             .bind(file)
             .bind(owner)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_all_file_owner(&self, file: &Vec<u8>) -> Result<(), Error> {
+        sqlx::query("delete from user_uploads where file = ?")
+            .bind(file)
             .execute(&self.pool)
             .await?;
         Ok(())

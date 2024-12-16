@@ -1,6 +1,7 @@
 import { NostrEvent } from "@snort/system";
 import { useState } from "react";
 import { FormatBytes } from "../const";
+import classNames from "classnames";
 
 interface FileInfo {
   id: string;
@@ -15,11 +16,13 @@ export default function FileList({
   pages,
   page,
   onPage,
+  onDelete,
 }: {
   files: Array<File | NostrEvent>;
   pages?: number;
   page?: number;
   onPage?: (n: number) => void;
+  onDelete?: (id: string) => void;
 }) {
   const [viewType, setViewType] = useState<"grid" | "list">("grid");
   if (files.length === 0) {
@@ -68,7 +71,12 @@ export default function FileList({
       ret.push(
         <div
           onClick={() => onPage?.(x)}
-          className={`bg-neutral-800 hover:bg-neutral-700 min-w-8 text-center cursor-pointer font-bold ${x === start ? "rounded-l-md" : ""} ${x === n - 1 ? "rounded-r-md" : ""} ${page === x ? "bg-neutral-500" : ""}`}
+          className={classNames("bg-neutral-700 hover:bg-neutral-600 min-w-8 text-center cursor-pointer font-bold",
+            {
+              "rounded-l-md": x === start,
+              "rounded-r-md": (x + 1) === n,
+              "bg-neutral-400": page === x,
+            })}
         >
           {x + 1}
         </div>,
@@ -87,9 +95,9 @@ export default function FileList({
           return (
             <div
               key={info.id}
-              className="relative rounded-md aspect-square overflow-hidden bg-neutral-800"
+              className="relative rounded-md aspect-square overflow-hidden bg-neutral-900"
             >
-              <div className="absolute flex flex-col items-center justify-center w-full h-full text-wrap text-sm break-all text-center opacity-0 hover:opacity-100 hover:bg-black/60">
+              <div className="absolute flex flex-col items-center justify-center w-full h-full text-wrap text-sm break-all text-center opacity-0 hover:opacity-100 hover:bg-black/80">
                 <div>
                   {(info.name?.length ?? 0) === 0 ? "Untitled" : info.name}
                 </div>
@@ -98,9 +106,17 @@ export default function FileList({
                     ? FormatBytes(info.size, 2)
                     : ""}
                 </div>
-                <a href={info.url} target="_blank" className="underline">
-                  Link
-                </a>
+                <div className="flex gap-2">
+                  <a href={info.url} className="underline" target="_blank">
+                    Link
+                  </a>
+                  <a href="#" onClick={e => {
+                    e.preventDefault();
+                    onDelete?.(info.id)
+                  }} className="underline">
+                    Delete
+                  </a>
+                </div>
               </div>
               {renderInner(info)}
             </div>
@@ -119,6 +135,9 @@ export default function FileList({
               Name
             </th>
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
+              Type
+            </th>
+            <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
               Size
             </th>
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
@@ -131,8 +150,11 @@ export default function FileList({
             const info = getInfo(a);
             return (
               <tr key={info.id}>
-                <td className="border border-neutral-500 py-1 px-2">
+                <td className="border border-neutral-500 py-1 px-2 break-all">
                   {(info.name?.length ?? 0) === 0 ? "<Untitled>" : info.name}
+                </td>
+                <td className="border border-neutral-500 py-1 px-2 break-all">
+                  {info.type}
                 </td>
                 <td className="border border-neutral-500 py-1 px-2">
                   {info.size && !isNaN(info.size)
@@ -140,9 +162,17 @@ export default function FileList({
                     : ""}
                 </td>
                 <td className="border border-neutral-500 py-1 px-2">
-                  <a href={info.url} className="underline" target="_blank">
-                    Link
-                  </a>
+                  <div className="flex gap-2">
+                    <a href={info.url} className="underline" target="_blank">
+                      Link
+                    </a>
+                    <a href="#" onClick={e => {
+                      e.preventDefault();
+                      onDelete?.(info.id)
+                    }} className="underline">
+                      Delete
+                    </a>
+                  </div>
                 </td>
               </tr>
             );
@@ -157,13 +187,13 @@ export default function FileList({
       <div className="flex">
         <div
           onClick={() => setViewType("grid")}
-          className={`bg-neutral-800 hover:bg-neutral-600 min-w-20 text-center cursor-pointer font-bold rounded-l-md ${viewType === "grid" ? "bg-neutral-500" : ""}`}
+          className={`bg-neutral-700 hover:bg-neutral-600 min-w-20 text-center cursor-pointer font-bold rounded-l-md ${viewType === "grid" ? "bg-neutral-500" : ""}`}
         >
           Grid
         </div>
         <div
           onClick={() => setViewType("list")}
-          className={`bg-neutral-800 hover:bg-neutral-600 min-w-20 text-center cursor-pointer font-bold rounded-r-md ${viewType === "list" ? "bg-neutral-500" : ""}`}
+          className={`bg-neutral-700 hover:bg-neutral-600 min-w-20 text-center cursor-pointer font-bold rounded-r-md ${viewType === "list" ? "bg-neutral-500" : ""}`}
         >
           List
         </div>
@@ -171,8 +201,7 @@ export default function FileList({
       {viewType === "grid" ? showGrid() : showList()}
       {pages !== undefined && (
         <>
-          Page:
-          <div className="flex">{pageButtons(page ?? 0, pages)}</div>
+          <div className="flex flex-wrap">{pageButtons(page ?? 0, pages)}</div>
         </>
       )}
     </>

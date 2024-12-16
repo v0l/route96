@@ -25,7 +25,7 @@ export class Blossom {
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("/upload", "PUT", file, tags);
+    const rsp = await this.#req("upload", "PUT", "upload", file, tags);
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -41,7 +41,7 @@ export class Blossom {
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("/media", "PUT", file, tags);
+    const rsp = await this.#req("media", "PUT", "upload", file, tags);
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -50,9 +50,30 @@ export class Blossom {
     }
   }
 
+  async list(pk: string) {
+    const rsp = await this.#req(`list/${pk}`, "GET", "list");
+    if (rsp.ok) {
+      return (await rsp.json()) as Array<BlobDescriptor>;
+    } else {
+      const text = await rsp.text();
+      throw new Error(text);
+    }
+  }
+
+  async delete(id: string) {
+    const tags = [["x", id]];
+
+    const rsp = await this.#req(id, "DELETE", "delete", undefined, tags);
+    if (!rsp.ok) {
+      const text = await rsp.text();
+      throw new Error(text);
+    }
+  }
+
   async #req(
     path: string,
     method: "GET" | "POST" | "DELETE" | "PUT",
+    term: string,
     body?: BodyInit,
     tags?: Array<Array<string>>,
   ) {
@@ -64,8 +85,8 @@ export class Blossom {
       const auth = await this.publisher.generic((eb) => {
         eb.kind(24_242 as EventKind)
           .tag(["u", url])
-          .tag(["method", method])
-          .tag(["t", path.slice(1)])
+          .tag(["method", method.toLowerCase()])
+          .tag(["t", term])
           .tag(["expiration", (now + 10).toString()]);
         tags?.forEach((t) => eb.tag(t));
         return eb;
