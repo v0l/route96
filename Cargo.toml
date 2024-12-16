@@ -8,6 +8,10 @@ name = "void_cat_migrate"
 required-features = ["bin-void-cat-migrate"]
 
 [[bin]]
+name = "void_cat_forced_migrate"
+required-features = ["bin-void-cat-force-migrate"]
+
+[[bin]]
 name = "route96"
 path = "src/bin/main.rs"
 
@@ -21,6 +25,7 @@ labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"
 nip96 = ["media-compression"]
 blossom = []
 bin-void-cat-migrate = ["dep:sqlx-postgres"]
+bin-void-cat-force-migrate = ["dep:regex", "dep:nostr-cursor"]
 torrent-v2 = []
 analytics = []
 void-cat-redirects = ["dep:sqlx-postgres"]
@@ -31,12 +36,12 @@ react-ui = []
 log = "0.4.21"
 nostr = "0.37.0"
 pretty_env_logger = "0.5.0"
-rocket = { version = "0.5.0", features = ["json"] }
+rocket = { version = "0.5.1", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
 base64 = "0.22.1"
 hex = { version = "0.4.3", features = ["serde"] }
 serde = { version = "1.0.198", features = ["derive"] }
-uuid = { version = "1.8.0", features = ["v4"] }
+uuid = { version = "1.8.0", features = ["v4", "serde"] }
 anyhow = "^1.0.82"
 sha2 = "0.10.8"
 sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
@@ -55,4 +60,6 @@ candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", 
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
 http-range-header = { version = "0.4.2", optional = true }
+nostr-cursor = { git = "https://git.v0l.io/Kieran/nostr_backup_proc.git", branch = "main", optional = true }
+regex = { version = "1.11.1", optional = true }
 
