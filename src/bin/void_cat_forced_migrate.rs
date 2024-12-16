@@ -28,7 +28,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let args: ProgramArgs = ProgramArgs::parse();
 
-    let mut report: HashMap<String, HashSet<Uuid>> = HashMap::new();
+    let mut report: HashMap<String, HashSet<String>> = HashMap::new();
 
     let mut binding = NostrCursor::new(args.archive);
     let mut cursor = Box::pin(binding.walk());
@@ -44,7 +44,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     warn!("Invalid base58 id {}", g);
                     continue;
                 };
-                let uuid = if let Ok(u) = Uuid::from_slice_le(base58.as_slice()) {
+                let _uuid = if let Ok(u) = Uuid::from_slice_le(base58.as_slice()) {
                     u
                 } else {
                     warn!("Invalid uuid {}", g);
@@ -52,9 +52,9 @@ async fn main() -> Result<(), anyhow::Error> {
                 };
                 info!("Got link: {} => {}", g, e.pubkey);
                 if let Some(ur) = report.get_mut(&e.pubkey) {
-                    ur.insert(uuid);
+                    ur.insert(g.to_string());
                 } else {
-                    report.insert(e.pubkey.clone(), HashSet::from([uuid]));
+                    report.insert(e.pubkey.clone(), HashSet::from([g.to_string()]));
                 }
             }
         }

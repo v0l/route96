@@ -8,10 +8,12 @@ import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
 import { AdminSelf, Route96 } from "../upload/admin";
 import { FormatBytes } from "../const";
+import Report from "../report.json";
 
 export default function Upload() {
   const [type, setType] = useState<"blossom" | "nip96">("blossom");
   const [noCompress, setNoCompress] = useState(false);
+  const [showLegacy, setShowLegacy] = useState(false);
   const [toUpload, setToUpload] = useState<File>();
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
@@ -23,6 +25,8 @@ export default function Upload() {
 
   const login = useLogin();
   const pub = usePublisher();
+
+  const myLegacyFiles = login ? (Report as Record<string, Array<string>>)[login.pubkey] : [];
 
   const url = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
   async function doUpload() {
@@ -58,7 +62,7 @@ export default function Upload() {
       setError(undefined);
       const uploader = new Nip96(url, pub);
       await uploader.loadInfo();
-      const result = await uploader.listFiles(n, 12);
+      const result = await uploader.listFiles(n, 50);
       setListedFiles(result);
     } catch (e) {
       if (e instanceof Error) {
@@ -76,7 +80,7 @@ export default function Upload() {
     try {
       setError(undefined);
       const uploader = new Route96(url, pub);
-      const result = await uploader.listFiles(n, 12);
+      const result = await uploader.listFiles(n, 50);
       setAdminListedFiles(result);
     } catch (e) {
       if (e instanceof Error) {
@@ -176,11 +180,30 @@ export default function Upload() {
         List Uploads
       </Button>}
 
+
       {self && <div className="flex justify-between font-medium">
         <div>Uploads: {self.file_count.toLocaleString()}</div>
         <div>Total Size: {FormatBytes(self.total_size)}</div>
       </div>}
 
+      {login && myLegacyFiles.length > 0 && (
+        <div className="flex flex-col gap-4 font-bold">
+          You have {myLegacyFiles.length.toLocaleString()} files which can be migrated from void.cat
+          <div className="flex gap-2">
+            <Button>
+              Migrate Files
+            </Button>
+            <Button onClick={() => setShowLegacy(true)}>
+              Show Files
+            </Button>
+          </div>
+        </div>
+      )}
+      {showLegacy && (
+        <FileList
+          files={myLegacyFiles.map(f => ({ id: f, url: `https://void.cat/d/${f}` }))}
+        />
+      )}
       {listedFiles && (
         <FileList
           files={listedFiles.files}

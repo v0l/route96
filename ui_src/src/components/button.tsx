@@ -5,7 +5,7 @@ export default function Button({
   className,
   onClick,
   ...props
-}: { onClick?: (e: React.MouseEvent) => Promise<void> } & Omit<
+}: { onClick?: (e: React.MouseEvent) => Promise<void> | void } & Omit<
   HTMLProps<HTMLButtonElement>,
   "type" | "onClick"
 >) {

@@ -18,7 +18,7 @@ export default function FileList({
   onPage,
   onDelete,
 }: {
-  files: Array<File | NostrEvent>;
+  files: Array<File | NostrEvent | FileInfo>;
   pages?: number;
   page?: number;
   onPage?: (n: number) => void;
@@ -30,9 +30,9 @@ export default function FileList({
   }
 
   function renderInner(f: FileInfo) {
-    if (f.type?.startsWith("image/")) {
+    if (f.type?.startsWith("image/") || !f.type) {
       return (
-        <img src={f.url} className="w-full h-full object-cover object-center" />
+        <img src={f.url} className="w-full h-full object-contain object-center" loading="lazy" />
       );
     } else if (f.type?.startsWith("video/")) {
       return (
@@ -43,7 +43,10 @@ export default function FileList({
     }
   }
 
-  function getInfo(f: File | NostrEvent): FileInfo {
+  function getInfo(f: File | NostrEvent | FileInfo): FileInfo {
+    if ("url" in f) {
+      return f;
+    }
     if ("created_at" in f) {
       return {
         id: f.tags.find((a) => a[0] === "x")![1],
@@ -88,7 +91,7 @@ export default function FileList({
 
   function showGrid() {
     return (
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid gap-2 grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10">
         {files.map((a) => {
           const info = getInfo(a);
 
@@ -110,12 +113,12 @@ export default function FileList({
                   <a href={info.url} className="underline" target="_blank">
                     Link
                   </a>
-                  <a href="#" onClick={e => {
+                  {onDelete && <a href="#" onClick={e => {
                     e.preventDefault();
                     onDelete?.(info.id)
                   }} className="underline">
                     Delete
-                  </a>
+                  </a>}
                 </div>
               </div>
               {renderInner(info)}
@@ -166,12 +169,12 @@ export default function FileList({
                     <a href={info.url} className="underline" target="_blank">
                       Link
                     </a>
-                    <a href="#" onClick={e => {
+                    {onDelete && <a href="#" onClick={e => {
                       e.preventDefault();
                       onDelete?.(info.id)
                     }} className="underline">
                       Delete
-                    </a>
+                    </a>}
                   </div>
                 </td>
               </tr>
