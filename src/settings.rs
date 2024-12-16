@@ -32,6 +32,9 @@ pub struct Settings {
 
     #[cfg(feature = "void-cat-redirects")]
     pub void_cat_database: Option<String>,
+
+    /// Path to void.cat uploads (files-v2)
+    pub void_cat_files: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

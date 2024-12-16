@@ -10,4 +10,5 @@ pub mod routes;
 pub mod settings;
 #[cfg(any(feature = "void-cat-redirects", feature = "bin-void-cat-migrate"))]
 pub mod void_db;
+pub mod void_file;
 pub mod webhook;

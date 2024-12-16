@@ -6,7 +6,8 @@ use nostr::bitcoin::base58;
 use route96::db::{Database, FileUpload};
 use route96::filesystem::FileStore;
 use route96::settings::Settings;
-use route96::void_db::{VoidCatDb, VoidFile};
+use route96::void_db::VoidCatDb;
+use route96::void_file::VoidFile;
 use std::path::PathBuf;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
@@ -54,7 +55,7 @@ async fn main() -> Result<(), Error> {
             let mut page = 0;
             loop {
                 let files = db_void.list_files(page).await?;
-                if files.len() == 0 {
+                if files.is_empty() {
                     break;
                 }
                 for f in files {
@@ -73,7 +74,7 @@ async fn main() -> Result<(), Error> {
             let mut page = 0;
             loop {
                 let files = db_void.list_files(page).await?;
-                if files.len() == 0 {
+                if files.is_empty() {
                     break;
                 }
                 for f in files {
@@ -99,7 +100,9 @@ async fn migrate_file(
     let id_vec = hex::decode(&f.digest)?;
 
     // copy file
-    let src_path = PathBuf::new().join(&args.data_path).join(f.map_to_path());
+    let src_path = PathBuf::new()
+        .join(&args.data_path)
+        .join(VoidFile::map_to_path(&f.id));
     let dst_path = fs.map_path(&id_vec);
     if src_path.exists() && !dst_path.exists() {
         info!(

@@ -29,3 +29,6 @@ vit_model:
 
 # Support legacy void
 # void_cat_database: "postgres://postgres:postgres@localhost:41911/void"
+
+# Legacy file path for void.cat uploads
+# void_cat_files: "/my/void.cat/data"

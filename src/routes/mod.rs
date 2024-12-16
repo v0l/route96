@@ -6,16 +6,13 @@ pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
-#[cfg(feature = "void-cat-redirects")]
-use crate::void_db::VoidCatDb;
+use crate::void_file::VoidFile;
 use anyhow::Error;
 use http_range_header::{parse_range_header, EndPosition, StartPosition};
 use log::warn;
 use nostr::Event;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
-#[cfg(feature = "void-cat-redirects")]
-use rocket::response::Redirect;
 use rocket::response::Responder;
 use rocket::serde::Serialize;
 use rocket::{Request, Response, State};
@@ -355,25 +352,24 @@ pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
     }
 }
 
-#[cfg(feature = "void-cat-redirects")]
+/// Legacy URL redirect for void.cat uploads
 #[rocket::get("/d/<id>")]
-pub async fn void_cat_redirect(
-    id: &str,
-    settings: &State<Settings>,
-    vdb: &State<VoidCatDb>,
-) -> Option<Redirect> {
+pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<NamedFile> {
     let id = if id.contains(".") {
         id.split('.').next().unwrap()
     } else {
         id
     };
-    let uuid =
-        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
-    if let Ok(Some(d)) = vdb.get_digest(&uuid).await {
-        Some(Redirect::permanent(format!(
-            "{}/{}",
-            &settings.public_url, &d
-        )))
+    if let Some(base) = &settings.void_cat_files {
+        let uuid =
+            uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice())
+                .unwrap();
+        let f = base.join(VoidFile::map_to_path(&uuid));
+        if let Ok(f) = NamedFile::open(f).await {
+            Some(f)
+        } else {
+            None
+        }
     } else {
         None
     }
