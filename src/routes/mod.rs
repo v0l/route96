@@ -184,7 +184,7 @@ impl<'r> Responder<'r, 'static> for FilePayload {
                         warn!("Multipart ranges are not supported, fallback to non-range request");
                         response.set_streamed_body(self.file);
                     } else {
-                        const MAX_UNBOUNDED_RANGE: u64 = 1024 * 256;
+                        const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
                         let single_range = ranges.ranges.first().unwrap();
                         let range_start = match single_range.start {
                             StartPosition::Index(i) => i,
