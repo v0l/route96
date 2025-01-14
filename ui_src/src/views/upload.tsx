@@ -28,7 +28,7 @@ export default function Upload() {
   const pub = usePublisher();
 
   const legacyFiles = Report as Record<string, Array<string>>;
-  const myLegacyFiles = login ? legacyFiles[login.pubkey] : [];
+  const myLegacyFiles = login ? (legacyFiles[login.pubkey] ?? []) : [];
 
   const url = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
   async function doUpload() {
