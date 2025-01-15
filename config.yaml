@@ -21,9 +21,6 @@ vit_model:
   model: "/home/kieran/Downloads/falcon_nsfw.safetensors"
   config: "/home/kieran/Downloads/falcon_nsfw.json"
 
-# Webhook api endpoint
-# webhook_url: "https://api.snort.social/api/v1/media/webhook"
-
 # Analytics support
 # plausible_url: "https://plausible.com/"
 

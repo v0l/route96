@@ -3202,7 +3202,6 @@ dependencies = [
  "nostr",
  "nostr-cursor",
  "pretty_env_logger",
- "rand",
  "regex",
  "reqwest",
  "rocket",
@@ -3213,7 +3212,6 @@ dependencies = [
  "sqlx-postgres",
  "tokio",
  "tokio-util",
- "url",
  "uuid",
 ]
 

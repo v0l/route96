@@ -3,7 +3,6 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
-use crate::webhook::Webhook;
 use log::error;
 use nostr::prelude::hex;
 use nostr::{Alphabet, SingleLetterTag, TagKind};
@@ -15,7 +14,6 @@ use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -213,10 +211,9 @@ async fn upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
     data: Data<'_>,
 ) -> BlossomResponse {
-    process_upload("upload", false, auth, fs, db, settings, webhook, data).await
+    process_upload("upload", false, auth, fs, db, settings, data).await
 }
 
 #[rocket::put("/mirror", data = "<req>", format = "json")]
@@ -225,7 +222,6 @@ async fn mirror(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
     req: Json<MirrorRequest>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "mirror") {
@@ -263,7 +259,6 @@ async fn mirror(
         fs,
         db,
         settings,
-        webhook,
     )
     .await
 }
@@ -281,10 +276,9 @@ async fn upload_media(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
     data: Data<'_>,
 ) -> BlossomResponse {
-    process_upload("media", true, auth, fs, db, settings, webhook, data).await
+    process_upload("media", true, auth, fs, db, settings, data).await
 }
 
 fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
@@ -337,7 +331,6 @@ async fn process_upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
     data: Data<'_>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, method) {
@@ -380,7 +373,6 @@ async fn process_upload(
         fs,
         db,
         settings,
-        webhook,
     )
     .await
 }
@@ -394,30 +386,12 @@ async fn process_stream<'p, S>(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
-    webhook: &State<Option<Webhook>>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
 {
     let upload = match fs.put(stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
-            if let Some(wh) = webhook.as_ref() {
-                match wh.store_file(pubkey, blob.clone()).await {
-                    Ok(store) => {
-                        if !store {
-                            let _ = fs::remove_file(blob.path);
-                            return BlossomResponse::error("Upload rejected");
-                        }
-                    }
-                    Err(e) => {
-                        let _ = fs::remove_file(blob.path);
-                        return BlossomResponse::error(format!(
-                            "Internal error, failed to call webhook: {}",
-                            e
-                        ));
-                    }
-                }
-            }
             let mut ret: FileUpload = (&blob).into();
 
             // update file data before inserting

@@ -18,7 +18,6 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
-use route96::webhook::Webhook;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -68,12 +67,6 @@ async fn main() -> Result<(), Error> {
         .manage(FileStore::new(settings.clone()))
         .manage(settings.clone())
         .manage(db.clone())
-        .manage(
-            settings
-                .webhook_url
-                .as_ref()
-                .map(|w| Webhook::new(w.clone())),
-        )
         .attach(CORS)
         .attach(Shield::new()) // disable
         .mount(
