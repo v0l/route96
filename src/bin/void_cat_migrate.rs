@@ -125,10 +125,7 @@ async fn migrate_file(
     let md: Option<Vec<&str>> = f.media_dimensions.as_ref().map(|s| s.split("x").collect());
     let fu = FileUpload {
         id: id_vec,
-        name: match &f.name {
-            Some(n) => n.to_string(),
-            None => "".to_string(),
-        },
+        name: f.name.clone(),
         size: f.size as u64,
         mime_type: f.mime_type.clone(),
         created: f.uploaded,
@@ -142,7 +139,6 @@ async fn migrate_file(
         },
         blur_hash: None,
         alt: f.description.clone(),
-        ..Default::default()
     };
     db.add_file(&fu, uid).await?;
     Ok(())

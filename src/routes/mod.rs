@@ -40,7 +40,7 @@ pub struct FilePayload {
 #[serde(crate = "rocket::serde")]
 struct Nip94Event {
     pub created_at: i64,
-    pub content: String,
+    pub content: Option<String>,
     pub tags: Vec<Vec<String>>,
 }
 
@@ -218,10 +218,10 @@ impl<'r> Responder<'r, 'static> for FilePayload {
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
             response.set_header(ct);
         }
-        if !self.info.name.is_empty() {
+        if let Some(name) = &self.info.name {
             response.set_header(Header::new(
                 "content-disposition",
-                format!("inline; filename=\"{}\"", self.info.name),
+                format!("inline; filename=\"{}\"", name),
             ));
         }
         Ok(response)

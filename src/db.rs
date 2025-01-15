@@ -1,3 +1,4 @@
+use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::migrate::MigrateError;
@@ -5,15 +6,24 @@ use sqlx::{Error, Executor, FromRow, Row};
 
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
+    /// SHA-256 hash of the file
     #[serde(with = "hex")]
     pub id: Vec<u8>,
-    pub name: String,
+    /// Filename
+    pub name: Option<String>,
+    /// Size in bytes
     pub size: u64,
+    /// MIME type
     pub mime_type: String,
+    /// When the upload was created
     pub created: DateTime<Utc>,
+    /// Width of the media in pixels
     pub width: Option<u32>,
+    /// Height of the media in pixels
     pub height: Option<u32>,
+    /// Blurhash of the media
     pub blur_hash: Option<String>,
+    /// Alt text of the media
     pub alt: Option<String>,
 
     #[sqlx(skip)]
@@ -21,6 +31,23 @@ pub struct FileUpload {
     pub labels: Vec<FileLabel>,
 }
 
+impl From<&NewFileResult> for FileUpload {
+    fn from(value: &NewFileResult) -> Self {
+        Self {
+            id: value.id.clone(),
+            name: None,
+            size: value.size,
+            mime_type: value.mime_type.clone(),
+            created: Utc::now(),
+            width: value.width,
+            height: value.height,
+            blur_hash: value.blur_hash.clone(),
+            alt: None,
+            #[cfg(feature = "labels")]
+            labels: value.labels.clone(),
+        }
+    }
+}
 #[derive(Clone, FromRow, Serialize)]
 pub struct User {
     pub id: u64,

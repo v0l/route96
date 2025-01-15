@@ -3,7 +3,7 @@ use nostr::serde_json;
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::filesystem::FileSystemResult;
+use crate::filesystem::NewFileResult;
 
 pub struct Webhook {
     url: String,
@@ -26,8 +26,8 @@ impl Webhook {
     }
 
     /// Ask webhook api if this file can be accepted
-    pub async fn store_file(&self, pubkey: &Vec<u8>, fs: FileSystemResult) -> Result<bool, Error> {
-        let body: WebhookRequest<FileSystemResult> = WebhookRequest {
+    pub async fn store_file(&self, pubkey: &Vec<u8>, fs: NewFileResult) -> Result<bool, Error> {
+        let body = WebhookRequest {
             action: "store_file".to_string(),
             subject: Some(hex::encode(pubkey)),
             payload: fs,

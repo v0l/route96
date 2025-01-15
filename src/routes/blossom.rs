@@ -1,6 +1,6 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
-use crate::filesystem::FileStore;
+use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
@@ -385,7 +385,7 @@ async fn process_upload(
     .await
 }
 
-async fn process_stream<S>(
+async fn process_stream<'p, S>(
     stream: S,
     mime_type: &str,
     name: &Option<&str>,
@@ -397,11 +397,10 @@ async fn process_stream<S>(
     webhook: &State<Option<Webhook>>,
 ) -> BlossomResponse
 where
-    S: AsyncRead + Unpin,
+    S: AsyncRead + Unpin + 'p,
 {
-    match fs.put(stream, mime_type, compress).await {
-        Ok(mut blob) => {
-            blob.upload.name = name.unwrap_or("").to_owned();
+    let upload = match fs.put(stream, mime_type, compress).await {
+        Ok(FileSystemResult::NewFile(blob)) => {
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(pubkey, blob.clone()).await {
                     Ok(store) => {
@@ -419,33 +418,33 @@ where
                     }
                 }
             }
-            let user_id = match db.upsert_user(pubkey).await {
-                Ok(u) => u,
-                Err(e) => {
-                    return BlossomResponse::error(format!("Failed to save file (db): {}", e));
-                }
-            };
-            if let Err(e) = db.add_file(&blob.upload, user_id).await {
-                error!("{}", e.to_string());
-                let _ = fs::remove_file(blob.path);
-                if let Some(dbe) = e.as_database_error() {
-                    if let Some(c) = dbe.code() {
-                        if c == "23000" {
-                            return BlossomResponse::error("File already exists");
-                        }
-                    }
-                }
-                BlossomResponse::error(format!("Error saving file (db): {}", e))
-            } else {
-                BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
-                    settings,
-                    &blob.upload,
-                )))
-            }
+            let mut ret: FileUpload = (&blob).into();
+
+            // update file data before inserting
+            ret.name = name.map(|s| s.to_string());
+
+            ret
         }
+        Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
+            Ok(Some(f)) => f,
+            _ => return BlossomResponse::error("File not found"),
+        },
         Err(e) => {
             error!("{}", e.to_string());
-            BlossomResponse::error(format!("Error saving file (disk): {}", e))
+            return BlossomResponse::error(format!("Error saving file (disk): {}", e));
         }
+    };
+
+    let user_id = match db.upsert_user(pubkey).await {
+        Ok(u) => u,
+        Err(e) => {
+            return BlossomResponse::error(format!("Failed to save file (db): {}", e));
+        }
+    };
+    if let Err(e) = db.add_file(&upload, user_id).await {
+        error!("{}", e.to_string());
+        BlossomResponse::error(format!("Error saving file (db): {}", e))
+    } else {
+        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))
     }
 }

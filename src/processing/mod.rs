@@ -1,13 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::processing::probe::FFProbe;
 use anyhow::{bail, Error, Result};
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-use ffmpeg_rs_raw::{DemuxerInfo, Encoder, StreamType, Transcoder};
+use ffmpeg_rs_raw::{Demuxer, DemuxerInfo, Encoder, StreamType, Transcoder};
+use uuid::Uuid;
 
 #[cfg(feature = "labels")]
 pub mod labeling;
-mod probe;
 
 pub struct WebpProcessor;
 
@@ -22,7 +21,12 @@ impl WebpProcessor {
         Self
     }
 
-    pub fn process_file(&mut self, input: PathBuf, mime_type: &str) -> Result<FileProcessorResult> {
+    pub fn process_file(
+        &mut self,
+        input: &Path,
+        mime_type: &str,
+        out_dir: &Path,
+    ) -> Result<NewFileProcessorResult> {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_WEBP;
 
         if !mime_type.starts_with("image/") {
@@ -30,11 +34,13 @@ impl WebpProcessor {
         }
 
         if mime_type == "image/webp" {
-            return Ok(FileProcessorResult::Skip);
+            bail!("MIME type is already image/webp");
         }
 
-        let mut out_path = input.clone();
-        out_path.set_extension("compressed.webp");
+        let uid = Uuid::new_v4();
+        let mut out_path = out_dir.join(uid.to_string());
+        out_path.set_extension("webp");
+
         unsafe {
             let mut trans = Transcoder::new(input.to_str().unwrap(), out_path.to_str().unwrap())?;
 
@@ -54,19 +60,14 @@ impl WebpProcessor {
             trans.transcode_stream(image_stream, enc)?;
             trans.run(None)?;
 
-            Ok(FileProcessorResult::NewFile(NewFileProcessorResult {
+            Ok(NewFileProcessorResult {
                 result: out_path,
                 mime_type: "image/webp".to_string(),
                 width: image_stream.width,
                 height: image_stream.height,
-            }))
+            })
         }
     }
-}
-
-pub enum FileProcessorResult {
-    NewFile(NewFileProcessorResult),
-    Skip,
 }
 
 pub struct NewFileProcessorResult {
@@ -76,21 +77,27 @@ pub struct NewFileProcessorResult {
     pub height: usize,
 }
 
-pub fn compress_file(in_file: PathBuf, mime_type: &str) -> Result<FileProcessorResult, Error> {
-    let proc = if mime_type.starts_with("image/") {
-        Some(WebpProcessor::new())
-    } else {
-        None
-    };
-    if let Some(mut proc) = proc {
-        proc.process_file(in_file, mime_type)
-    } else {
-        Ok(FileProcessorResult::Skip)
-    }
+pub fn can_compress(mime_type: &str) -> bool {
+    mime_type.starts_with("image/")
 }
 
-pub fn probe_file(in_file: PathBuf) -> Result<DemuxerInfo> {
-    let proc = FFProbe::new();
-    let info = proc.process_file(in_file)?;
-    Ok(info)
+pub fn compress_file(
+    stream: &Path,
+    mime_type: &str,
+    out_dir: &Path,
+) -> Result<NewFileProcessorResult, Error> {
+    if !can_compress(mime_type) {
+        bail!("MIME type not supported");
+    }
+
+    if mime_type.starts_with("image/") {
+        let mut proc = WebpProcessor::new();
+        return proc.process_file(stream, mime_type, out_dir);
+    }
+    bail!("No media processor")
+}
+
+pub fn probe_file(stream: &Path) -> Result<DemuxerInfo> {
+    let mut demuxer = Demuxer::new(stream.to_str().unwrap())?;
+    unsafe { demuxer.probe_input() }
 }

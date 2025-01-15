@@ -576,6 +576,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
+dependencies = [
+ "byteorder",
+ "fnv",
+ "uuid",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1121,7 +1132,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 [[package]]
 name = "ffmpeg-rs-raw"
 version = "0.1.0"
-source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=76333375d8c7c825cd9e45c041866f2c655c7bbd#76333375d8c7c825cd9e45c041866f2c655c7bbd"
+source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=de2050cec07a095bace38d3ccf9c4c4f9b03b217#de2050cec07a095bace38d3ccf9c4c4f9b03b217"
 dependencies = [
  "anyhow",
  "ffmpeg-sys-the-third",
@@ -2004,6 +2015,15 @@ dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
  "serde",
+]
+
+[[package]]
+name = "infer"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc150e5ce2330295b8616ce0e3f53250e53af31759a9dbedad1621ba29151847"
+dependencies = [
+ "cfb",
 ]
 
 [[package]]
@@ -3175,12 +3195,14 @@ dependencies = [
  "ffmpeg-rs-raw",
  "hex",
  "http-range-header",
+ "infer",
  "libc",
  "log",
  "mime2ext",
  "nostr",
  "nostr-cursor",
  "pretty_env_logger",
+ "rand",
  "regex",
  "reqwest",
  "rocket",

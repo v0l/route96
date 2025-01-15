@@ -14,7 +14,7 @@ use rocket::{routes, FromForm, Responder, Route, State};
 
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload};
-use crate::filesystem::FileStore;
+use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event, PagedResult};
 use crate::settings::Settings;
 use crate::webhook::Webhook;
@@ -208,17 +208,13 @@ async fn upload(
             return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
         }
     }
-    match fs
+
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let upload = match fs
         .put(file, content_type, !form.no_transform.unwrap_or(false))
         .await
     {
-        Ok(mut blob) => {
-            blob.upload.name = match &form.caption {
-                Some(c) => c.to_string(),
-                None => "".to_string(),
-            };
-            blob.upload.alt = form.alt.as_ref().map(|s| s.to_string());
-            let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+        Ok(FileSystemResult::NewFile(blob)) => {
             if let Some(wh) = webhook.as_ref() {
                 match wh.store_file(&pubkey_vec, blob.clone()).await {
                     Ok(store) => {
@@ -236,34 +232,32 @@ async fn upload(
                     }
                 }
             }
-            let user_id = match db.upsert_user(&pubkey_vec).await {
-                Ok(u) => u,
-                Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
-            };
-            let tmp_file = blob.path.clone();
-            if let Err(e) = db.add_file(&blob.upload, user_id).await {
-                error!("{}", e.to_string());
-                let _ = fs::remove_file(tmp_file);
-                if let Some(dbe) = e.as_database_error() {
-                    if let Some(c) = dbe.code() {
-                        if c == "23000" {
-                            return Nip96Response::error("File already exists");
-                        }
-                    }
-                }
-                return Nip96Response::error(&format!("Could not save file (db): {}", e));
-            }
 
-            Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
-                settings,
-                &blob.upload,
-            )))
+            let mut upload: FileUpload = (&blob).into();
+            upload.name = form.caption.map(|cap| cap.to_string());
+            upload.alt = form.alt.as_ref().map(|s| s.to_string());
+            upload
         }
+        Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
+            Ok(Some(f)) => f,
+            _ => return Nip96Response::error("File not found"),
+        },
         Err(e) => {
             error!("{}", e.to_string());
-            Nip96Response::error(&format!("Could not save file: {}", e))
+            return Nip96Response::error(&format!("Could not save file: {}", e));
         }
+    };
+
+    let user_id = match db.upsert_user(&pubkey_vec).await {
+        Ok(u) => u,
+        Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
+    };
+
+    if let Err(e) = db.add_file(&upload, user_id).await {
+        error!("{}", e.to_string());
+        return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }
+    Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(settings, &upload)))
 }
 
 #[rocket::delete("/n96/<sha256>")]
