@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, SingleLetterTag, TagKind};
+use nostr::{Alphabet, Event, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -279,6 +279,15 @@ async fn upload_media(
     data: Data<'_>,
 ) -> BlossomResponse {
     process_upload("media", true, auth, fs, db, settings, data).await
+}
+
+#[rocket::put("/report", data = "<data>", format = "json")]
+async fn report(
+    auth: BlossomAuth,
+    db: &State<Database>,
+    data: Json<Event>,
+) -> Status {
+    
 }
 
 fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
