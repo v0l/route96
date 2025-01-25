@@ -30,15 +30,9 @@ export default function FileList({
   }
 
   function renderInner(f: FileInfo) {
-    if (f.type?.startsWith("image/") || !f.type) {
+    if (f.type?.startsWith("image/") || f.type?.startsWith("video/") || !f.type) {
       return (
-        <img src={f.url} className="w-full h-full object-contain object-center" loading="lazy" />
-      );
-    } else if (f.type?.startsWith("video/")) {
-      return (
-        <div className="w-full h-full flex items-center justify-center">
-          Video
-        </div>
+        <img src={f.url.replace(`/${f.id}`, `/thumb/${f.id}`)} className="w-full h-full object-contain object-center" loading="lazy" />
       );
     }
   }
