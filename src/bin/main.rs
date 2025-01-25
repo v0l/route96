@@ -89,6 +89,10 @@ async fn main() -> Result<(), Error> {
     {
         rocket = rocket.mount("/", routes::nip96_routes());
     }
+    #[cfg(feature = "media-compression")]
+    {
+        rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
+    }
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
         Err(Error::from(e))

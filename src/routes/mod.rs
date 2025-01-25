@@ -1,5 +1,7 @@
 use crate::db::{Database, FileUpload};
 use crate::filesystem::FileStore;
+#[cfg(feature = "media-compression")]
+use crate::processing::WebpProcessor;
 pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
@@ -16,6 +18,7 @@ use rocket::http::{ContentType, Header, Status};
 use rocket::response::Responder;
 use rocket::serde::Serialize;
 use rocket::{Request, Response, State};
+use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::ops::Range;
 use std::pin::{pin, Pin};
@@ -170,49 +173,61 @@ impl AsyncRead for RangeBody {
 impl<'r> Responder<'r, 'static> for FilePayload {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         let mut response = Response::new();
+        response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
 
         // handle ranges
         #[cfg(feature = "ranges")]
         {
-            response.set_header(Header::new("accept-ranges", "bytes"));
-            if let Some(r) = request.headers().get("range").next() {
-                if let Ok(ranges) = parse_range_header(r) {
-                    if ranges.ranges.len() > 1 {
-                        warn!("Multipart ranges are not supported, fallback to non-range request");
-                        response.set_streamed_body(self.file);
-                    } else {
-                        const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
-                        let single_range = ranges.ranges.first().unwrap();
-                        let range_start = match single_range.start {
-                            StartPosition::Index(i) => i,
-                            StartPosition::FromLast(i) => self.info.size - i,
-                        };
-                        let range_end = match single_range.end {
-                            EndPosition::Index(i) => i,
-                            EndPosition::LastByte => {
-                                (range_start + MAX_UNBOUNDED_RANGE).min(self.info.size)
-                            }
-                        };
-                        let r_len = range_end - range_start;
-                        let r_body = RangeBody::new(self.file, range_start..range_end);
-
-                        response.set_status(Status::PartialContent);
-                        response.set_header(Header::new("content-length", r_len.to_string()));
-                        response.set_header(Header::new(
-                            "content-range",
-                            format!("bytes {}-{}/{}", range_start, range_end - 1, self.info.size),
-                        ));
-                        response.set_streamed_body(Box::pin(r_body));
-                    }
-                }
+            const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
+            // only use range response for files > 1MiB
+            if self.info.size < MAX_UNBOUNDED_RANGE {
+                response.set_sized_body(None, self.file);
             } else {
-                response.set_streamed_body(self.file);
+                response.set_header(Header::new("accept-ranges", "bytes"));
+                if let Some(r) = request.headers().get("range").next() {
+                    if let Ok(ranges) = parse_range_header(r) {
+                        if ranges.ranges.len() > 1 {
+                            warn!(
+                                "Multipart ranges are not supported, fallback to non-range request"
+                            );
+                            response.set_streamed_body(self.file);
+                        } else {
+                            let single_range = ranges.ranges.first().unwrap();
+                            let range_start = match single_range.start {
+                                StartPosition::Index(i) => i,
+                                StartPosition::FromLast(i) => self.info.size - i,
+                            };
+                            let range_end = match single_range.end {
+                                EndPosition::Index(i) => i,
+                                EndPosition::LastByte => {
+                                    (range_start + MAX_UNBOUNDED_RANGE).min(self.info.size)
+                                }
+                            };
+                            let r_len = range_end - range_start;
+                            let r_body = RangeBody::new(self.file, range_start..range_end);
+
+                            response.set_status(Status::PartialContent);
+                            response.set_header(Header::new("content-length", r_len.to_string()));
+                            response.set_header(Header::new(
+                                "content-range",
+                                format!(
+                                    "bytes {}-{}/{}",
+                                    range_start,
+                                    range_end - 1,
+                                    self.info.size
+                                ),
+                            ));
+                            response.set_streamed_body(Box::pin(r_body));
+                        }
+                    }
+                } else {
+                    response.set_sized_body(None, self.file);
+                }
             }
         }
         #[cfg(not(feature = "ranges"))]
         {
-            response.set_streamed_body(self.file);
-            response.set_header(Header::new("content-length", self.info.size.to_string()));
+            response.set_sized_body(None, self.file);
         }
 
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
@@ -350,6 +365,55 @@ pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
     } else {
         Status::NotFound
     }
+}
+
+/// Generate thumbnail for image / video
+#[cfg(feature = "media-compression")]
+#[rocket::get("/thumb/<sha256>")]
+pub async fn get_blob_thumb(
+    sha256: &str,
+    fs: &State<FileStore>,
+    db: &State<Database>,
+) -> Result<FilePayload, Status> {
+    let sha256 = if sha256.contains(".") {
+        sha256.split('.').next().unwrap()
+    } else {
+        sha256
+    };
+    let id = if let Ok(i) = hex::decode(sha256) {
+        i
+    } else {
+        return Err(Status::NotFound);
+    };
+
+    if id.len() != 32 {
+        return Err(Status::NotFound);
+    }
+    if let Ok(Some(info)) = db.get_file(&id).await {
+        let file_path = fs.get(&id);
+
+        let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
+        thumb_file.set_extension("webp");
+
+        if !thumb_file.exists() {
+            let mut p = WebpProcessor::new();
+            if p.thumbnail(&file_path, &thumb_file).is_err() {
+                return Err(Status::InternalServerError);
+            }
+        };
+
+        if let Ok(f) = File::open(&thumb_file).await {
+            return Ok(FilePayload {
+                file: f,
+                info: FileUpload {
+                    size: thumb_file.metadata().unwrap().len(),
+                    mime_type: "image/webp".to_string(),
+                    ..info
+                },
+            });
+        }
+    }
+    Err(Status::NotFound)
 }
 
 /// Legacy URL redirect for void.cat uploads
