@@ -389,31 +389,36 @@ pub async fn get_blob_thumb(
     if id.len() != 32 {
         return Err(Status::NotFound);
     }
-    if let Ok(Some(info)) = db.get_file(&id).await {
-        let file_path = fs.get(&id);
+    let info = if let Ok(Some(info)) = db.get_file(&id).await {
+        info
+    } else {
+        return Err(Status::NotFound);
+    };
 
-        let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
-        thumb_file.set_extension("webp");
+    let file_path = fs.get(&id);
 
-        if !thumb_file.exists() {
-            let mut p = WebpProcessor::new();
-            if p.thumbnail(&file_path, &thumb_file).is_err() {
-                return Err(Status::InternalServerError);
-            }
-        };
+    let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
+    thumb_file.set_extension("webp");
 
-        if let Ok(f) = File::open(&thumb_file).await {
-            return Ok(FilePayload {
-                file: f,
-                info: FileUpload {
-                    size: thumb_file.metadata().unwrap().len(),
-                    mime_type: "image/webp".to_string(),
-                    ..info
-                },
-            });
+    if !thumb_file.exists() {
+        let mut p = WebpProcessor::new();
+        if p.thumbnail(&file_path, &thumb_file).is_err() {
+            return Err(Status::InternalServerError);
         }
+    };
+
+    if let Ok(f) = File::open(&thumb_file).await {
+        Ok(FilePayload {
+            file: f,
+            info: FileUpload {
+                size: thumb_file.metadata().unwrap().len(),
+                mime_type: "image/webp".to_string(),
+                ..info
+            },
+        })
+    } else {
+        Err(Status::NotFound)
     }
-    Err(Status::NotFound)
 }
 
 /// Legacy URL redirect for void.cat uploads
