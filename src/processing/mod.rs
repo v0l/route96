@@ -1,7 +1,9 @@
 use anyhow::{bail, Error, Result};
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-use ffmpeg_rs_raw::{Demuxer, DemuxerInfo, Encoder, Muxer, StreamType, Transcoder};
+use ffmpeg_rs_raw::ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVFrame};
+use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Encoder, Scaler, StreamType, Transcoder};
 use std::path::{Path, PathBuf};
+use std::ptr;
 use uuid::Uuid;
 
 #[cfg(feature = "labels")]
@@ -93,15 +95,26 @@ impl WebpProcessor {
                 .with_framerate(1.0)?
                 .open(None)?;
 
-            let mut trans = Transcoder::new_custom_io(
-                input,
-                Muxer::builder()
-                    .with_output_path(out_path.to_str().unwrap(), Some("webp"))?
-                    .build()?,
-            );
+            let mut sws = Scaler::new();
+            let mut decoder = Decoder::new();
+            decoder.setup_decoder(image_stream, None)?;
 
-            trans.transcode_stream(image_stream, enc)?;
-            trans.run(None)?;
+            while let Ok((mut pkt, _stream)) = input.get_packet() {
+                let mut frame_save: *mut AVFrame = ptr::null_mut();
+                for mut frame in decoder.decode_pkt(pkt)? {
+                    if frame_save.is_null() {
+                        frame_save = sws.process_frame(frame, w, h, AV_PIX_FMT_YUV420P)?;
+                    }
+                    av_frame_free(&mut frame);
+                }
+
+                av_packet_free(&mut pkt);
+                if !frame_save.is_null() {
+                    enc.save_picture(frame_save, out_path.to_str().unwrap())?;
+                    av_frame_free(&mut frame_save);
+                    return Ok(());
+                }
+            }
 
             Ok(())
         }
