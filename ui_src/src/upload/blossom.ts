@@ -41,7 +41,7 @@ export class Blossom {
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("media", "PUT", "upload", file, tags);
+    const rsp = await this.#req("media", "PUT", "media", file, tags);
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
