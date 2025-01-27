@@ -139,6 +139,8 @@ async fn migrate_file(
         },
         blur_hash: None,
         alt: f.description.clone(),
+        duration: None,
+        bitrate: None,
     };
     db.add_file(&fu, uid).await?;
     Ok(())

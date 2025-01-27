@@ -66,6 +66,8 @@ impl WebpProcessor {
                 mime_type: "image/webp".to_string(),
                 width: image_stream.width,
                 height: image_stream.height,
+                duration: probe.duration,
+                bitrate: probe.bitrate as u32,
             })
         }
     }
@@ -126,6 +128,8 @@ pub struct NewFileProcessorResult {
     pub mime_type: String,
     pub width: usize,
     pub height: usize,
+    pub duration: f32,
+    pub bitrate: u32,
 }
 
 pub fn can_compress(mime_type: &str) -> bool {

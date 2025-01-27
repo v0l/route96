@@ -81,6 +81,13 @@ impl Nip94Event {
         if let (Some(w), Some(h)) = (upload.width, upload.height) {
             tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
         }
+        if let Some(d) = &upload.duration {
+            tags.push(vec!["duration".to_string(), d.to_string()]);
+        }
+        if let Some(b) = &upload.bitrate {
+            tags.push(vec!["bitrate".to_string(), b.to_string()]);
+        }
+
         #[cfg(feature = "labels")]
         for l in &upload.labels {
             let val = if l.label.contains(',') {

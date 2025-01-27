@@ -1,5 +1,6 @@
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
+use crate::processing::can_compress;
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
@@ -36,6 +37,8 @@ pub struct NewFileResult {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub blur_hash: Option<String>,
+    pub duration: Option<f32>,
+    pub bitrate: Option<u32>,
     #[cfg(feature = "labels")]
     pub labels: Vec<FileLabel>,
 }
@@ -74,7 +77,7 @@ impl FileStore {
             return Ok(FileSystemResult::AlreadyExists(hash));
         }
 
-        let mut res = if compress {
+        let mut res = if compress && can_compress(mime_type) {
             #[cfg(feature = "media-compression")]
             {
                 let res = match self.compress_file(&temp_file, mime_type).await {
@@ -92,7 +95,7 @@ impl FileStore {
                 anyhow::bail!("Compression not supported!");
             }
         } else {
-            let (width, height, mime_type) = {
+            let (width, height, mime_type, duration, bitrate) = {
                 #[cfg(feature = "media-compression")]
                 {
                     let probe = probe_file(&temp_file).ok();
@@ -102,10 +105,18 @@ impl FileStore {
                         v_stream.map(|v| v.width as u32),
                         v_stream.map(|v| v.height as u32),
                         mime,
+                        probe.as_ref().map(|p| p.duration),
+                        probe.as_ref().map(|p| p.bitrate as u32),
                     )
                 }
                 #[cfg(not(feature = "media-compression"))]
-                (None, None, Self::infer_mime_type(mime_type, &temp_file))
+                (
+                    None,
+                    None,
+                    Self::infer_mime_type(mime_type, &temp_file),
+                    None,
+                    None,
+                )
             };
             NewFileResult {
                 path: temp_file,
@@ -115,6 +126,8 @@ impl FileStore {
                 width,
                 height,
                 blur_hash: None,
+                duration,
+                bitrate,
             }
         };
 
@@ -194,6 +207,8 @@ impl FileStore {
             height: Some(compressed_result.height as u32),
             blur_hash: None,
             mime_type: compressed_result.mime_type,
+            duration: Some(compressed_result.duration),
+            bitrate: Some(compressed_result.bitrate),
             #[cfg(feature = "labels")]
             labels,
         })

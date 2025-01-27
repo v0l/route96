@@ -25,6 +25,10 @@ pub struct FileUpload {
     pub blur_hash: Option<String>,
     /// Alt text of the media
     pub alt: Option<String>,
+    /// Duration of media in seconds
+    pub duration: Option<f32>,
+    /// Average bitrate in bits/s
+    pub bitrate: Option<u32>,
 
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
@@ -43,6 +47,8 @@ impl From<&NewFileResult> for FileUpload {
             height: value.height,
             blur_hash: value.blur_hash.clone(),
             alt: None,
+            duration: value.duration,
+            bitrate: value.bitrate,
             #[cfg(feature = "labels")]
             labels: value.labels.clone(),
         }
@@ -145,7 +151,7 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created) values(?,?,?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate) values(?,?,?,?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -154,7 +160,9 @@ impl Database {
             .bind(file.width)
             .bind(file.height)
             .bind(&file.alt)
-            .bind(file.created);
+            .bind(file.created)
+            .bind(file.duration)
+            .bind(file.bitrate);
         tx.execute(q).await?;
 
         let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
