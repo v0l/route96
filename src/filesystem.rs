@@ -106,7 +106,9 @@ impl FileStore {
                         v_stream.map(|v| v.width as u32),
                         v_stream.map(|v| v.height as u32),
                         mime,
-                        probe.as_ref().map(|p| p.duration),
+                        probe
+                            .as_ref()
+                            .map(|p| if p.duration < 0. { 0.0 } else { p.duration }),
                         probe.as_ref().map(|p| p.bitrate as u32),
                     )
                 }

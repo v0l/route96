@@ -66,7 +66,11 @@ impl WebpProcessor {
                 mime_type: "image/webp".to_string(),
                 width: image_stream.width,
                 height: image_stream.height,
-                duration: probe.duration,
+                duration: if probe.duration < 0. {
+                    0.
+                } else {
+                    probe.duration
+                },
                 bitrate: probe.bitrate as u32,
             })
         }
