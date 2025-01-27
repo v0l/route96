@@ -103,7 +103,7 @@ impl WebpProcessor {
 
             while let Ok((mut pkt, _stream)) = input.get_packet() {
                 let mut frame_save: *mut AVFrame = ptr::null_mut();
-                for mut frame in decoder.decode_pkt(pkt)? {
+                for (mut frame, _stream) in decoder.decode_pkt(pkt)? {
                     if frame_save.is_null() {
                         frame_save = sws.process_frame(frame, w, h, AV_PIX_FMT_YUV420P)?;
                     }
