@@ -2,7 +2,11 @@ import { base64 } from "@scure/base";
 import { throwIfOffline } from "@snort/shared";
 import { EventKind, EventPublisher, NostrEvent } from "@snort/system";
 
-export interface AdminSelf { is_admin: boolean, file_count: number, total_size: number }
+export interface AdminSelf {
+  is_admin: boolean;
+  file_count: number;
+  total_size: number;
+}
 
 export class Route96 {
   constructor(
@@ -14,8 +18,7 @@ export class Route96 {
 
   async getSelf() {
     const rsp = await this.#req("admin/self", "GET");
-    const data =
-      await this.#handleResponse<AdminResponse<AdminSelf>>(rsp);
+    const data = await this.#handleResponse<AdminResponse<AdminSelf>>(rsp);
     return data;
   }
 

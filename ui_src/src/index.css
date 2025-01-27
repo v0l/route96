@@ -8,5 +8,5 @@ body {
 }
 
 hr {
-  @apply border-neutral-500
+  @apply border-neutral-500;
 }

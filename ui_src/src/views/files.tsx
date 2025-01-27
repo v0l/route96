@@ -1,7 +1,8 @@
-import { NostrEvent } from "@snort/system";
+import { NostrEvent, NostrLink } from "@snort/system";
 import { useState } from "react";
 import { FormatBytes } from "../const";
 import classNames from "classnames";
+import Profile from "../components/profile";
 
 interface FileInfo {
   id: string;
@@ -9,6 +10,7 @@ interface FileInfo {
   name?: string;
   type?: string;
   size?: number;
+  uploader?: Array<string>;
 }
 
 export default function FileList({
@@ -30,9 +32,17 @@ export default function FileList({
   }
 
   function renderInner(f: FileInfo) {
-    if (f.type?.startsWith("image/") || f.type?.startsWith("video/") || !f.type) {
+    if (
+      f.type?.startsWith("image/") ||
+      f.type?.startsWith("video/") ||
+      !f.type
+    ) {
       return (
-        <img src={f.url.replace(`/${f.id}`, `/thumb/${f.id}`)} className="w-full h-full object-contain object-center" loading="lazy" />
+        <img
+          src={f.url.replace(`/${f.id}`, `/thumb/${f.id}`)}
+          className="w-full h-full object-contain object-center"
+          loading="lazy"
+        />
       );
     }
   }
@@ -48,6 +58,7 @@ export default function FileList({
         name: f.content,
         type: f.tags.find((a) => a[0] === "m")?.at(1),
         size: Number(f.tags.find((a) => a[0] === "size")?.at(1)),
+        uploader: "uploader" in f ? (f.uploader as Array<string>) : undefined,
       };
     } else {
       return {
@@ -68,12 +79,14 @@ export default function FileList({
       ret.push(
         <div
           onClick={() => onPage?.(x)}
-          className={classNames("bg-neutral-700 hover:bg-neutral-600 min-w-8 text-center cursor-pointer font-bold",
+          className={classNames(
+            "bg-neutral-700 hover:bg-neutral-600 min-w-8 text-center cursor-pointer font-bold",
             {
               "rounded-l-md": x === start,
-              "rounded-r-md": (x + 1) === n,
+              "rounded-r-md": x + 1 === n,
               "bg-neutral-400": page === x,
-            })}
+            },
+          )}
         >
           {x + 1}
         </div>,
@@ -96,24 +109,39 @@ export default function FileList({
             >
               <div className="absolute flex flex-col items-center justify-center w-full h-full text-wrap text-sm break-all text-center opacity-0 hover:opacity-100 hover:bg-black/80">
                 <div>
-                  {(info.name?.length ?? 0) === 0 ? "Untitled" : info.name}
+                  {(info.name?.length ?? 0) === 0
+                    ? "Untitled"
+                    : info.name!.length > 20
+                      ? `${info.name?.substring(0, 10)}...${info.name?.substring(info.name.length - 10)}`
+                      : info.name}
                 </div>
                 <div>
                   {info.size && !isNaN(info.size)
                     ? FormatBytes(info.size, 2)
                     : ""}
                 </div>
+                <div>{info.type}</div>
                 <div className="flex gap-2">
                   <a href={info.url} className="underline" target="_blank">
                     Link
                   </a>
-                  {onDelete && <a href="#" onClick={e => {
-                    e.preventDefault();
-                    onDelete?.(info.id)
-                  }} className="underline">
-                    Delete
-                  </a>}
+                  {onDelete && (
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onDelete?.(info.id);
+                      }}
+                      className="underline"
+                    >
+                      Delete
+                    </a>
+                  )}
                 </div>
+                {info.uploader &&
+                  info.uploader.map((a) => (
+                    <Profile link={NostrLink.publicKey(a)} size={20} />
+                  ))}
               </div>
               {renderInner(info)}
             </div>
@@ -129,6 +157,9 @@ export default function FileList({
         <thead>
           <tr>
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
+              Preview
+            </th>
+            <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
               Name
             </th>
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
@@ -137,6 +168,11 @@ export default function FileList({
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
               Size
             </th>
+            {files.some((i) => "uploader" in i) && (
+              <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
+                Uploader
+              </th>
+            )}
             <th className="border border-neutral-400 bg-neutral-500 py-1 px-2">
               Actions
             </th>
@@ -147,6 +183,9 @@ export default function FileList({
             const info = getInfo(a);
             return (
               <tr key={info.id}>
+                <td className="border border-neutral-500 py-1 px-2 w-8 h-8">
+                  {renderInner(info)}
+                </td>
                 <td className="border border-neutral-500 py-1 px-2 break-all">
                   {(info.name?.length ?? 0) === 0 ? "<Untitled>" : info.name}
                 </td>
@@ -158,17 +197,30 @@ export default function FileList({
                     ? FormatBytes(info.size, 2)
                     : ""}
                 </td>
+                {info.uploader && (
+                  <td className="border border-neutral-500 py-1 px-2">
+                    {info.uploader.map((a) => (
+                      <Profile link={NostrLink.publicKey(a)} size={20} />
+                    ))}
+                  </td>
+                )}
                 <td className="border border-neutral-500 py-1 px-2">
                   <div className="flex gap-2">
                     <a href={info.url} className="underline" target="_blank">
                       Link
                     </a>
-                    {onDelete && <a href="#" onClick={e => {
-                      e.preventDefault();
-                      onDelete?.(info.id)
-                    }} className="underline">
-                      Delete
-                    </a>}
+                    {onDelete && (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onDelete?.(info.id);
+                        }}
+                        className="underline"
+                      >
+                        Delete
+                      </a>
+                    )}
                   </div>
                 </td>
               </tr>

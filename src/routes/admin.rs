@@ -1,11 +1,11 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload};
+use crate::db::{Database, FileUpload, User};
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
 use rocket::{routes, Responder, Route, State};
-use sqlx::{Error, Row};
+use sqlx::{Error, QueryBuilder, Row};
 
 pub fn admin_routes() -> Vec<Route> {
     routes![admin_list_files, admin_get_self]
@@ -55,6 +55,13 @@ pub struct SelfUser {
     pub total_size: u64,
 }
 
+#[derive(Serialize)]
+pub struct AdminNip94File {
+    #[serde(flatten)]
+    pub inner: Nip94Event,
+    pub uploader: Vec<String>,
+}
+
 #[rocket::get("/self")]
 async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
@@ -76,14 +83,15 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
     }
 }
 
-#[rocket::get("/files?<page>&<count>")]
+#[rocket::get("/files?<page>&<count>&<mime_type>")]
 async fn admin_list_files(
     auth: Nip98Auth,
     page: u32,
     count: u32,
+    mime_type: Option<String>,
     db: &State<Database>,
     settings: &State<Settings>,
-) -> AdminResponse<PagedResult<Nip94Event>> {
+) -> AdminResponse<PagedResult<AdminNip94File>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = count.clamp(1, 5_000);
 
@@ -95,14 +103,20 @@ async fn admin_list_files(
     if !user.is_admin {
         return AdminResponse::error("User is not an admin");
     }
-    match db.list_all_files(page * server_count, server_count).await {
+    match db
+        .list_all_files(page * server_count, server_count, mime_type)
+        .await
+    {
         Ok((files, count)) => AdminResponse::success(PagedResult {
             count: files.len() as u32,
             page,
             total: count as u32,
             files: files
-                .iter()
-                .map(|f| Nip94Event::from_upload(settings, f))
+                .into_iter()
+                .map(|f| AdminNip94File {
+                    inner: Nip94Event::from_upload(settings, &f.0),
+                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                })
                 .collect(),
         }),
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
@@ -114,21 +128,29 @@ impl Database {
         &self,
         offset: u32,
         limit: u32,
-    ) -> Result<(Vec<FileUpload>, i64), Error> {
-        let results: Vec<FileUpload> = sqlx::query_as(
-            "select u.* \
-            from uploads u \
-            order by u.created desc \
-            limit ? offset ?",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        mime_type: Option<String>,
+    ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
+        let mut q = QueryBuilder::new("select u.* from uploads u ");
+        if let Some(m) = mime_type {
+            q.push("where u.mime_type = ");
+            q.push_bind(m);
+        }
+        q.push(" order by u.created desc limit ");
+        q.push_bind(limit);
+        q.push(" offset ");
+        q.push_bind(offset);
+
+        let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
         let count: i64 = sqlx::query("select count(u.id) from uploads u")
             .fetch_one(&self.pool)
             .await?
             .try_get(0)?;
-        Ok((results, count))
+
+        let mut res = Vec::with_capacity(results.len());
+        for upload in results.into_iter() {
+            let upd = self.get_file_owners(&upload.id).await?;
+            res.push((upload, upd));
+        }
+        Ok((res, count))
     }
 }

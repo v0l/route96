@@ -30,7 +30,8 @@ export default function Upload() {
   const legacyFiles = Report as Record<string, Array<string>>;
   const myLegacyFiles = login ? (legacyFiles[login.pubkey] ?? []) : [];
 
-  const url = import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
+  const url =
+    import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
   async function doUpload() {
     if (!pub) return;
     if (!toUpload) return;
@@ -38,7 +39,9 @@ export default function Upload() {
       setError(undefined);
       if (type === "blossom") {
         const uploader = new Blossom(url, pub);
-        const result = noCompress ? await uploader.upload(toUpload) : await uploader.media(toUpload);
+        const result = noCompress
+          ? await uploader.upload(toUpload)
+          : await uploader.media(toUpload);
         setResults((s) => [...s, result]);
       }
       if (type === "nip96") {
@@ -187,29 +190,33 @@ export default function Upload() {
         </Button>
         <Button
           className="flex-1"
-          onClick={doUpload} disabled={login === undefined}>
+          onClick={doUpload}
+          disabled={login === undefined}
+        >
           Upload
         </Button>
       </div>
       <hr />
-      {!listedFiles && <Button disabled={login === undefined} onClick={() => listUploads(0)}>
-        List Uploads
-      </Button>}
+      {!listedFiles && (
+        <Button disabled={login === undefined} onClick={() => listUploads(0)}>
+          List Uploads
+        </Button>
+      )}
 
-
-      {self && <div className="flex justify-between font-medium">
-        <div>Uploads: {self.file_count.toLocaleString()}</div>
-        <div>Total Size: {FormatBytes(self.total_size)}</div>
-      </div>}
+      {self && (
+        <div className="flex justify-between font-medium">
+          <div>Uploads: {self.file_count.toLocaleString()}</div>
+          <div>Total Size: {FormatBytes(self.total_size)}</div>
+        </div>
+      )}
 
       {login && myLegacyFiles.length > 0 && (
         <div className="flex flex-col gap-4 font-bold">
-          You have {myLegacyFiles.length.toLocaleString()} files which can be migrated from void.cat
+          You have {myLegacyFiles.length.toLocaleString()} files which can be
+          migrated from void.cat
           <div className="flex gap-2">
-            <Button onClick={() => migrateLegacy()}>
-              Migrate Files
-            </Button>
-            <Button onClick={() => setShowLegacy(s => !s)}>
+            <Button onClick={() => migrateLegacy()}>Migrate Files</Button>
+            <Button onClick={() => setShowLegacy((s) => !s)}>
               {!showLegacy ? "Show Files" : "Hide Files"}
             </Button>
           </div>
@@ -218,7 +225,10 @@ export default function Upload() {
       )}
       {showLegacy && (
         <FileList
-          files={myLegacyFiles.map(f => ({ id: f, url: `https://void.cat/d/${f}` }))}
+          files={myLegacyFiles.map((f) => ({
+            id: f,
+            url: `https://void.cat/d/${f}`,
+          }))}
         />
       )}
       {listedFiles && (
@@ -248,8 +258,7 @@ export default function Upload() {
               onDelete={async (x) => {
                 await deleteFile(x);
                 await listAllUploads(adminListedPage);
-              }
-              }
+              }}
             />
           )}
         </>
