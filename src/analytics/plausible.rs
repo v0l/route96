@@ -1,7 +1,7 @@
 use crate::analytics::Analytics;
 use crate::settings::Settings;
 use anyhow::Error;
-use log::{info, warn};
+use log::{debug, warn};
 use nostr::serde_json;
 use reqwest::ClientBuilder;
 use rocket::Request;
@@ -61,7 +61,7 @@ impl PlausibleAnalytics {
                     .send()
                     .await
                 {
-                    Ok(_v) => info!("Sent {:?}", msg),
+                    Ok(_v) => debug!("Sent {:?}", msg),
                     Err(e) => warn!("Failed to track: {}", e),
                 }
             }
