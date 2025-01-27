@@ -1,6 +1,7 @@
 #[cfg(feature = "analytics")]
 pub mod analytics;
 pub mod auth;
+pub mod background;
 pub mod cors;
 pub mod db;
 pub mod filesystem;

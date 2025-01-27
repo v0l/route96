@@ -12,6 +12,7 @@ use rocket::shield::Shield;
 use route96::analytics::plausible::PlausibleAnalytics;
 #[cfg(feature = "analytics")]
 use route96::analytics::AnalyticsFairing;
+use route96::background::start_background_tasks;
 use route96::cors::CORS;
 use route96::db::Database;
 use route96::filesystem::FileStore;
@@ -63,8 +64,9 @@ async fn main() -> Result<(), Error> {
         .limit("form", upload_limit);
     config.ident = Ident::try_new("route96").unwrap();
 
+    let fs = FileStore::new(settings.clone());
     let mut rocket = rocket::Rocket::custom(config)
-        .manage(FileStore::new(settings.clone()))
+        .manage(fs.clone())
         .manage(settings.clone())
         .manage(db.clone())
         .attach(CORS)
@@ -93,10 +95,19 @@ async fn main() -> Result<(), Error> {
     {
         rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
     }
+
+    let jh = start_background_tasks(db, fs);
+
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
+        for j in jh {
+            let _ = j.await?;
+        }
         Err(Error::from(e))
     } else {
+        for j in jh {
+            let _ = j.await?;
+        }
         Ok(())
     }
 }

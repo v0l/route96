@@ -43,6 +43,7 @@ pub struct NewFileResult {
     pub labels: Vec<FileLabel>,
 }
 
+#[derive(Clone)]
 pub struct FileStore {
     settings: Settings,
 }

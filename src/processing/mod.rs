@@ -137,7 +137,7 @@ pub fn can_compress(mime_type: &str) -> bool {
 }
 
 pub fn compress_file(
-    stream: &Path,
+    path: &Path,
     mime_type: &str,
     out_dir: &Path,
 ) -> Result<NewFileProcessorResult, Error> {
@@ -147,12 +147,12 @@ pub fn compress_file(
 
     if mime_type.starts_with("image/") {
         let mut proc = WebpProcessor::new();
-        return proc.compress(stream, mime_type, out_dir);
+        return proc.compress(path, mime_type, out_dir);
     }
     bail!("No media processor")
 }
 
-pub fn probe_file(stream: &Path) -> Result<DemuxerInfo> {
-    let mut demuxer = Demuxer::new(stream.to_str().unwrap())?;
+pub fn probe_file(path: &Path) -> Result<DemuxerInfo> {
+    let mut demuxer = Demuxer::new(path.to_str().unwrap())?;
     unsafe { demuxer.probe_input() }
 }
