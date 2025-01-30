@@ -451,3 +451,24 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         None
     }
 }
+
+#[rocket::head("/d/<id>")]
+pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
+    let id = if id.contains(".") {
+        id.split('.').next().unwrap()
+    } else {
+        id
+    };
+    let uuid =
+        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
+    VoidCatFile {
+        status: Status::Ok,
+        uuid: Header::new("X-UUID", uuid.to_string()),
+    }
+}
+
+#[derive(Responder)]
+pub struct VoidCatFile {
+    pub status: Status,
+    pub uuid: Header<'static>,
+}

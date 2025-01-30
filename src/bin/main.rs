@@ -73,7 +73,7 @@ async fn main() -> Result<(), Error> {
         .attach(Shield::new()) // disable
         .mount(
             "/",
-            routes![root, get_blob, head_blob, routes::void_cat_redirect],
+            routes![root, get_blob, head_blob, routes::void_cat_redirect, routes::void_cat_redirect_head],
         )
         .mount("/admin", routes::admin_routes());
 
