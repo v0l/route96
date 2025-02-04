@@ -53,6 +53,10 @@ pub struct SelfUser {
     pub is_admin: bool,
     pub file_count: u64,
     pub total_size: u64,
+    #[cfg(feature = "payments")]
+    pub paid_until: u64,
+    #[cfg(feature = "payments")]
+    pub quota: u64,
 }
 
 #[derive(Serialize)]
@@ -77,6 +81,12 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
                 is_admin: user.is_admin,
                 file_count: s.file_count,
                 total_size: s.total_size,
+                paid_until: if let Some(u) = &user.paid_until {
+                    u.timestamp() as u64
+                } else {
+                    0
+                },
+                quota: user.paid_space,
             })
         }
         Err(_) => AdminResponse::error("User not found"),

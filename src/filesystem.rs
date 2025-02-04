@@ -1,6 +1,5 @@
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
-use crate::processing::can_compress;
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
@@ -18,6 +17,7 @@ use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use uuid::Uuid;
+use crate::can_compress;
 
 #[derive(Clone)]
 pub enum FileSystemResult {
@@ -180,6 +180,7 @@ impl FileStore {
         }
     }
 
+    #[cfg(feature = "media-compression")]
     async fn compress_file(&self, input: &PathBuf, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
         #[cfg(feature = "labels")]

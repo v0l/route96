@@ -73,7 +73,13 @@ async fn main() -> Result<(), Error> {
         .attach(Shield::new()) // disable
         .mount(
             "/",
-            routes![root, get_blob, head_blob, routes::void_cat_redirect, routes::void_cat_redirect_head],
+            routes![
+                root,
+                get_blob,
+                head_blob,
+                routes::void_cat_redirect,
+                routes::void_cat_redirect_head
+            ],
         )
         .mount("/admin", routes::admin_routes());
 
@@ -94,6 +100,10 @@ async fn main() -> Result<(), Error> {
     #[cfg(feature = "media-compression")]
     {
         rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
+    }
+    #[cfg(feature = "payments")]
+    {
+        rocket = rocket.mount("/", routes::payment::routes());
     }
 
     let jh = start_background_tasks(db, fs);

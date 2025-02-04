@@ -5,6 +5,7 @@ use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Encoder, Scaler, StreamType, 
 use std::path::{Path, PathBuf};
 use std::ptr;
 use uuid::Uuid;
+use crate::can_compress;
 
 #[cfg(feature = "labels")]
 pub mod labeling;
@@ -134,10 +135,6 @@ pub struct NewFileProcessorResult {
     pub height: usize,
     pub duration: f32,
     pub bitrate: u32,
-}
-
-pub fn can_compress(mime_type: &str) -> bool {
-    mime_type.starts_with("image/")
 }
 
 pub fn compress_file(

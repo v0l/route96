@@ -30,15 +30,78 @@ pub struct Settings {
     /// Analytics tracking
     pub plausible_url: Option<String>,
 
-    #[cfg(feature = "void-cat-redirects")]
-    pub void_cat_database: Option<String>,
-
     /// Path to void.cat uploads (files-v2)
     pub void_cat_files: Option<PathBuf>,
+
+    #[cfg(feature = "payments")]
+    /// Payment options for paid storage
+    pub payments: Option<PaymentConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VitModelConfig {
     pub model: PathBuf,
     pub config: PathBuf,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentConfig {
+    /// LND connection details
+    pub lnd: LndConfig,
+
+    /// Pricing per unit
+    pub cost: PaymentAmount,
+
+    /// What metric to bill payments on
+    pub unit: PaymentUnit,
+
+    /// Billing interval time per unit
+    pub interval: PaymentInterval,
+
+    /// Fiat base currency to store exchange rates along with invoice
+    pub fiat: Option<Currency>,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentAmount {
+    pub currency: Currency,
+    pub amount: f32,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Currency {
+    BTC,
+    USD,
+    EUR,
+    GBP,
+    JPY,
+    CAD,
+    AUD,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PaymentUnit {
+    GBSpace,
+    GBEgress,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaymentInterval {
+    Day(u16),
+    Month(u16),
+    Year(u16),
+}
+
+#[cfg(feature = "payments")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LndConfig {
+    pub endpoint: String,
+    pub tls: PathBuf,
+    pub macaroon: PathBuf,
 }

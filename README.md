@@ -12,6 +12,7 @@ Image hosting service
   - [BUD-05](https://github.com/hzrd149/blossom/blob/master/buds/05.md)
   - [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md)
   - [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md)
+  - [BUD-10](https://github.com/hzrd149/blossom/pull/57)
 - Image compression to WebP
 - Blurhash calculation
 - AI image labeling ([ViT224](https://huggingface.co/google/vit-base-patch16-224))
@@ -46,3 +47,9 @@ docker run --rm -it \
 
 ### Manual
 See [install.md](docs/debian.md)
+
+## Blossom only mode (No FFMPEG)
+If you don't want to support NIP-96 or any media compression you can build like so:
+```bash
+cargo build --release --no-default-features --features blossom
+```

@@ -61,6 +61,10 @@ pub struct User {
     pub pubkey: Vec<u8>,
     pub created: DateTime<Utc>,
     pub is_admin: bool,
+    #[cfg(feature = "payments")]
+    pub paid_until: Option<DateTime<Utc>>,
+    #[cfg(feature = "payments")]
+    pub paid_space: u64,
 }
 
 #[cfg(feature = "labels")]

@@ -10,6 +10,7 @@ pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
 use crate::void_file::VoidFile;
 use anyhow::Error;
+use base58::FromBase58;
 use http_range_header::{parse_range_header, EndPosition, StartPosition};
 use log::{debug, warn};
 use nostr::Event;
@@ -33,6 +34,8 @@ mod blossom;
 mod nip96;
 
 mod admin;
+#[cfg(feature = "payments")]
+pub mod payment;
 
 pub struct FilePayload {
     pub file: File,
@@ -183,58 +186,44 @@ impl<'r> Responder<'r, 'static> for FilePayload {
         response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
 
         // handle ranges
-        #[cfg(feature = "ranges")]
-        {
-            const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
-            // only use range response for files > 1MiB
-            if self.info.size < MAX_UNBOUNDED_RANGE {
-                response.set_sized_body(None, self.file);
-            } else {
-                response.set_header(Header::new("accept-ranges", "bytes"));
-                if let Some(r) = request.headers().get("range").next() {
-                    if let Ok(ranges) = parse_range_header(r) {
-                        if ranges.ranges.len() > 1 {
-                            warn!(
-                                "Multipart ranges are not supported, fallback to non-range request"
-                            );
-                            response.set_streamed_body(self.file);
-                        } else {
-                            let single_range = ranges.ranges.first().unwrap();
-                            let range_start = match single_range.start {
-                                StartPosition::Index(i) => i,
-                                StartPosition::FromLast(i) => self.info.size - i,
-                            };
-                            let range_end = match single_range.end {
-                                EndPosition::Index(i) => i,
-                                EndPosition::LastByte => {
-                                    (range_start + MAX_UNBOUNDED_RANGE).min(self.info.size)
-                                }
-                            };
-                            let r_len = range_end - range_start;
-                            let r_body = RangeBody::new(self.file, range_start..range_end);
-
-                            response.set_status(Status::PartialContent);
-                            response.set_header(Header::new("content-length", r_len.to_string()));
-                            response.set_header(Header::new(
-                                "content-range",
-                                format!(
-                                    "bytes {}-{}/{}",
-                                    range_start,
-                                    range_end - 1,
-                                    self.info.size
-                                ),
-                            ));
-                            response.set_streamed_body(Box::pin(r_body));
-                        }
-                    }
-                } else {
-                    response.set_sized_body(None, self.file);
-                }
-            }
-        }
-        #[cfg(not(feature = "ranges"))]
-        {
+        const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
+        // only use range response for files > 1MiB
+        if self.info.size < MAX_UNBOUNDED_RANGE {
             response.set_sized_body(None, self.file);
+        } else {
+            response.set_header(Header::new("accept-ranges", "bytes"));
+            if let Some(r) = request.headers().get("range").next() {
+                if let Ok(ranges) = parse_range_header(r) {
+                    if ranges.ranges.len() > 1 {
+                        warn!("Multipart ranges are not supported, fallback to non-range request");
+                        response.set_streamed_body(self.file);
+                    } else {
+                        let single_range = ranges.ranges.first().unwrap();
+                        let range_start = match single_range.start {
+                            StartPosition::Index(i) => i,
+                            StartPosition::FromLast(i) => self.info.size - i,
+                        };
+                        let range_end = match single_range.end {
+                            EndPosition::Index(i) => i,
+                            EndPosition::LastByte => {
+                                (range_start + MAX_UNBOUNDED_RANGE).min(self.info.size)
+                            }
+                        };
+                        let r_len = range_end - range_start;
+                        let r_body = RangeBody::new(self.file, range_start..range_end);
+
+                        response.set_status(Status::PartialContent);
+                        response.set_header(Header::new("content-length", r_len.to_string()));
+                        response.set_header(Header::new(
+                            "content-range",
+                            format!("bytes {}-{}/{}", range_start, range_end - 1, self.info.size),
+                        ));
+                        response.set_streamed_body(Box::pin(r_body));
+                    }
+                }
+            } else {
+                response.set_sized_body(None, self.file);
+            }
         }
 
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
@@ -437,9 +426,7 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         id
     };
     if let Some(base) = &settings.void_cat_files {
-        let uuid =
-            uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice())
-                .unwrap();
+        let uuid = uuid::Uuid::from_slice_le(id.from_base58().unwrap().as_slice()).unwrap();
         let f = base.join(VoidFile::map_to_path(&uuid));
         debug!("Legacy file map: {} => {}", id, f.display());
         if let Ok(f) = NamedFile::open(f).await {
@@ -459,8 +446,7 @@ pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
     } else {
         id
     };
-    let uuid =
-        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
+    let uuid = uuid::Uuid::from_slice_le(id.from_base58().unwrap().as_slice()).unwrap();
     VoidCatFile {
         status: Status::Ok,
         uuid: Header::new("X-UUID", uuid.to_string()),
