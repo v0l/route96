@@ -94,6 +94,20 @@ pub struct UserStats {
     pub total_size: u64,
 }
 
+#[cfg(feature = "payments")]
+#[derive(Clone, FromRow, Serialize)]
+pub struct Payment {
+    pub payment_hash: Vec<u8>,
+    pub user_id: u64,
+    pub created: DateTime<Utc>,
+    pub amount: u64,
+    pub is_paid: bool,
+    pub days_value: u64,
+    pub size_value: u64,
+    pub settle_index: u64,
+    pub rate: f32,
+}
+
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
@@ -272,5 +286,21 @@ impl Database {
         .try_get(0)?;
 
         Ok((results, count))
+    }
+}
+
+#[cfg(feature = "payments")]
+impl Database {
+    pub async fn insert_payment(&self, payment: &Payment) -> Result<(), Error> {
+        sqlx::query("insert into payments(payment_hash,user_id,amount,days_value,size_value,rate) values(?,?,?,?,?,?)")
+            .bind(&payment.payment_hash)
+            .bind(&payment.user_id)
+            .bind(&payment.amount)
+            .bind(&payment.days_value)
+            .bind(&payment.size_value)
+            .bind(&payment.rate)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }

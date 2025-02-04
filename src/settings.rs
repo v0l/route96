@@ -1,3 +1,5 @@
+#[cfg(feature = "payments")]
+use crate::payments::{Currency, PaymentAmount, PaymentInterval, PaymentUnit};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -61,41 +63,6 @@ pub struct PaymentConfig {
 
     /// Fiat base currency to store exchange rates along with invoice
     pub fiat: Option<Currency>,
-}
-
-#[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaymentAmount {
-    pub currency: Currency,
-    pub amount: f32,
-}
-
-#[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Currency {
-    BTC,
-    USD,
-    EUR,
-    GBP,
-    JPY,
-    CAD,
-    AUD,
-}
-
-#[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PaymentUnit {
-    GBSpace,
-    GBEgress,
-}
-
-#[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PaymentInterval {
-    Day(u16),
-    Month(u16),
-    Year(u16),
 }
 
 #[cfg(feature = "payments")]

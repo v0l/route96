@@ -35,9 +35,9 @@ payments:
   fiat: "USD"
   # LND node config
   lnd:
-    endpoint: "https://mylnd:10002"
-    tls: "tls.crt"
-    macaroon: "admin.macaroon"
+    endpoint: "https://127.0.0.1:10001"
+    tls: "/home/kieran/.polar/networks/3/volumes/lnd/alice/tls.cert"
+    macaroon: "/home/kieran/.polar/networks/3/volumes/lnd/alice/data/chain/bitcoin/regtest/admin.macaroon"
   # Cost per unit (BTC/USD/EUR/AUD/CAD/JPY/GBP)
   cost:
     currency: "BTC"

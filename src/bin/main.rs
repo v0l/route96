@@ -3,6 +3,8 @@ use std::net::{IpAddr, SocketAddr};
 use anyhow::Error;
 use clap::Parser;
 use config::Config;
+#[cfg(feature = "payments")]
+use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
 use log::{error, info};
 use rocket::config::Ident;
 use rocket::data::{ByteUnit, Limits};
@@ -102,11 +104,35 @@ async fn main() -> Result<(), Error> {
         rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
     }
     #[cfg(feature = "payments")]
-    {
-        rocket = rocket.mount("/", routes::payment::routes());
-    }
+    let lnd = {
+        if let Some(lnd) = settings.payments.as_ref().map(|p| &p.lnd) {
+            let lnd = fedimint_tonic_lnd::connect(
+                lnd.endpoint.clone(),
+                lnd.tls.clone(),
+                lnd.macaroon.clone(),
+            )
+            .await?;
 
-    let jh = start_background_tasks(db, fs);
+            let info = {
+                let mut lnd = lnd.clone();
+                lnd.lightning().get_info(GetInfoRequest::default()).await?
+            };
+
+            info!(
+                "LND connected: {} v{}",
+                info.get_ref().alias,
+                info.get_ref().version
+            );
+            rocket = rocket
+                .manage(lnd.clone())
+                .mount("/", routes::payment::routes());
+            Some(lnd)
+        } else {
+            None
+        }
+    };
+
+    let jh = start_background_tasks(db, fs, lnd);
 
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
