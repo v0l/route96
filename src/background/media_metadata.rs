@@ -68,7 +68,9 @@ impl MediaMetadata {
 
 impl Database {
     pub async fn get_missing_media_metadata(&mut self) -> Result<Vec<FileUpload>> {
-        let results: Vec<FileUpload> = sqlx::query_as("select * from uploads where (width is null or height is null or bitrate is null or duration is null) and (mime_type like 'image/%' or mime_type like 'video/%')")
+        let results: Vec<FileUpload> = sqlx::query_as("select * from uploads where \
+                          (mime_type like 'image/%' and (width is null or height is null)) or \
+                           (mime_type like 'video/%' and (width is null or height is null or bitrate is null or duration is null))")
                 .fetch_all(&self.pool)
                 .await?;
 
