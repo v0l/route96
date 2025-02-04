@@ -437,10 +437,15 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         id
     };
     if let Some(base) = &settings.void_cat_files {
-        let uuid =
-            uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice())
-                .unwrap();
-        let f = base.join(VoidFile::map_to_path(&uuid));
+        let uuid = if let Ok(b58) = nostr::bitcoin::base58::decode(id) {
+            uuid::Uuid::from_slice_le(b58.as_slice())
+        } else {
+            uuid::Uuid::parse_str(id)
+        };
+        if uuid.is_err() {
+            return None;
+        }
+        let f = base.join(VoidFile::map_to_path(&uuid.unwrap()));
         debug!("Legacy file map: {} => {}", id, f.display());
         if let Ok(f) = NamedFile::open(f).await {
             Some(f)
