@@ -109,15 +109,15 @@ async fn req_payment(
     };
 
     let record = Payment {
-        payment_hash: invoice.get_ref().payment_addr.clone(),
+        payment_hash: invoice.get_ref().r_hash.clone(),
         user_id: uid,
         created: Default::default(),
         amount: msat,
         is_paid: false,
         days_value,
         size_value: cfg.unit.to_size(req.units),
-        settle_index: 0,
-        rate: 0.0,
+        settle_index: None,
+        rate: None,
     };
 
     if let Err(e) = db.insert_payment(&record).await {

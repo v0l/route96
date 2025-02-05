@@ -1,7 +1,7 @@
 -- Add migration script here
 alter table users
     add column paid_until timestamp,
-    add column paid_space integer unsigned not null;
+    add column paid_size integer unsigned not null;
 
 create table payments
 (

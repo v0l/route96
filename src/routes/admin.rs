@@ -86,7 +86,7 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
                 } else {
                     0
                 },
-                quota: user.paid_space,
+                quota: user.paid_size,
             })
         }
         Err(_) => AdminResponse::error("User not found"),

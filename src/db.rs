@@ -64,7 +64,7 @@ pub struct User {
     #[cfg(feature = "payments")]
     pub paid_until: Option<DateTime<Utc>>,
     #[cfg(feature = "payments")]
-    pub paid_space: u64,
+    pub paid_size: u64,
 }
 
 #[cfg(feature = "labels")]
@@ -104,8 +104,8 @@ pub struct Payment {
     pub is_paid: bool,
     pub days_value: u64,
     pub size_value: u64,
-    pub settle_index: u64,
-    pub rate: f32,
+    pub settle_index: Option<u64>,
+    pub rate: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -294,13 +294,50 @@ impl Database {
     pub async fn insert_payment(&self, payment: &Payment) -> Result<(), Error> {
         sqlx::query("insert into payments(payment_hash,user_id,amount,days_value,size_value,rate) values(?,?,?,?,?,?)")
             .bind(&payment.payment_hash)
-            .bind(&payment.user_id)
-            .bind(&payment.amount)
-            .bind(&payment.days_value)
-            .bind(&payment.size_value)
-            .bind(&payment.rate)
+            .bind(payment.user_id)
+            .bind(payment.amount)
+            .bind(payment.days_value)
+            .bind(payment.size_value)
+            .bind(payment.rate)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    pub async fn get_payment(&self, payment_hash: &Vec<u8>) -> Result<Option<Payment>, Error> {
+        sqlx::query_as("select * from payments where payment_hash = ?")
+            .bind(payment_hash)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    pub async fn get_user_payments(&self, uid: u64) -> Result<Vec<Payment>, Error> {
+        sqlx::query_as("select * from payments where user_id = ?")
+            .bind(uid)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    pub async fn complete_payment(&self, payment: &Payment) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("update payments set is_paid = true, settle_index = ? where payment_hash = ?")
+            .bind(payment.settle_index)
+            .bind(&payment.payment_hash)
+            .execute(&mut *tx)
+            .await?;
+
+        // TODO: check space is not downgraded
+
+        sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, IFNULL(paid_until, current_timestamp)), paid_size = ? where id = ?")
+            .bind(payment.days_value)
+            .bind(payment.size_value)
+            .bind(payment.user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
         Ok(())
     }
 }

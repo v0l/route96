@@ -21,6 +21,7 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
+use tokio::sync::broadcast;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -132,18 +133,18 @@ async fn main() -> Result<(), Error> {
         }
     };
 
-    let jh = start_background_tasks(db, fs, lnd);
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let jh = start_background_tasks(db, fs, shutdown_rx, lnd);
 
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);
-        for j in jh {
-            let _ = j.await?;
-        }
-        Err(Error::from(e))
-    } else {
-        for j in jh {
-            let _ = j.await?;
-        }
-        Ok(())
     }
+    shutdown_tx
+        .send(())
+        .expect("Failed to send shutdown signal");
+
+    for j in jh {
+        j.await?;
+    }
+    Ok(())
 }
