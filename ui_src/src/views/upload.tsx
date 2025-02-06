@@ -23,6 +23,7 @@ export default function Upload() {
   const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
   const [listedPage, setListedPage] = useState(0);
   const [adminListedPage, setAdminListedPage] = useState(0);
+  const [mimeFilter, setMimeFilter] = useState<string>();
 
   const login = useLogin();
   const pub = usePublisher();
@@ -85,7 +86,7 @@ export default function Upload() {
     try {
       setError(undefined);
       const uploader = new Route96(url, pub);
-      const result = await uploader.listFiles(n, 50);
+      const result = await uploader.listFiles(n, 50, mimeFilter);
       setAdminListedFiles(result);
     } catch (e) {
       if (e instanceof Error) {
@@ -135,7 +136,7 @@ export default function Upload() {
 
   useEffect(() => {
     listAllUploads(adminListedPage);
-  }, [adminListedPage]);
+  }, [adminListedPage, mimeFilter]);
 
   useEffect(() => {
     if (pub && !self) {
@@ -249,6 +250,18 @@ export default function Upload() {
           <hr />
           <h3>Admin File List:</h3>
           <Button onClick={() => listAllUploads(0)}>List All Uploads</Button>
+          <div>
+            <select value={mimeFilter} onChange={e => setMimeFilter(e.target.value)}>
+              <option value={""}>All</option>
+              <option>image/webp</option>
+              <option>image/jpeg</option>
+              <option>image/jpg</option>
+              <option>image/png</option>
+              <option>image/gif</option>
+              <option>video/mp4</option>
+              <option>video/mov</option>
+            </select>
+          </div>
           {adminListedFiles && (
             <FileList
               files={adminListedFiles.files}
