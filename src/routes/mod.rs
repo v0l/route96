@@ -59,22 +59,27 @@ struct PagedResult<T> {
 impl Nip94Event {
     pub fn from_upload(settings: &Settings, upload: &FileUpload) -> Self {
         let hex_id = hex::encode(&upload.id);
+        let ext = if upload.mime_type != "application/octet-stream" {
+            mime2ext::mime2ext(&upload.mime_type)
+        } else {
+            None
+        };
         let mut tags = vec![
             vec![
                 "url".to_string(),
-                format!(
-                    "{}/{}{}",
-                    &settings.public_url,
-                    &hex_id,
-                    mime2ext::mime2ext(&upload.mime_type)
-                        .map(|m| format!(".{m}"))
-                        .unwrap_or("".to_string())
-                ),
+                format!("{}/{}.{}", &settings.public_url, &hex_id, ext.unwrap_or("")),
             ],
-            vec!["x".to_string(), hex_id],
+            vec!["x".to_string(), hex_id.clone()],
             vec!["m".to_string(), upload.mime_type.clone()],
             vec!["size".to_string(), upload.size.to_string()],
         ];
+        if upload.mime_type.starts_with("image/") || upload.mime_type.starts_with("video/") {
+            tags.push(vec![
+                "thumb".to_string(),
+                format!("{}/thumb/{}.webp", &settings.public_url, &hex_id),
+            ]);
+        }
+
         if let Some(bh) = &upload.blur_hash {
             tags.push(vec!["blurhash".to_string(), bh.clone()]);
         }
@@ -401,6 +406,10 @@ pub async fn get_blob_thumb(
     } else {
         return Err(Status::NotFound);
     };
+
+    if !(info.mime_type.starts_with("image/") || info.mime_type.starts_with("video/")) {
+        return Err(Status::NotFound);
+    }
 
     let file_path = fs.get(&id);
 
