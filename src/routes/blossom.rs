@@ -25,7 +25,7 @@ pub struct BlobDescriptor {
     pub size: u64,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
-    pub created: u64,
+    pub uploaded: u64,
     #[serde(rename = "nip94", skip_serializing_if = "Option::is_none")]
     pub nip94: Option<HashMap<String, String>>,
 }
@@ -45,7 +45,7 @@ impl BlobDescriptor {
             sha256: id_hex,
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
-            created: value.created.timestamp() as u64,
+            uploaded: value.created.timestamp() as u64,
             nip94: Some(
                 Nip94Event::from_upload(settings, value)
                     .tags
