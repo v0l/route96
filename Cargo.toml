@@ -15,6 +15,10 @@ required-features = ["bin-void-cat-force-migrate"]
 name = "route96"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "r96util"
+path = "src/bin/r96util.rs"
+
 [lib]
 name = "route96"
 

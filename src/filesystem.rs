@@ -232,7 +232,7 @@ impl FileStore {
         Ok((out_path, n, hash))
     }
 
-    async fn hash_file(p: &PathBuf) -> Result<Vec<u8>, Error> {
+    pub async fn hash_file(p: &PathBuf) -> Result<Vec<u8>, Error> {
         let mut file = File::open(p).await?;
         let mut hasher = Sha256::new();
         let mut buf = [0; 4096];
