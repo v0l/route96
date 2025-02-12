@@ -232,7 +232,7 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
 
-    if let Err(e) = db.add_file(&upload, user_id).await {
+    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
         error!("{}", e.to_string());
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }

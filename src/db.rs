@@ -148,7 +148,7 @@ impl Database {
             .try_get(0)
     }
 
-    pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
+    pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
         uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate) values(?,?,?,?,?,?,?,?,?,?,?)")
@@ -165,10 +165,13 @@ impl Database {
             .bind(file.bitrate);
         tx.execute(q).await?;
 
-        let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
-            .bind(&file.id)
-            .bind(user_id);
-        tx.execute(q2).await?;
+        if let Some(user_id) = user_id {
+            let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
+                .bind(&file.id)
+                .bind(user_id);
+
+            tx.execute(q2).await?;
+        }
 
         #[cfg(feature = "labels")]
         for lbl in &file.labels {

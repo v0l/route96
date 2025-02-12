@@ -103,7 +103,7 @@ async fn migrate_file(
     let src_path = PathBuf::new()
         .join(&args.data_path)
         .join(VoidFile::map_to_path(&f.id));
-    let dst_path = fs.map_path(&id_vec);
+    let dst_path = fs.get(&id_vec);
     if src_path.exists() && !dst_path.exists() {
         info!(
             "Copying file: {} from {} => {}",
@@ -142,6 +142,6 @@ async fn migrate_file(
         duration: None,
         bitrate: None,
     };
-    db.add_file(&fu, uid).await?;
+    db.add_file(&fu, Some(uid)).await?;
     Ok(())
 }

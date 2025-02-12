@@ -415,7 +415,7 @@ where
             return BlossomResponse::error(format!("Failed to save file (db): {}", e));
         }
     };
-    if let Err(e) = db.add_file(&upload, user_id).await {
+    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
         error!("{}", e.to_string());
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {

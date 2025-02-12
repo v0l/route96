@@ -61,7 +61,7 @@ impl FileStore {
     /// Store a new file
     pub async fn put<'r, S>(
         &self,
-        stream: S,
+        path: S,
         mime_type: &str,
         compress: bool,
     ) -> Result<FileSystemResult>
@@ -69,7 +69,7 @@ impl FileStore {
         S: AsyncRead + Unpin + 'r,
     {
         // store file in temp path and hash the file
-        let (temp_file, size, hash) = self.store_hash_temp_file(stream).await?;
+        let (temp_file, size, hash) = self.store_hash_temp_file(path).await?;
         let dst_path = self.map_path(&hash);
 
         // check if file hash already exists
@@ -247,7 +247,7 @@ impl FileStore {
         Ok(res.to_vec())
     }
 
-    pub fn map_path(&self, id: &Vec<u8>) -> PathBuf {
+    fn map_path(&self, id: &Vec<u8>) -> PathBuf {
         let id = hex::encode(id);
         self.storage_dir().join(&id[0..2]).join(&id[2..4]).join(id)
     }
