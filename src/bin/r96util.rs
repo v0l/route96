@@ -5,6 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info};
 use route96::db::{Database, FileUpload};
 use route96::filesystem::{FileStore, FileSystemResult};
+use route96::processing::probe_file;
 use route96::settings::Settings;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,8 @@ enum Commands {
     Import {
         #[arg(long)]
         from: PathBuf,
+        #[arg(long, default_missing_value = "true", num_args = 0..=1)]
+        probe_media: Option<bool>,
     },
 
     /// Import files from filesystem into database
@@ -94,7 +97,7 @@ async fn main() -> Result<(), Error> {
             })
             .await?;
         }
-        Commands::Import { from } => {
+        Commands::Import { from, probe_media } => {
             let fs = FileStore::new(settings.clone());
             let db = Database::new(&settings.database).await?;
             db.migrate().await?;
@@ -106,6 +109,16 @@ async fn main() -> Result<(), Error> {
                     let mime = infer::get_from_path(&entry)?
                         .map(|m| m.mime_type())
                         .unwrap_or("application/octet-stream");
+
+                    // test media is not corrupt
+                    if probe_media.unwrap_or(true)
+                        && (mime.starts_with("image/") || mime.starts_with("video/"))
+                        && probe_file(&entry).is_err()
+                    {
+                        p.set_message(format!("Skipping media invalid file: {}", &entry.display()));
+                        return Ok(());
+                    }
+
                     let file = tokio::fs::File::open(&entry).await?;
                     let dst = fs.put(file, mime, false).await?;
                     match dst {
