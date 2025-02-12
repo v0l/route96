@@ -24,7 +24,7 @@ required-features = ["r96util"]
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "ranges", "react-ui"]
+default = ["nip96", "blossom", "analytics", "ranges", "react-ui", "r96util"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
