@@ -14,7 +14,7 @@ use ffmpeg_rs_raw::DemuxerInfo;
 use rocket::form::validate::Contains;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use uuid::Uuid;
@@ -232,7 +232,7 @@ impl FileStore {
         Ok((out_path, n, hash))
     }
 
-    pub async fn hash_file(p: &PathBuf) -> Result<Vec<u8>, Error> {
+    pub async fn hash_file(p: &Path) -> Result<Vec<u8>, Error> {
         let mut file = File::open(p).await?;
         let mut hasher = Sha256::new();
         let mut buf = [0; 4096];

@@ -57,6 +57,7 @@ clap = { version = "4.5.18", features = ["derive"] }
 mime2ext = "0.1.53"
 infer = "0.16.0"
 tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
+walkdir = "2.5.0"
 
 libc = { version = "0.2.153", optional = true }
 ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "a63b88ef3c8f58c7c0ac57d361d06ff0bb3ed385", optional = true }

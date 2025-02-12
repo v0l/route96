@@ -51,12 +51,9 @@ async fn main() -> Result<(), Error> {
         Commands::Check { delete } => {
             info!("Checking files in: {}", settings.storage_dir);
             let fs = FileStore::new(settings.clone());
-            let mut dir = tokio::fs::read_dir(fs.storage_dir()).await?;
-            while let Some(entry) = dir.next_entry().await? {
-                if entry.file_type().await?.is_dir() {
-                    continue;
-                }
-
+            let dir = walkdir::WalkDir::new(fs.storage_dir());
+            let dir = dir.into_iter().filter_map(Result::ok).filter(|f| f.file_type().is_file());
+            for entry in dir {
                 let id = if let Ok(f) = hex::decode(entry.file_name().to_str().unwrap()) {
                     f
                 } else {
@@ -64,7 +61,7 @@ async fn main() -> Result<(), Error> {
                     continue;
                 };
 
-                let hash = FileStore::hash_file(&entry.path()).await?;
+                let hash = FileStore::hash_file(entry.path()).await?;
                 if hash != id {
                     if delete.unwrap_or(false) {
                         warn!("Deleting corrupt file: {}", entry.path().display());
