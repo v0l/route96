@@ -121,13 +121,15 @@ struct RangeBody {
     range_end: u64,
     current_offset: u64,
     poll_complete: bool,
+    file_size: u64,
 }
 
 const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
 impl RangeBody {
-    pub fn new(file: File, range: Range<u64>) -> Self {
+    pub fn new(file: File, file_size: u64, range: Range<u64>) -> Self {
         Self {
             file,
+            file_size,
             range_start: range.start,
             range_end: range.end,
             current_offset: 0,
@@ -142,9 +144,23 @@ impl RangeBody {
         };
         let range_end = match header.end {
             EndPosition::Index(i) => i,
-            EndPosition::LastByte => file_size,
+            EndPosition::LastByte => (file_size - 1).min(range_start + MAX_UNBOUNDED_RANGE),
         };
         range_start..range_end
+    }
+
+    pub fn get_headers(&self) -> Vec<Header<'static>> {
+        let r_len = (self.range_end - self.range_start) + 1;
+        vec![
+            Header::new("content-length", r_len.to_string()),
+            Header::new(
+                "content-range",
+                format!(
+                    "bytes {}-{}/{}",
+                    self.range_start, self.range_end, self.file_size
+                ),
+            ),
+        ]
     }
 }
 
@@ -155,7 +171,7 @@ impl AsyncRead for RangeBody {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let range_start = self.range_start + self.current_offset;
-        let range_len = self.range_end - range_start;
+        let range_len = self.range_end.saturating_sub(range_start) + 1;
         let bytes_to_read = buf.remaining().min(range_len as usize) as u64;
 
         if bytes_to_read == 0 {
@@ -220,20 +236,13 @@ impl<'r> Responder<'r, 'static> for FilePayload {
                         } else {
                             let single_range = ranges.ranges.first().unwrap();
                             let range = RangeBody::get_range(self.info.size, single_range);
-                            let r_len = range.end.saturating_sub(range.start);
-                            let r_body = RangeBody::new(self.file, range.clone());
+                            let r_body = RangeBody::new(self.file, self.info.size, range.clone());
 
                             response.set_status(Status::PartialContent);
-                            response.set_header(Header::new("content-length", r_len.to_string()));
-                            response.set_header(Header::new(
-                                "content-range",
-                                format!(
-                                    "bytes {}-{}/{}",
-                                    range.start,
-                                    range.end,
-                                    self.info.size
-                                ),
-                            ));
+                            let headers = r_body.get_headers();
+                            for h in headers {
+                                response.set_header(h);
+                            }
                             response.set_streamed_body(Box::pin(r_body));
                         }
                     }
@@ -500,25 +509,25 @@ mod tests {
     fn test_ranges() -> Result<()> {
         let size = 16482469;
 
-        let req = parse_range_header("bytes=1122304-16482468")?;
+        let req = parse_range_header("bytes=0-1023")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 1122304);
-        assert_eq!(r.end, 16482468);
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 1023);
 
         let req = parse_range_header("bytes=16482467-")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482467);
-        assert_eq!(r.end, 16482469);
+        assert_eq!(r.end, 16482468);
 
         let req = parse_range_header("bytes=-10")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482459);
-        assert_eq!(r.end, 16482469);
+        assert_eq!(r.end, 16482468);
 
         let req = parse_range_header("bytes=-16482470")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 0);
-        assert_eq!(r.end, 16482469);
+        assert_eq!(r.end, MAX_UNBOUNDED_RANGE);
         Ok(())
     }
 }
