@@ -142,7 +142,7 @@ impl RangeBody {
         };
         let range_end = match header.end {
             EndPosition::Index(i) => i,
-            EndPosition::LastByte => file_size - 1,
+            EndPosition::LastByte => file_size,
         };
         range_start..range_end
     }
@@ -508,17 +508,17 @@ mod tests {
         let req = parse_range_header("bytes=16482467-")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482467);
-        assert_eq!(r.end, 16482468);
+        assert_eq!(r.end, 16482469);
 
         let req = parse_range_header("bytes=-10")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482459);
-        assert_eq!(r.end, 16482468);
+        assert_eq!(r.end, 16482469);
 
         let req = parse_range_header("bytes=-16482470")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 0);
-        assert_eq!(r.end, 16482468);
+        assert_eq!(r.end, 16482469);
         Ok(())
     }
 }
