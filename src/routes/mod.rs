@@ -499,18 +499,20 @@ mod tests {
     #[test]
     fn test_ranges() -> Result<()> {
         let size = 16482469;
-        let req = parse_range_header("bytes=1122304-16482468")?;
-        let range = req.ranges.first().unwrap();
 
-        let r = RangeBody::get_range(size, range);
+        let req = parse_range_header("bytes=1122304-16482468")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 1122304);
         assert_eq!(r.end, 16482468);
 
         let req = parse_range_header("bytes=16482467-")?;
-        let range = req.ranges.first().unwrap();
-
-        let r = RangeBody::get_range(size, range);
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482467);
+        assert_eq!(r.end, 16482468);
+
+        let req = parse_range_header("bytes=-10")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 16482459);
         assert_eq!(r.end, 16482468);
         Ok(())
     }

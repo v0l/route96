@@ -21,9 +21,8 @@ steps:
         from_secret: docker_hub
     commands:
       - dockerd &
-      - docker login -u kieran -p $TOKEN git.v0l.io
       - docker login -u voidic -p $TOKEN_DOCKER
-      - docker buildx build --push -t git.v0l.io/kieran/route96:latest -t voidic/route96:latest .
+      - docker buildx build --push -t voidic/route96:latest .
       - kill $(cat /var/run/docker.pid)
 ---
 kind: pipeline
