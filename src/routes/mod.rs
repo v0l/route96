@@ -138,7 +138,7 @@ impl RangeBody {
     pub fn get_range(file_size: u64, header: &SyntacticallyCorrectRange) -> Range<u64> {
         let range_start = match header.start {
             StartPosition::Index(i) => i,
-            StartPosition::FromLast(i) => file_size - i,
+            StartPosition::FromLast(i) => file_size.saturating_sub(i),
         };
         let range_end = match header.end {
             EndPosition::Index(i) => i,
@@ -513,6 +513,11 @@ mod tests {
         let req = parse_range_header("bytes=-10")?;
         let r = RangeBody::get_range(size, req.ranges.first().unwrap());
         assert_eq!(r.start, 16482459);
+        assert_eq!(r.end, 16482468);
+
+        let req = parse_range_header("bytes=-16482470")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 0);
         assert_eq!(r.end, 16482468);
         Ok(())
     }
