@@ -1,7 +1,7 @@
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, Timestamp};
+use nostr_sdk::nostr::{Event, JsonUtil, Kind, Timestamp};
 use rocket::http::uri::{Absolute, Uri};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};

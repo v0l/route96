@@ -1,6 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
-
-use anyhow::Error;
+use anyhow::{bail, Error};
 use clap::Parser;
 use config::Config;
 use log::{error, info};
@@ -16,9 +14,11 @@ use route96::background::start_background_tasks;
 use route96::cors::CORS;
 use route96::db::Database;
 use route96::filesystem::FileStore;
+use route96::nip29::init_nip29_client;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -49,6 +49,14 @@ async fn main() -> Result<(), Error> {
     info!("Running DB migration");
     db.migrate().await?;
 
+    // Initialize the NIP-29 client if configured
+    let nip29_client = match init_nip29_client(&settings).await {
+        Ok(client) => client,
+        Err(e) => {
+            bail!("Failed to initialize NIP-29 client: {}", e);
+        }
+    };
+
     let mut config = rocket::Config::default();
     let ip: SocketAddr = match &settings.listen {
         Some(i) => i.parse()?,
@@ -68,9 +76,13 @@ async fn main() -> Result<(), Error> {
     let mut rocket = rocket::Rocket::custom(config)
         .manage(fs.clone())
         .manage(settings.clone())
-        .manage(db.clone())
+        .manage(db.clone());
+
+    rocket = rocket.manage(nip29_client);
+
+    rocket = rocket
         .attach(CORS)
-        .attach(Shield::new()) // disable
+        .attach(Shield::default())
         .mount(
             "/",
             routes![

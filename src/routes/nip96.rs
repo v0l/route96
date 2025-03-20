@@ -3,7 +3,7 @@ use std::ops::Sub;
 use std::time::Duration;
 
 use log::error;
-use nostr::Timestamp;
+use nostr_sdk::nostr::Timestamp;
 use rocket::data::ToByteUnit;
 use rocket::form::Form;
 use rocket::fs::TempFile;
@@ -246,7 +246,7 @@ async fn delete(
     fs: &State<FileStore>,
     db: &State<Database>,
 ) -> Nip96Response {
-    match delete_file(sha256, &auth.event, fs, db).await {
+    match delete_file(sha256, &auth.event, fs, db, false).await {
         Ok(()) => Nip96Response::success("File deleted."),
         Err(e) => Nip96Response::error(&format!("Failed to delete file: {}", e)),
     }

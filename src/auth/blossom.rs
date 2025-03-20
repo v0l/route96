@@ -1,10 +1,11 @@
 use base64::prelude::*;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
+use nostr_sdk::nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
 use rocket::{async_trait, Request};
 
+#[derive(Debug)]
 pub struct BlossomAuth {
     pub content_type: Option<String>,
     pub x_content_type: Option<String>,

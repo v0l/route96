@@ -35,10 +35,23 @@ pub struct Settings {
 
     /// Path to void.cat uploads (files-v2)
     pub void_cat_files: Option<PathBuf>,
+
+    /// NIP-29 relay configuration
+    pub nip29_relay: Nip29RelayConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VitModelConfig {
     pub model: PathBuf,
     pub config: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Nip29RelayConfig {
+    /// NIP-29 relay URL
+    pub url: String,
+    /// Private key for the relay (hex format)
+    pub private_key: String,
+    /// Cache expiration time in seconds
+    pub cache_expiration: Option<u64>,
 }

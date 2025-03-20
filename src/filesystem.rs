@@ -1,13 +1,13 @@
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
+#[cfg(feature = "media-compression")]
 use crate::processing::can_compress;
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
-use crate::processing::{compress_file, probe_file};
+use crate::processing::probe_file;
 use crate::settings::Settings;
-use anyhow::Error;
-use anyhow::Result;
+use anyhow::{Error, Result};
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::DemuxerInfo;
 #[cfg(feature = "media-compression")]
@@ -78,24 +78,21 @@ impl FileStore {
             return Ok(FileSystemResult::AlreadyExists(hash));
         }
 
-        let mut res = if compress && can_compress(mime_type) {
+        // Handle compression logic separately
+        if compress {
             #[cfg(feature = "media-compression")]
-            {
-                let res = match self.compress_file(&temp_file, mime_type).await {
-                    Err(e) => {
-                        tokio::fs::remove_file(&temp_file).await?;
-                        return Err(e);
-                    }
-                    Ok(res) => res,
-                };
-                tokio::fs::remove_file(temp_file).await?;
-                res
+            if can_compress(&mime_type) {
+                let compressed = self.compress_file(&temp_file, mime_type).await?;
+                return Ok(FileSystemResult::NewFile(compressed));
             }
+
             #[cfg(not(feature = "media-compression"))]
             {
-                anyhow::bail!("Compression not supported!");
+                return Err(anyhow::Error::msg("Compression not supported!"));
             }
-        } else {
+        }
+
+        let mut res = {
             let (width, height, mime_type, duration, bitrate) = {
                 #[cfg(feature = "media-compression")]
                 {
@@ -180,41 +177,50 @@ impl FileStore {
         }
     }
 
+    #[cfg(feature = "media-compression")]
+    #[allow(dead_code)]
     async fn compress_file(&self, input: &PathBuf, mime_type: &str) -> Result<NewFileResult> {
-        let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
-        #[cfg(feature = "labels")]
-        let labels = if let Some(mp) = &self.settings.vit_model {
-            label_frame(
-                &compressed_result.result,
-                mp.model.clone(),
-                mp.config.clone(),
-            )?
-            .iter()
-            .map(|l| FileLabel::new(l.0.clone(), "vit224".to_string()))
-            .collect()
-        } else {
-            vec![]
-        };
-        let hash = FileStore::hash_file(&compressed_result.result).await?;
+        #[cfg(feature = "media-compression")]
+        {
+            let compressed_result =
+                crate::processing::compress_file(input, mime_type, &self.temp_dir())?;
 
-        let n = File::open(&compressed_result.result)
-            .await?
-            .metadata()
-            .await?
-            .len();
-        Ok(NewFileResult {
-            path: compressed_result.result,
-            id: hash,
-            size: n,
-            width: Some(compressed_result.width as u32),
-            height: Some(compressed_result.height as u32),
-            blur_hash: None,
-            mime_type: compressed_result.mime_type,
-            duration: Some(compressed_result.duration),
-            bitrate: Some(compressed_result.bitrate),
             #[cfg(feature = "labels")]
-            labels,
-        })
+            let labels = if let Some(mp) = &self.settings.vit_model {
+                label_frame(
+                    &compressed_result.result,
+                    mp.model.clone(),
+                    mp.config.clone(),
+                    mp.labels.clone(),
+                )?
+            } else {
+                vec![]
+            };
+
+            let id = Self::hash_file(&compressed_result.result).await?;
+            let path = self.map_path(&id);
+            tokio::fs::copy(&compressed_result.result, &path).await?;
+            tokio::fs::remove_file(&compressed_result.result).await?;
+
+            return Ok(NewFileResult {
+                path,
+                id,
+                size: compressed_result.result.metadata()?.len(),
+                mime_type: compressed_result.mime_type,
+                width: Some(compressed_result.width as u32),
+                height: Some(compressed_result.height as u32),
+                blur_hash: None,
+                duration: Some(compressed_result.duration),
+                bitrate: Some(compressed_result.bitrate),
+                #[cfg(feature = "labels")]
+                labels,
+            });
+        }
+
+        #[cfg(not(feature = "media-compression"))]
+        {
+            return Err(anyhow::anyhow!("Media compression not enabled"));
+        }
     }
 
     async fn store_hash_temp_file<S>(&self, mut stream: S) -> Result<(PathBuf, u64, Vec<u8>)>

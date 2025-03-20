@@ -5,6 +5,7 @@ pub mod background;
 pub mod cors;
 pub mod db;
 pub mod filesystem;
+pub mod nip29;
 #[cfg(feature = "media-compression")]
 pub mod processing;
 pub mod routes;

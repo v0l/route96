@@ -29,6 +29,8 @@ pub struct FileUpload {
     pub duration: Option<f32>,
     /// Average bitrate in bits/s
     pub bitrate: Option<u32>,
+    /// NIP-29 group ID (h tag)
+    pub h_tag: Option<String>,
 
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
@@ -49,6 +51,7 @@ impl From<&NewFileResult> for FileUpload {
             alt: None,
             duration: value.duration,
             bitrate: value.bitrate,
+            h_tag: None,
             #[cfg(feature = "labels")]
             labels: value.labels.clone(),
         }
@@ -151,7 +154,7 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate) values(?,?,?,?,?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate,h_tag) values(?,?,?,?,?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -162,7 +165,8 @@ impl Database {
             .bind(&file.alt)
             .bind(file.created)
             .bind(file.duration)
-            .bind(file.bitrate);
+            .bind(file.bitrate)
+            .bind(&file.h_tag);
         tx.execute(q).await?;
 
         if let Some(user_id) = user_id {
@@ -271,5 +275,12 @@ impl Database {
         .try_get(0)?;
 
         Ok((results, count))
+    }
+
+    pub async fn get_file_h_tag(&self, file: &Vec<u8>) -> Result<Option<String>, Error> {
+        sqlx::query_scalar("select h_tag from uploads where id = ?")
+            .bind(file)
+            .fetch_optional(&self.pool)
+            .await
     }
 }

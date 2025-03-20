@@ -8,19 +8,18 @@ pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
-use crate::void_file::VoidFile;
 use anyhow::{Error, Result};
 use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
 use log::{debug, warn};
-use nostr::Event;
+use nostr_sdk::nostr::Event;
+use nostr_sdk::nostr::TagKind;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
 use rocket::response::Responder;
 use rocket::serde::Serialize;
 use rocket::{Request, Response, State};
-use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::ops::Range;
 use std::pin::{pin, Pin};
@@ -269,62 +268,133 @@ impl<'r> Responder<'r, 'static> for FilePayload {
     }
 }
 
-async fn delete_file(
+pub async fn delete_file(
     sha256: &str,
     auth: &Event,
     fs: &FileStore,
     db: &Database,
+    is_group_admin: bool,
 ) -> Result<(), Error> {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
         sha256
     };
-    let id = if let Ok(i) = hex::decode(sha256) {
-        i
-    } else {
-        return Err(Error::msg("Invalid file id"));
+    
+    let id = match hex::decode(sha256) {
+        Ok(i) => i,
+        Err(_) => {
+            return Err(Error::msg("Invalid file id"));
+        }
     };
 
     if id.len() != 32 {
         return Err(Error::msg("Invalid file id"));
     }
-    if let Ok(Some(_info)) = db.get_file(&id).await {
-        let pubkey_vec = auth.pubkey.to_bytes().to_vec();
-        let auth_user = db.get_user(&pubkey_vec).await?;
-        let owners = db.get_file_owners(&id).await?;
-        if auth_user.is_admin {
-            if let Err(e) = db.delete_all_file_owner(&id).await {
-                return Err(Error::msg(format!("Failed to delete (db): {}", e)));
-            }
-            if let Err(e) = db.delete_file(&id).await {
-                return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
-            }
-            if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
-                warn!("Failed to delete (fs): {}", e);
-            }
-        } else {
-            let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
-                Some(o) => o,
-                None => return Err(Error::msg("You dont own this file, you cannot delete it")),
+    
+    match db.get_file(&id).await {
+        Ok(Some(_)) => {
+            let pubkey_vec = auth.pubkey.to_bytes().to_vec();
+            
+            let auth_user = match db.get_user(&pubkey_vec).await {
+                Ok(user) => user,
+                Err(e) => {
+                    return Err(Error::msg(format!("Failed to get user: {}", e)));
+                }
             };
-            if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
-                return Err(Error::msg(format!("Failed to delete (db): {}", e)));
-            }
-            // only 1 owner was left, delete file completely
-            if owners.len() == 1 {
+            
+            let owners = match db.get_file_owners(&id).await {
+                Ok(o) => o,
+                Err(e) => {
+                    return Err(Error::msg(format!("Failed to get file owners: {}", e)));
+                }
+            };
+            
+            // Admin (either database admin or group admin)
+            if auth_user.is_admin || is_group_admin {                
+                if let Err(e) = db.delete_all_file_owner(&id).await {
+                    return Err(Error::msg(format!("Failed to delete file owners: {}", e)));
+                }
+                
                 if let Err(e) = db.delete_file(&id).await {
-                    return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
+                    return Err(Error::msg(format!("Failed to delete file record: {}", e)));
                 }
-                if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
-                    warn!("Failed to delete (fs): {}", e);
+                
+                let file_path = fs.get(&id);
+                if let Err(e) = tokio::fs::remove_file(&file_path).await {
+                    warn!("Failed to delete file from disk: {}", e);
+                }
+            } else {
+                // Regular user must own the file
+                let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
+                    Some(o) => o,
+                    None => {
+                        return Err(Error::msg("You dont own this file, you cannot delete it"));
+                    }
+                };
+                
+                if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
+                    return Err(Error::msg(format!("Failed to delete file owner: {}", e)));
+                }
+                
+                // only 1 owner was left, delete file completely
+                if owners.len() == 1 {
+                    if let Err(e) = db.delete_file(&id).await {
+                        return Err(Error::msg(format!("Failed to delete file record: {}", e)));
+                    }
+                    
+                    let file_path = fs.get(&id);
+                    if let Err(e) = tokio::fs::remove_file(&file_path).await {
+                        warn!("Failed to delete file from disk: {}", e);
+                    }
                 }
             }
+            Ok(())
+        },
+        Ok(None) => {
+            Err(Error::msg("File not found"))
+        },
+        Err(e) => {
+            Err(Error::msg(format!("Error retrieving file: {}", e)))
         }
-        Ok(())
-    } else {
-        Err(Error::msg("File not found"))
     }
+}
+
+async fn authorize_file_access(
+    file_h_tag: &str,
+    auth: Option<crate::auth::blossom::BlossomAuth>,
+    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
+) -> Result<(), Status> {
+    // If no auth is provided, we can't authorize
+    let auth = auth.ok_or(Status::Unauthorized)?;
+
+    // Extract the h tag from the auth event
+    let auth_h_tag = auth
+        .event
+        .tags
+        .find(TagKind::h())
+        .and_then(|t| t.content())
+        .ok_or(Status::Unauthorized)?;
+
+    // If the h tag in the auth event doesn't match the file's h tag, we can't authorize
+    if auth_h_tag != file_h_tag {
+        return Err(Status::Unauthorized);
+    }
+
+    // Verify group membership if NIP-29 client is available
+    match nip29_client
+        .is_group_member(file_h_tag, &auth.event.pubkey)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return Err(Status::Forbidden),
+        Err(e) => {
+            log::error!("Failed to verify group membership: {}", e);
+            return Err(Status::InternalServerError);
+        }
+    }
+
+    Ok(())
 }
 
 #[rocket::get("/")]
@@ -347,6 +417,8 @@ pub async fn get_blob(
     sha256: &str,
     fs: &State<FileStore>,
     db: &State<Database>,
+    auth: Option<crate::auth::blossom::BlossomAuth>,
+    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
 ) -> Result<FilePayload, Status> {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
@@ -362,12 +434,22 @@ pub async fn get_blob(
     if id.len() != 32 {
         return Err(Status::NotFound);
     }
-    if let Ok(Some(info)) = db.get_file(&id).await {
-        if let Ok(f) = File::open(fs.get(&id)).await {
-            return Ok(FilePayload { file: f, info });
-        }
+
+    let info = db
+        .get_file(&id)
+        .await
+        .map_err(|_| Status::NotFound)?
+        .ok_or(Status::NotFound)?;
+
+    // If the file has an h_tag, we need to check authorization
+    if let Some(file_h_tag) = &info.h_tag {
+        authorize_file_access(file_h_tag, auth, nip29_client).await?;
     }
-    Err(Status::NotFound)
+
+    File::open(fs.get(&id))
+        .await
+        .map(|file| FilePayload { file, info })
+        .map_err(|_| Status::NotFound)
 }
 
 #[rocket::head("/<sha256>")]
@@ -427,7 +509,7 @@ pub async fn get_blob_thumb(
 
     let file_path = fs.get(&id);
 
-    let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
+    let mut thumb_file = std::env::temp_dir().join(format!("thumb_{}", sha256));
     thumb_file.set_extension("webp");
 
     if !thumb_file.exists() {
@@ -460,15 +542,12 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         id
     };
     if let Some(base) = &settings.void_cat_files {
-        let uuid = if let Ok(b58) = nostr::bitcoin::base58::decode(id) {
-            uuid::Uuid::from_slice_le(b58.as_slice())
+        let uuid = if let Ok(b58) = nostr_sdk::nostr::bitcoin::base58::decode(id) {
+            uuid::Uuid::from_slice_le(b58.as_slice()).unwrap()
         } else {
-            uuid::Uuid::parse_str(id)
+            uuid::Uuid::parse_str(id).unwrap()
         };
-        if uuid.is_err() {
-            return None;
-        }
-        let f = base.join(VoidFile::map_to_path(&uuid.unwrap()));
+        let f = base.join(uuid.to_string());
         debug!("Legacy file map: {} => {}", id, f.display());
         if let Ok(f) = NamedFile::open(f).await {
             Some(f)
@@ -487,8 +566,12 @@ pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
     } else {
         id
     };
-    let uuid =
-        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
+    let uuid = uuid::Uuid::from_slice_le(
+        nostr_sdk::nostr::bitcoin::base58::decode(id)
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
     VoidCatFile {
         status: Status::Ok,
         uuid: Header::new("X-UUID", uuid.to_string()),
