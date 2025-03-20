@@ -17,7 +17,7 @@ RUN apt update && \
     nasm \
     libclang-dev && \
     rm -rf /var/lib/apt/lists/*
-RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFmpeg.git && \
+RUN git clone --single-branch --branch release/7.1 https://github.com/ffmpeg/FFmpeg.git && \
     cd FFmpeg && \
     ./configure \
     --prefix=${FFMPEG_DIR} \

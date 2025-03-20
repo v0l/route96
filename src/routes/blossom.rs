@@ -124,6 +124,28 @@ impl BlossomResponse {
             status: Status::Forbidden,
         })
     }
+
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: Status::NotFound,
+        })
+    }
+}
+
+impl std::fmt::Debug for BlossomResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlossomResponse::Generic(response) => {
+                write!(
+                    f,
+                    "BlossomResponse Generic {:?} {:?}",
+                    response.status, response.message
+                )
+            }
+            _ => write!(f, "BlossomResponse"),
+        }
+    }
 }
 
 struct BlossomHead {
@@ -312,7 +334,7 @@ async fn try_delete_blob(
                 }
             }
             Ok(None) => {
-                return Ok(BlossomResponse::error("File not found"));
+                return Ok(BlossomResponse::not_found("File not found"));
             }
             Err(e) => {
                 return Ok(BlossomResponse::error(format!("Database error: {}", e)));
@@ -598,7 +620,7 @@ where
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
             Ok(Some(f)) => f,
-            _ => return BlossomResponse::error("File not found"),
+            _ => return BlossomResponse::not_found("File not found"),
         },
         Err(e) => {
             error!("{}", e.to_string());

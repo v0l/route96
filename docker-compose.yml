@@ -1,8 +1,13 @@
+version: '3.8'
+
 volumes:
   db:
+  files:
+
 services:
   db:
-    image: mariadb
+    image: mariadb:latest
+    platform: linux/arm64
     environment:
       - "MARIADB_ROOT_PASSWORD=root"
       - "MARIADB_DATABASE=route96"
@@ -10,3 +15,26 @@ services:
       - "3366:3306"
     volumes:
       - "db:/var/lib/mysql"
+
+  app:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile.arm64
+      args:
+        # Only including essential features:
+        # - blossom: Core API functionality
+        # - ranges: For better file serving (partial downloads/streaming)
+        FEATURES: "blossom,ranges"
+    environment:
+      - "RUST_LOG=info"
+    ports:
+      - "8000:8000"
+    volumes:
+      - "files:/app/data"
+      - "./config.yaml:/app/config.yaml"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+    restart: on-failure

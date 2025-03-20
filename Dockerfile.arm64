@@ -1,0 +1,90 @@
+ARG IMAGE=rust:bookworm
+ARG FEATURES
+
+FROM --platform=linux/arm64 ${IMAGE} AS build
+WORKDIR /app/src
+
+# First, copy only files needed for dependency resolution
+COPY Cargo.lock Cargo.lock
+COPY Cargo.toml Cargo.toml
+
+# Set up system dependencies first
+RUN apt update && \
+    apt install -y \
+    build-essential \
+    libx264-dev \
+    libwebp-dev \
+    libvpx-dev \
+    nasm \
+    libclang-dev \
+    wget \
+    tar \
+    xz-utils && \
+    rm -rf /var/lib/apt/lists/*
+
+# Configure git settings
+RUN git config --global core.compression 0 && \
+    git config --global http.postBuffer 524288000 && \
+    git config --global http.lowSpeedLimit 0 && \
+    git config --global http.lowSpeedTime 999999 && \
+    git config --global pack.windowMemory "100m" && \
+    git config --global pack.packSizeLimit "100m" && \
+    git config --global pack.threads "1" && \
+    git config --global pack.deltaCacheSize "100m"
+
+ENV FFMPEG_DIR=/app/ffmpeg
+
+# Download and build FFmpeg from tarball
+RUN wget https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz && \
+    tar xf ffmpeg-7.1.tar.xz && \
+    cd ffmpeg-7.1 && \
+    ./configure \
+    --prefix=${FFMPEG_DIR} \
+    --disable-programs \
+    --disable-doc \
+    --disable-network \
+    --enable-gpl \
+    --enable-libx264 \
+    --enable-libwebp \
+    --enable-libvpx \
+    --disable-static \
+    --disable-postproc \
+    --enable-shared && \
+    make -j$(nproc) install && \
+    cd .. && \
+    rm -rf ffmpeg-7.1.tar.xz ffmpeg-7.1
+
+# Copy the source code
+COPY src src
+COPY migrations migrations
+
+# Build with our local fork of ffmpeg-rs-raw
+RUN cargo install --path . --root /app/build --features "${FEATURES}"
+
+FROM --platform=linux/arm64 node:bookworm AS ui_builder
+WORKDIR /app/src
+
+# Enable Corepack and set up Yarn 4.5.0
+RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+
+# First copy package files for dependency caching
+COPY ui_src/package.json ui_src/yarn.lock ./
+RUN yarn install
+
+# Then copy source files and build
+COPY ui_src .
+RUN yarn build
+
+FROM --platform=linux/arm64 ${IMAGE} AS runner
+LABEL org.opencontainers.image.source="https://github.com/Kieran/route96"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.authors="Kieran"
+WORKDIR /app
+RUN apt update && \
+    apt install -y libx264-164 libwebp7 libvpx7 && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/build .
+COPY --from=ui_builder /app/src/dist ui
+COPY --from=build /app/ffmpeg/lib/ /lib
+RUN ./bin/route96 --version
+ENTRYPOINT ["./bin/route96"]

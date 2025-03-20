@@ -24,23 +24,23 @@ required-features = ["r96util"]
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "ranges", "react-ui", "r96util"]
+default = ["blossom", "ranges"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
 blossom = []
 bin-void-cat-migrate = ["dep:sqlx-postgres"]
-bin-void-cat-force-migrate = ["dep:regex", "dep:nostr-cursor"]
+bin-void-cat-force-migrate = ["dep:regex"]
 torrent-v2 = []
 analytics = []
 void-cat-redirects = ["dep:sqlx-postgres"]
 ranges = ["dep:http-range-header"]
 react-ui = []
 r96util = ["dep:walkdir", "dep:indicatif"]
+dev = ["blossom", "ranges"]
 
 [dependencies]
 log = "0.4.21"
-nostr = "0.37.0"
 pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.1", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
@@ -59,16 +59,16 @@ clap = { version = "4.5.18", features = ["derive"] }
 mime2ext = "0.1.53"
 infer = "0.16.0"
 tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
+nostr-sdk = { version = "0.37.0", features = ["all-nips"] }
 
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "a63b88ef3c8f58c7c0ac57d361d06ff0bb3ed385", optional = true }
-candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
+ffmpeg-rs-raw = { git = "https://github.com/verse-pbc/ffmpeg-rs-raw.git", optional = true }
+candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
+candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
 http-range-header = { version = "0.4.2", optional = true }
-nostr-cursor = { git = "https://git.v0l.io/Kieran/nostr_backup_proc.git", branch = "main", optional = true }
 regex = { version = "1.11.1", optional = true }
 walkdir = { version = "2.5.0", optional = true }
 indicatif = { version = "0.17.11", optional = true }

@@ -1,11 +1,11 @@
 # Listen address for webserver
-listen: "127.0.0.1:8000"
+listen: "0.0.0.0:8000"
 
 # Database connection string (MYSQL)
-database: "mysql://root:root@localhost:3366/route96"
+database: "mysql://root:root@db:3306/route96?pool_timeout=60&pool_min_idle=1&pool_max_open=10"
 
 # Directory to store uploads
-storage_dir: "./data"
+storage_dir: "/app/data"
 
 # Maximum support filesize for uploading
 max_upload_bytes: 5e+9
@@ -17,9 +17,9 @@ public_url: "http://localhost:8000"
 # whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
 
 # Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
-vit_model:
-  model: "/home/kieran/Downloads/falcon_nsfw.safetensors"
-  config: "/home/kieran/Downloads/falcon_nsfw.json"
+# vit_model:
+#   model: "/home/kieran/Downloads/falcon_nsfw.safetensors"
+#   config: "/home/kieran/Downloads/falcon_nsfw.json"
 
 # Analytics support
 # plausible_url: "https://plausible.com/"
@@ -29,3 +29,9 @@ vit_model:
 
 # Legacy file path for void.cat uploads
 # void_cat_files: "/my/void.cat/data"
+
+# NIP-29 relay configuration
+nip29_relay:
+  url: "ws://host.docker.internal:8080"
+  private_key: "6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e"
+  cache_expiration: 300  # Cache expiration time in seconds (default: 300)

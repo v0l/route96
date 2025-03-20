@@ -12,6 +12,12 @@ services:
   app:
     image: voidic/route96
     #build: .
+    # Uncomment and use this build configuration if building locally
+    #build:
+    #  context: .
+    #  args:
+    #    # Explicitly specify only the features we need, excluding nip96
+    #    FEATURES: "blossom,analytics,ranges,react-ui,r96util"
     environment:
       - "RUST_LOG=info"
     ports:
