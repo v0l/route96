@@ -5,11 +5,6 @@ metadata:
   namespace: git
 concurrency:
   limit: 1
-trigger:
-  branch:
-    - main
-  event:
-    - push
 steps:
   - name: build
     image: docker
@@ -46,7 +41,6 @@ steps:
         from_secret: docker_hub
     commands:
       - dockerd &
-      - docker login -u kieran -p $TOKEN git.v0l.io
       - docker login -u voidic -p $TOKEN_DOCKER
-      - docker buildx build --push -t git.v0l.io/kieran/route96:$DRONE_TAG -t voidic/route96:$DRONE_TAG .
+      - docker buildx build --push voidic/route96:$DRONE_TAG .
       - kill $(cat /var/run/docker.pid)
