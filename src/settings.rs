@@ -9,7 +9,7 @@ pub struct Settings {
     /// Directory to store files
     pub storage_dir: String,
 
-    /// Database connection string mysql://localhost
+    /// Database connection string postgres://user:pass@host:5432/db
     pub database: String,
 
     /// Maximum support filesize for uploading

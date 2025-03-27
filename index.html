@@ -89,6 +89,9 @@
         async function uploadBlossom(file) {
             const hash = await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
 
+            // Get the group ID - you need to set a default or ask the user for it
+            const groupId = ""; // Set this value using a UI input field or other configuration
+
             const now = Math.floor(new Date().getTime() / 1000);
             const auth_event = await window.nostr.signEvent({
                 kind: 24242,
@@ -99,7 +102,8 @@
                     ["u", `${window.location.protocol}//${window.location.host}/upload`],
                     ["x", buf2hex(hash)],
                     ["method", "PUT"],
-                    ["expiration", (now + 10).toString()]
+                    ["expiration", (now + 10).toString()],
+                    ["h", groupId] // Add the required h tag
                 ]
             });
             const rsp = await fetch("/upload", {

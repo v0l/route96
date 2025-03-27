@@ -99,7 +99,7 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Import { from, probe_media } => {
             let fs = FileStore::new(settings.clone());
-            let db = Database::new(&settings.database).await?;
+            let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
             db.migrate().await?;
             info!("Importing from: {}", fs.storage_dir().display());
             iter_files(&from, 4, |entry, p| {
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Error> {
         }
         Commands::DatabaseImport { dry_run } => {
             let fs = FileStore::new(settings.clone());
-            let db = Database::new(&settings.database).await?;
+            let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
             db.migrate().await?;
             info!("Importing to DB from: {}", fs.storage_dir().display());
             iter_files(&fs.storage_dir(), 4, |entry, p| {
@@ -161,8 +161,7 @@ async fn main() -> Result<(), Error> {
                             let meta = entry.metadata().context("file metadata")?;
                             let entry = FileUpload {
                                 id,
-                                name: None,
-                                size: meta.len(),
+                                size: meta.len() as i64,
                                 mime_type: mime,
                                 created: meta.created().unwrap_or(SystemTime::now()).into(),
                                 width: None,
@@ -171,6 +170,9 @@ async fn main() -> Result<(), Error> {
                                 alt: None,
                                 duration: None,
                                 bitrate: None,
+                                h_tag: None,
+                                #[cfg(feature = "labels")]
+                                labels: vec![],
                             };
                             db.add_file(&entry, None).await.context("db add_file")?;
                         } else {

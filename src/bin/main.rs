@@ -16,8 +16,9 @@ use route96::db::Database;
 use route96::filesystem::FileStore;
 use route96::nip29::init_nip29_client;
 use route96::routes;
-use route96::routes::{get_blob, head_blob, root};
+use route96::routes::{get_blob_route, head_blob, root};
 use route96::settings::Settings;
+use std::env;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Parser, Debug)]
@@ -39,12 +40,18 @@ async fn main() -> Result<(), Error> {
         } else {
             "config.yaml"
         }))
-        .add_source(config::Environment::with_prefix("APP"))
+        .add_source(
+            config::Environment::with_prefix("APP")
+                .separator("__")
+                .try_parsing(true),
+        )
         .build()?;
 
     let settings: Settings = builder.try_deserialize()?;
+    println!("settings are: {:?}", settings);
+    println!("environment variables are: {:?}", env::vars());
 
-    let db = Database::new(&settings.database).await?;
+    let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
 
     info!("Running DB migration");
     db.migrate().await?;
@@ -87,7 +94,7 @@ async fn main() -> Result<(), Error> {
             "/",
             routes![
                 root,
-                get_blob,
+                get_blob_route,
                 head_blob,
                 routes::void_cat_redirect,
                 routes::void_cat_redirect_head
@@ -114,7 +121,7 @@ async fn main() -> Result<(), Error> {
         rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
     }
 
-    let jh = start_background_tasks(db, fs);
+    let jh = start_background_tasks(db, fs).await;
 
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);

@@ -76,7 +76,35 @@ pub struct Nip29Client {
 }
 
 impl Nip29Client {
-    /// Creates a new NIP-29 client instance.
+    /// Creates a new NIP-29 client from the settings
+    ///
+    /// A simpler constructor that can be used for testing or when we don't need
+    /// a real connection to the relay.
+    pub fn from_settings(settings: &Settings) -> Result<Self, Error> {
+        let nip29_config = &settings.nip29_relay;
+
+        // Trim potential whitespace or quotes from the key string before parsing
+        let clean_key = nip29_config.private_key.trim().trim_matches('"');
+
+        let keys = Keys::parse(clean_key)
+            .map_err(|e| Error::msg(format!("Failed to parse private key: {}", e)))?;
+        let cache_expiration = nip29_config.cache_expiration.unwrap_or(300);
+
+        // Create options
+        let opts = Options::default()
+            .autoconnect(true)
+            .automatic_authentication(true);
+
+        let client = Client::builder().signer(keys.clone()).opts(opts).build();
+
+        Ok(Self {
+            relay_keys: keys,
+            cache: Arc::new(RwLock::new(GroupMembershipCache::new(cache_expiration))),
+            client: Arc::new(client),
+        })
+    }
+
+    /// Creates a client with connection to a relay
     ///
     /// # Arguments
     /// - `relay_url`: The URL of the Nostr relay to connect to.
@@ -162,21 +190,29 @@ impl Nip29Client {
     /// - Err if fetching events fails.
     async fn get_group_admins(&self, group_id: &str) -> Result<HashSet<PublicKey>, Error> {
         info!("Fetching admin list for group {}", group_id);
-        
+
         // Fetch the kind 39001 (group admins) event for this group
         let filter = Filter::new()
             .kind(GROUP_ADMINS_KIND)
             .pubkey(self.relay_keys.public_key())
             .identifier(group_id);
-            
-        info!("Using filter: kind={:?}, pubkey={}, identifier={}", 
-             GROUP_ADMINS_KIND, self.relay_keys.public_key(), group_id);
 
-        let events = match self.client.fetch_events(vec![filter], Some(FETCH_TIMEOUT)).await {
+        info!(
+            "Using filter: kind={:?}, pubkey={}, identifier={}",
+            GROUP_ADMINS_KIND,
+            self.relay_keys.public_key(),
+            group_id
+        );
+
+        let events = match self
+            .client
+            .fetch_events(vec![filter], Some(FETCH_TIMEOUT))
+            .await
+        {
             Ok(e) => {
                 info!("Received {} events for group admin query", e.len());
                 e
-            },
+            }
             Err(e) => {
                 warn!("Failed to fetch group admin events: {}", e);
                 return Err(Error::msg(format!("Failed to fetch admin events: {e}")));
@@ -186,21 +222,23 @@ impl Nip29Client {
         // Extract admins from the most recent event
         let mut admins = HashSet::new();
         if let Some(event) = events.iter().max_by_key(|e| e.created_at) {
-            info!("Processing admin event: id={}, created_at={}", 
-                 event.id, event.created_at);
+            info!(
+                "Processing admin event: id={}, created_at={}",
+                event.id, event.created_at
+            );
             info!("Event content: {}", event.content);
             info!("Event has {} tags", event.tags.len());
-            
+
             for tag in event.tags.iter() {
                 let vec = tag.as_slice();
                 info!("Checking tag: {:?}", vec);
-                
+
                 if vec.len() >= 2 && vec[0] == "p" {
                     match PublicKey::parse(&vec[1]) {
                         Ok(pubkey) => {
                             info!("Found admin pubkey: {}", pubkey);
                             admins.insert(pubkey);
-                        },
+                        }
                         Err(e) => {
                             warn!("Failed to parse pubkey '{}': {}", vec[1], e);
                         }
@@ -254,14 +292,19 @@ impl Nip29Client {
                     info!("Admin: {}", admin);
                 }
                 a
-            },
+            }
             Err(e) => {
                 info!("Error getting admins for group {}: {}", group_id, e);
                 return Err(e);
             }
         };
         let is_admin = admins.contains(pubkey);
-        info!("User {} is {} admin of group {}", pubkey, if is_admin { "an" } else { "not an" }, group_id);
+        info!(
+            "User {} is {} admin of group {}",
+            pubkey,
+            if is_admin { "an" } else { "not an" },
+            group_id
+        );
         Ok(is_admin)
     }
 }
@@ -277,7 +320,10 @@ impl Nip29Client {
 pub async fn init_nip29_client(settings: &Settings) -> Result<Arc<Nip29Client>> {
     let nip29_config = &settings.nip29_relay;
 
-    let keys = Keys::parse(&nip29_config.private_key)?;
+    // Trim potential whitespace or quotes from the key string before parsing
+    let clean_key = nip29_config.private_key.trim().trim_matches('"');
+
+    let keys = Keys::parse(clean_key)?;
 
     let cache_expiration = nip29_config.cache_expiration.unwrap_or(300);
 

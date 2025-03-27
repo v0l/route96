@@ -240,13 +240,8 @@ async fn upload(
 }
 
 #[rocket::delete("/n96/<sha256>")]
-async fn delete(
-    sha256: &str,
-    auth: Nip98Auth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-) -> Nip96Response {
-    match delete_file(sha256, &auth.event, fs, db, false).await {
+async fn delete(sha256: &str, auth: Nip98Auth, db: &State<Database>) -> Nip96Response {
+    match delete_file(sha256, &auth.event, db, false).await {
         Ok(()) => Nip96Response::success("File deleted."),
         Err(e) => Nip96Response::error(&format!("Failed to delete file: {}", e)),
     }
@@ -263,7 +258,11 @@ async fn list_files(
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = count.min(5_000).max(1);
     match db
-        .list_files(&pubkey_vec, page * server_count, server_count)
+        .list_files(
+            &pubkey_vec,
+            (page * server_count) as i32,
+            server_count as i32,
+        )
         .await
     {
         Ok((files, total)) => Nip96Response::FileList(Json(PagedResult {

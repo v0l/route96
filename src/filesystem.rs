@@ -55,6 +55,7 @@ impl FileStore {
 
     /// Get a file path by id
     pub fn get(&self, id: &Vec<u8>) -> PathBuf {
+        log::debug!("filesystem.get called with file id: {}", hex::encode(id));
         self.map_path(id)
     }
 
@@ -255,7 +256,13 @@ impl FileStore {
 
     fn map_path(&self, id: &Vec<u8>) -> PathBuf {
         let id = hex::encode(id);
-        self.storage_dir().join(&id[0..2]).join(&id[2..4]).join(id)
+        log::debug!("Mapping path for file id: {}", id);
+
+        // Use a flat structure for better performance
+        let path = self.storage_dir().join(&id);
+        log::debug!("Full mapped path (flat): {:?}", path);
+
+        path
     }
 
     pub fn temp_dir(&self) -> PathBuf {
