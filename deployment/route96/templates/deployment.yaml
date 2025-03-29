@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-deployment
+  name: "{{ .Release.Name }}-deployment"
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .Release.Name }}
     app.kubernetes.io/part-of: {{ .Release.Name }}
 spec:
-  replicas: {{ .Values.replicas }}
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ .Release.Name }}
@@ -19,17 +19,34 @@ spec:
     spec:
       containers:
       - name: my-container
-        image: nginx
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          timeoutSeconds: 3
+        ports:
+        - containerPort: 80
+          protocol: TCP
         volumeMounts:
-        - name: {{ .Release.Name }}-storage
+        - name: "{{ .Release.Name }}-storage"
           mountPath: /data
-        # TODO: Specify ports
       volumes:
-      - name: {{ .Release.Name }}-storage
+      - name: "{{ .Release.Name }}-storage"
         persistentVolumeClaim:
-          claimName: {{ .Release.Name }}-pvc
-
-#TODO: Add service
-#TODO: Add HPA
-#TODO: Add PDB
-#TODO: Clean template syntax issues and naming.
+          claimName: "{{ .Release.Name }}-pvc"
