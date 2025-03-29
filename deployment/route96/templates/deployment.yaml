@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ .Release.Name }}
     app.kubernetes.io/part-of: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: Helm
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -16,10 +17,11 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
         app.kubernetes.io/part-of: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: Helm
     spec:
       containers:
       - name: my-container
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        image: "{{ .Values.image.repository }}:{{ .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
         resources:
           requests:

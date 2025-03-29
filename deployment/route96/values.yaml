@@ -3,7 +3,6 @@ replicaCount: 3
 image:
   repository: nginx
   pullPolicy: IfNotPresent
-  tag: latest
 
 pdb:
   minAvailable: 1
@@ -25,3 +24,13 @@ ingress:
   enabled: true
   className: "nginx"
   host: "blossom.plur.app"
+
+postgresql:
+  enabled: true
+  auth:
+    username: myuser
+    password: mypassword
+    database: mydatabase
+  primary:
+    persistence:
+      size: 8Gi

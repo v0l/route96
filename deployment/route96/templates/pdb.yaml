@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/part-of: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: Helm
 spec:
   minAvailable: {{ .Values.pdb.minAvailable | default 1 }}
   selector:
