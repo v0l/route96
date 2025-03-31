@@ -29,7 +29,7 @@ struct Args {
 
 #[rocket::main]
 async fn main() -> Result<(), Error> {
-    pretty_env_logger::init();
+    env_logger::init();
 
     let args: Args = Args::parse();
 
