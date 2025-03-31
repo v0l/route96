@@ -18,13 +18,13 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 15,
+  "id": 2,
   "links": [],
   "panels": [
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -93,18 +93,18 @@
           }
         ]
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "void_cat",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  hex(void_cat.users.pubkey) as pubkey, \n  count(void_cat.user_uploads.file) as uploads, \n  sum(void_cat.uploads.size) as size\nFROM void_cat.users, void_cat.user_uploads, void_cat.uploads\nwhere void_cat.users.id = void_cat.user_uploads.user_id\nand void_cat.user_uploads.file = void_cat.uploads.id\ngroup by void_cat.users.pubkey",
+          "rawSql": "SELECT \n  hex(users.pubkey) as pubkey, \n  count(user_uploads.file) as uploads, \n  sum(uploads.size) as size\nFROM users, user_uploads, uploads\nwhere users.id = user_uploads.user_id\nand user_uploads.file = uploads.id\ngroup by users.pubkey",
           "refId": "A",
           "sql": {
             "columns": [
@@ -137,7 +137,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -174,6 +174,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -185,18 +186,18 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select \n  sum(uploads.size) as size\nfrom void_cat.uploads",
+          "rawSql": "select \n  sum(uploads.size) as size\nfrom uploads",
           "refId": "A",
           "sql": {
             "columns": [
@@ -223,7 +224,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -260,6 +261,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -271,18 +273,18 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select \n  count(users.pubkey) as users\nfrom void_cat.users",
+          "rawSql": "select \n  count(users.pubkey) as users\nfrom users",
           "refId": "A",
           "sql": {
             "columns": [
@@ -309,7 +311,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -346,6 +348,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -357,18 +360,18 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select \n  count(uploads.id) as files\nfrom void_cat.uploads",
+          "rawSql": "select \n  count(uploads.id) as files\nfrom uploads",
           "refId": "A",
           "sql": {
             "columns": [
@@ -395,7 +398,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -445,18 +448,18 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select \n  hex(uploads.id) as sha256,\n  hex(users.pubkey) as uploader,\n  uploads.name,\n  sys.format_bytes(uploads.size) as size,\n  uploads.mime_type,\n  uploads.created,\n  uploads.width,\n  uploads.height\nfrom void_cat.uploads, void_cat.user_uploads, void_cat.users\nwhere uploads.id = user_uploads.file\nand users.id = user_uploads.user_id\norder by uploads.created desc\nlimit 50",
+          "rawSql": "select \n  hex(uploads.id) as sha256,\n  hex(users.pubkey) as uploader,\n  uploads.name,\n  sys.format_bytes(uploads.size) as size,\n  uploads.mime_type,\n  uploads.created,\n  uploads.width,\n  uploads.height\nfrom uploads, user_uploads, users\nwhere uploads.id = user_uploads.file\nand users.id = user_uploads.user_id\norder by uploads.created desc\nlimit 50",
           "refId": "A",
           "sql": {
             "columns": [
@@ -483,7 +486,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -533,18 +536,18 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select \n  hex(uploads.id) as sha256,\n  hex(users.pubkey) as uploader,\n  uploads.name,\n  sys.format_bytes(uploads.size) as size,\n  uploads.mime_type,\n  uploads.created\nfrom void_cat.uploads, void_cat.user_uploads, void_cat.users\nwhere uploads.id = user_uploads.file\nand users.id = user_uploads.user_id\norder by uploads.size desc\nlimit 50",
+          "rawSql": "select \n  hex(uploads.id) as sha256,\n  hex(users.pubkey) as uploader,\n  uploads.name,\n  sys.format_bytes(uploads.size) as size,\n  uploads.mime_type,\n  uploads.created\nfrom uploads, user_uploads, users\nwhere uploads.id = user_uploads.file\nand users.id = user_uploads.user_id\norder by uploads.size desc\nlimit 50",
           "refId": "A",
           "sql": {
             "columns": [
@@ -571,7 +574,7 @@
     {
       "datasource": {
         "type": "mysql",
-        "uid": "cdnhzi5uxm8zkb"
+        "uid": "behhij20nn4zka"
       },
       "fieldConfig": {
         "defaults": {
@@ -621,13 +624,13 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.4.2",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "dataset": "mysql",
           "datasource": {
             "type": "mysql",
-            "uid": "cdnhzi5uxm8zkb"
+            "uid": "behhij20nn4zka"
           },
           "editorMode": "code",
           "format": "table",
@@ -657,7 +660,9 @@
       "type": "table"
     }
   ],
-  "schemaVersion": 39,
+  "preload": false,
+  "refresh": "",
+  "schemaVersion": 40,
   "tags": [],
   "templating": {
     "list": []
@@ -670,6 +675,6 @@
   "timezone": "browser",
   "title": "route96",
   "uid": "ddni0rqotyltse",
-  "version": 12,
+  "version": 3,
   "weekStart": ""
 }
