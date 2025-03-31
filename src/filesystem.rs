@@ -1,6 +1,6 @@
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
-use crate::processing::can_compress;
+
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
@@ -78,7 +78,7 @@ impl FileStore {
             return Ok(FileSystemResult::AlreadyExists(hash));
         }
 
-        let mut res = if compress && can_compress(mime_type) {
+        let mut res = if compress && crate::can_compress(mime_type) {
             #[cfg(feature = "media-compression")]
             {
                 let res = match self.compress_file(&temp_file, mime_type).await {
@@ -180,7 +180,8 @@ impl FileStore {
         }
     }
 
-    async fn compress_file(&self, input: &PathBuf, mime_type: &str) -> Result<NewFileResult> {
+    #[cfg(feature = "media-compression")]
+    async fn compress_file(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
         #[cfg(feature = "labels")]
         let labels = if let Some(mp) = &self.settings.vit_model {

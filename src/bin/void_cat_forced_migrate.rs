@@ -24,7 +24,7 @@ struct ProgramArgs {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    pretty_env_logger::init();
+    env_logger::init();
 
     let args: ProgramArgs = ProgramArgs::parse();
 

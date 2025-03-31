@@ -219,41 +219,32 @@ impl<'r> Responder<'r, 'static> for FilePayload {
         response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
 
         // handle ranges
-        #[cfg(feature = "ranges")]
-        {
-            // only use range response for files > 1MiB
-            if self.info.size < MAX_UNBOUNDED_RANGE {
-                response.set_sized_body(None, self.file);
-            } else {
-                response.set_header(Header::new("accept-ranges", "bytes"));
-                if let Some(r) = request.headers().get("range").next() {
-                    if let Ok(ranges) = parse_range_header(r) {
-                        if ranges.ranges.len() > 1 {
-                            warn!(
-                                "Multipart ranges are not supported, fallback to non-range request"
-                            );
-                            response.set_streamed_body(self.file);
-                        } else {
-                            let single_range = ranges.ranges.first().unwrap();
-                            let range = RangeBody::get_range(self.info.size, single_range);
-                            let r_body = RangeBody::new(self.file, self.info.size, range.clone());
-
-                            response.set_status(Status::PartialContent);
-                            let headers = r_body.get_headers();
-                            for h in headers {
-                                response.set_header(h);
-                            }
-                            response.set_streamed_body(Box::pin(r_body));
-                        }
-                    }
-                } else {
-                    response.set_sized_body(None, self.file);
-                }
-            }
-        }
-        #[cfg(not(feature = "ranges"))]
-        {
+        // only use range response for files > 1MiB
+        if self.info.size < MAX_UNBOUNDED_RANGE {
             response.set_sized_body(None, self.file);
+        } else {
+            response.set_header(Header::new("accept-ranges", "bytes"));
+            if let Some(r) = request.headers().get("range").next() {
+                if let Ok(ranges) = parse_range_header(r) {
+                    if ranges.ranges.len() > 1 {
+                        warn!("Multipart ranges are not supported, fallback to non-range request");
+                        response.set_streamed_body(self.file);
+                    } else {
+                        let single_range = ranges.ranges.first().unwrap();
+                        let range = RangeBody::get_range(self.info.size, single_range);
+                        let r_body = RangeBody::new(self.file, self.info.size, range.clone());
+
+                        response.set_status(Status::PartialContent);
+                        let headers = r_body.get_headers();
+                        for h in headers {
+                            response.set_header(h);
+                        }
+                        response.set_streamed_body(Box::pin(r_body));
+                    }
+                }
+            } else {
+                response.set_sized_body(None, self.file);
+            }
         }
 
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
