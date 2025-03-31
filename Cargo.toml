@@ -62,7 +62,7 @@ tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
 
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "ea275802206f90c041c1c0184e5776069175a26b", optional = true }
+ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "29ab0547478256c574766b4acc6fcda8ebf4cae6", optional = true }
 candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }

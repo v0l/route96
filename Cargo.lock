@@ -1160,7 +1160,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 [[package]]
 name = "ffmpeg-rs-raw"
 version = "0.1.0"
-source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=ea275802206f90c041c1c0184e5776069175a26b#ea275802206f90c041c1c0184e5776069175a26b"
+source = "git+https://git.v0l.io/Kieran/ffmpeg-rs-raw.git?rev=29ab0547478256c574766b4acc6fcda8ebf4cae6#29ab0547478256c574766b4acc6fcda8ebf4cae6"
 dependencies = [
  "anyhow",
  "ffmpeg-sys-the-third",
