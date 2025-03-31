@@ -33,10 +33,12 @@ impl<'r> FromRequest<'r> for Nip98Auth {
                 if event.kind != Kind::HttpAuth {
                     return Outcome::Error((Status::new(401), "Wrong event kind"));
                 }
-                if event.created_at > Timestamp::now() {
+                if (event.created_at.as_u64() as i64 -
+                    Timestamp::now().as_u64() as i64).abs() >= 60
+                {
                     return Outcome::Error((
                         Status::new(401),
-                        "Created timestamp is in the future",
+                        "Created timestamp is out of range",
                     ));
                 }
 
