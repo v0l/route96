@@ -13,7 +13,6 @@ use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -27,7 +26,7 @@ pub struct BlobDescriptor {
     pub mime_type: Option<String>,
     pub uploaded: u64,
     #[serde(rename = "nip94", skip_serializing_if = "Option::is_none")]
-    pub nip94: Option<HashMap<String, String>>,
+    pub nip94: Option<Vec<Vec<String>>>,
 }
 
 impl BlobDescriptor {
@@ -46,13 +45,7 @@ impl BlobDescriptor {
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
             uploaded: value.created.timestamp() as u64,
-            nip94: Some(
-                Nip94Event::from_upload(settings, value)
-                    .tags
-                    .iter()
-                    .map(|r| (r[0].clone(), r[1].clone()))
-                    .collect(),
-            ),
+            nip94: Some(Nip94Event::from_upload(settings, value).tags),
         }
     }
 }
