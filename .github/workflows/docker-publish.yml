@@ -90,4 +90,22 @@ jobs:
       - name: Add built image to Github Actions Summary
         run: |
           echo "# Image Built:" >> $GITHUB_STEP_SUMMARY
-          echo ${{ steps.build-and-push-image.outputs.metadata }} >> $GITHUB_STEP_SUMMARY
+          echo $IMAGE_NAME:${{ steps.meta.outputs.tags[1] }} >> $GITHUB_STEP_SUMMARY
+
+  # update_helm_deployment:
+  #   needs: get_version
+  #   name: Push Docker image to GHCR
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     # Required to read the repository contents.
+  #     contents: write
+  #     # Required to push packages (Docker images) to GHCR.
+  #     packages: write
+  #   steps:
+
+    # TODO: Update the appVersion and chartVersion in deployment/route96/Charts.yaml, 
+    # to use get_version.outputs.SemVer
+
+    # TODO: Update the image.tag in deployment/route96/values.yaml to use get_version.outputs.SemVer.
+
+    # TODO: Merge the updated branch to the release branch, which ArgoCD has been set to auto-sync against.
