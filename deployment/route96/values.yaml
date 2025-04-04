@@ -2,6 +2,7 @@ replicaCount: 3
 
 image:
   repository: nginx
+  tag: NA
   pullPolicy: IfNotPresent
 
 pdb:

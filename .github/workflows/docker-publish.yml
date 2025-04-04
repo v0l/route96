@@ -3,6 +3,8 @@ name: Build and Publish Docker image
 on:
   push:
     branches: ['main']
+  pull_request:
+    branches: ['main']
 
 env:
   REGISTRY: ghcr.io
@@ -10,6 +12,41 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+
+  get-version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: write
+      id-token: write
+      pull-requests: write
+      security-events: write
+      statuses: write
+    outputs:
+      SemVer: ${{ steps.get-version.outputs.SemVer }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.2.0
+        with:
+          versionSpec: "6.2.x"
+
+      - name: Determine Version
+        id: get-version 
+        uses: gittools/actions/gitversion/execute@v3.2.0
+        with:
+          useConfigFile: true
+      
+      - name: Add version to Github Actions Summary
+        run: |
+          echo "#Version:" >> $GITHUB_STEP_SUMMARY
+          echo ${{ steps.get-version.outputs.SemVer }} >> $GITHUB_STEP_SUMMARY
+
   push_to_registry:
     name: Push Docker image to GHCR
     runs-on: ubuntu-latest
