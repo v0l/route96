@@ -1,5 +1,6 @@
+use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
-use crate::filesystem::FileStore;
+use crate::nip29::Nip29Client;
 #[cfg(feature = "media-compression")]
 use crate::processing::WebpProcessor;
 pub use crate::routes::admin::admin_routes;
@@ -13,17 +14,18 @@ use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
 use log::{debug, warn};
-use nostr_sdk::nostr::Event;
-use nostr_sdk::nostr::TagKind;
+use nostr_sdk::prelude::*;
 use rocket::fs::NamedFile;
-use rocket::http::{ContentType, Header, Status};
-use rocket::response::Responder;
+use rocket::http::{Header, HeaderMap, Status};
+use rocket::request::{FromRequest, Outcome};
+use rocket::response::{self, Responder};
 use rocket::serde::Serialize;
-use rocket::{Request, Response, State};
+use rocket::{async_trait, Request, Response, State};
+use std::io::Error as IoError;
 use std::io::SeekFrom;
 use std::ops::Range;
 use std::pin::{pin, Pin};
-use std::str::FromStr;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
@@ -35,9 +37,9 @@ mod nip96;
 
 mod admin;
 
-pub struct FilePayload {
-    pub file: File,
-    pub info: FileUpload,
+pub enum FilePayload {
+    File(File),
+    Range(RangeBody),
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -106,7 +108,7 @@ impl Nip94Event {
         }
 
         Self {
-            content: upload.name.clone(),
+            content: upload.alt.clone(),
             created_at: upload.created.timestamp(),
             tags,
         }
@@ -114,18 +116,20 @@ impl Nip94Event {
 }
 
 /// Range request handler over file handle
-struct RangeBody {
+pub struct RangeBody {
     file: File,
-    range_start: u64,
-    range_end: u64,
-    current_offset: u64,
+    range_start: i64,
+    range_end: i64,
+    current_offset: i64,
     poll_complete: bool,
-    file_size: u64,
+    #[allow(dead_code)]
+    file_size: i64,
 }
 
-const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
+const MAX_UNBOUNDED_RANGE: i64 = 1024 * 1024;
+
 impl RangeBody {
-    pub fn new(file: File, file_size: u64, range: Range<u64>) -> Self {
+    pub fn new(file: File, file_size: i64, range: Range<i64>) -> Self {
         Self {
             file,
             file_size,
@@ -136,18 +140,19 @@ impl RangeBody {
         }
     }
 
-    pub fn get_range(file_size: u64, header: &SyntacticallyCorrectRange) -> Range<u64> {
+    pub fn get_range(file_size: i64, header: &SyntacticallyCorrectRange) -> Range<i64> {
         let range_start = match header.start {
-            StartPosition::Index(i) => i,
-            StartPosition::FromLast(i) => file_size.saturating_sub(i),
+            StartPosition::Index(i) => i as i64,
+            StartPosition::FromLast(i) => file_size.saturating_sub(i as i64),
         };
         let range_end = match header.end {
-            EndPosition::Index(i) => i,
+            EndPosition::Index(i) => i as i64,
             EndPosition::LastByte => (file_size - 1).min(range_start + MAX_UNBOUNDED_RANGE),
         };
         range_start..range_end
     }
 
+    #[allow(dead_code)]
     pub fn get_headers(&self) -> Vec<Header<'static>> {
         let r_len = (self.range_end - self.range_start) + 1;
         vec![
@@ -171,7 +176,7 @@ impl AsyncRead for RangeBody {
     ) -> Poll<std::io::Result<()>> {
         let range_start = self.range_start + self.current_offset;
         let range_len = self.range_end.saturating_sub(range_start) + 1;
-        let bytes_to_read = buf.remaining().min(range_len as usize) as u64;
+        let bytes_to_read = buf.remaining().min(range_len as usize) as i64;
 
         if bytes_to_read == 0 {
             return Poll::Ready(Ok(()));
@@ -180,7 +185,7 @@ impl AsyncRead for RangeBody {
         // when no pending poll, seek to starting position
         if !self.poll_complete {
             let pinned = pin!(&mut self.file);
-            pinned.start_seek(SeekFrom::Start(range_start))?;
+            pinned.start_seek(SeekFrom::Start(range_start as u64))?;
             self.poll_complete = true;
         }
 
@@ -213,188 +218,292 @@ impl AsyncRead for RangeBody {
 }
 
 impl<'r> Responder<'r, 'static> for FilePayload {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut response = Response::new();
-        response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
-
-        // handle ranges
-        #[cfg(feature = "ranges")]
-        {
-            // only use range response for files > 1MiB
-            if self.info.size < MAX_UNBOUNDED_RANGE {
-                response.set_sized_body(None, self.file);
-            } else {
-                response.set_header(Header::new("accept-ranges", "bytes"));
-                if let Some(r) = request.headers().get("range").next() {
-                    if let Ok(ranges) = parse_range_header(r) {
-                        if ranges.ranges.len() > 1 {
-                            warn!(
-                                "Multipart ranges are not supported, fallback to non-range request"
-                            );
-                            response.set_streamed_body(self.file);
-                        } else {
-                            let single_range = ranges.ranges.first().unwrap();
-                            let range = RangeBody::get_range(self.info.size, single_range);
-                            let r_body = RangeBody::new(self.file, self.info.size, range.clone());
-
-                            response.set_status(Status::PartialContent);
-                            let headers = r_body.get_headers();
-                            for h in headers {
-                                response.set_header(h);
-                            }
-                            response.set_streamed_body(Box::pin(r_body));
-                        }
-                    }
-                } else {
-                    response.set_sized_body(None, self.file);
-                }
-            }
+    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
+        match self {
+            FilePayload::File(file) => Response::build().streamed_body(file).ok(),
+            FilePayload::Range(range) => Response::build().streamed_body(range).ok(),
         }
-        #[cfg(not(feature = "ranges"))]
-        {
-            response.set_sized_body(None, self.file);
-        }
-
-        if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
-            response.set_header(ct);
-        }
-        if let Some(name) = &self.info.name {
-            response.set_header(Header::new(
-                "content-disposition",
-                format!("inline; filename=\"{}\"", name),
-            ));
-        }
-        Ok(response)
     }
 }
 
 pub async fn delete_file(
     sha256: &str,
     auth: &Event,
-    fs: &FileStore,
     db: &Database,
     is_group_admin: bool,
 ) -> Result<(), Error> {
+    log::debug!("Starting delete_file for sha256: {}", sha256);
+    log::debug!("User pubkey: {}", auth.pubkey.to_hex());
+    log::debug!("Is group admin flag: {}", is_group_admin);
+
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
         sha256
     };
-    
+
     let id = match hex::decode(sha256) {
         Ok(i) => i,
         Err(_) => {
+            log::error!("Invalid file id format: {}", sha256);
             return Err(Error::msg("Invalid file id"));
         }
     };
 
     if id.len() != 32 {
+        log::error!("Invalid file id length: {}", id.len());
         return Err(Error::msg("Invalid file id"));
     }
-    
+
     match db.get_file(&id).await {
-        Ok(Some(_)) => {
+        Ok(Some(file)) => {
+            log::debug!("File found in database with h_tag: {:?}", file.h_tag);
             let pubkey_vec = auth.pubkey.to_bytes().to_vec();
-            
+
             let auth_user = match db.get_user(&pubkey_vec).await {
-                Ok(user) => user,
+                Ok(user) => {
+                    log::debug!("User found in database. Is admin: {}", user.is_admin);
+                    user
+                }
                 Err(e) => {
+                    log::error!("Failed to get user: {}", e);
                     return Err(Error::msg(format!("Failed to get user: {}", e)));
                 }
             };
-            
+
             let owners = match db.get_file_owners(&id).await {
-                Ok(o) => o,
+                Ok(o) => {
+                    log::debug!("Found {} owner(s) for the file", o.len());
+                    for owner in &o {
+                        log::debug!(
+                            "File owner: {} (id: {})",
+                            hex::encode(&owner.pubkey),
+                            owner.id
+                        );
+                    }
+                    o
+                }
                 Err(e) => {
+                    log::error!("Failed to get file owners: {}", e);
                     return Err(Error::msg(format!("Failed to get file owners: {}", e)));
                 }
             };
-            
+
             // Admin (either database admin or group admin)
-            if auth_user.is_admin || is_group_admin {                
+            if auth_user.is_admin || is_group_admin {
+                log::debug!("User is admin or group admin, proceeding with full deletion");
                 if let Err(e) = db.delete_all_file_owner(&id).await {
+                    log::error!("Failed to delete file owners: {}", e);
                     return Err(Error::msg(format!("Failed to delete file owners: {}", e)));
                 }
-                
+
                 if let Err(e) = db.delete_file(&id).await {
+                    log::error!("Failed to delete file record: {}", e);
                     return Err(Error::msg(format!("Failed to delete file record: {}", e)));
                 }
-                
-                let file_path = fs.get(&id);
-                if let Err(e) = tokio::fs::remove_file(&file_path).await {
-                    warn!("Failed to delete file from disk: {}", e);
+
+                // Use Database.get_file_path for consistent file path handling
+                match db.get_file_path(&id).await {
+                    Ok(file_path) => {
+                        if let Err(e) = tokio::fs::remove_file(&file_path).await {
+                            log::warn!("Failed to delete file from disk: {}", e);
+                        } else {
+                            log::debug!("File successfully deleted from disk: {:?}", file_path);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to get file path for deletion: {}", e);
+                    }
                 }
             } else {
                 // Regular user must own the file
+                log::debug!("User is not admin, checking if they own the file");
                 let this_owner = match owners.iter().find(|o| o.pubkey.eq(&pubkey_vec)) {
-                    Some(o) => o,
+                    Some(o) => {
+                        log::debug!("User owns the file (owner id: {})", o.id);
+                        o
+                    }
                     None => {
+                        log::error!("User does not own this file, cannot delete it");
                         return Err(Error::msg("You dont own this file, you cannot delete it"));
                     }
                 };
-                
+
                 if let Err(e) = db.delete_file_owner(&id, this_owner.id).await {
+                    log::error!("Failed to delete file owner: {}", e);
                     return Err(Error::msg(format!("Failed to delete file owner: {}", e)));
                 }
-                
+
                 // only 1 owner was left, delete file completely
                 if owners.len() == 1 {
+                    log::debug!("Only one owner was left, deleting file completely");
                     if let Err(e) = db.delete_file(&id).await {
+                        log::error!("Failed to delete file record: {}", e);
                         return Err(Error::msg(format!("Failed to delete file record: {}", e)));
                     }
-                    
-                    let file_path = fs.get(&id);
-                    if let Err(e) = tokio::fs::remove_file(&file_path).await {
-                        warn!("Failed to delete file from disk: {}", e);
+
+                    // Use Database.get_file_path for consistent file path handling
+                    match db.get_file_path(&id).await {
+                        Ok(file_path) => {
+                            if let Err(e) = tokio::fs::remove_file(&file_path).await {
+                                log::warn!("Failed to delete file from disk: {}", e);
+                            } else {
+                                log::debug!("File successfully deleted from disk: {:?}", file_path);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to get file path for deletion: {}", e);
+                        }
                     }
+                } else {
+                    log::debug!(
+                        "Multiple owners exist ({} owners), only removing this user's ownership",
+                        owners.len()
+                    );
                 }
             }
+            log::debug!("File deletion process completed successfully");
             Ok(())
-        },
+        }
         Ok(None) => {
+            log::error!("File not found in database: {}", sha256);
             Err(Error::msg("File not found"))
-        },
+        }
         Err(e) => {
+            log::error!("Error retrieving file from database: {}", e);
             Err(Error::msg(format!("Error retrieving file: {}", e)))
         }
     }
 }
 
+#[cfg(feature = "blossom")]
 async fn authorize_file_access(
-    file_h_tag: &str,
-    auth: Option<crate::auth::blossom::BlossomAuth>,
-    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
+    file_h_tag: &Option<String>,
+    auth: Option<BlossomAuth>,
+    nip29_client: &State<Arc<Nip29Client>>,
+    requested_hash: &str,
 ) -> Result<(), Status> {
-    // If no auth is provided, we can't authorize
-    let auth = auth.ok_or(Status::Unauthorized)?;
+    // --- Auth Header Presence ---
+    let auth = match auth {
+        Some(a) => a,
+        None => {
+            warn!(
+                "Auth required but not provided for file fetch: {}",
+                requested_hash
+            );
+            return Err(Status::Unauthorized);
+        }
+    };
+    let auth_event = &auth.event;
 
-    // Extract the h tag from the auth event
-    let auth_h_tag = auth
-        .event
-        .tags
-        .find(TagKind::h())
-        .and_then(|t| t.content())
-        .ok_or(Status::Unauthorized)?;
+    // --- Auth Event Tag Validation ---
 
-    // If the h tag in the auth event doesn't match the file's h tag, we can't authorize
-    if auth_h_tag != file_h_tag {
-        return Err(Status::Unauthorized);
+    // 1. Check t=get tag using string comparison
+    let t_tag_valid = auth_event.tags.iter().any(|tag| {
+        let slice = tag.as_slice();
+        slice.first().map(|s| s == "t").unwrap_or(false)
+            && slice.get(1).map(|v| v == "get").unwrap_or(false)
+    });
+    if !t_tag_valid {
+        warn!(
+            "Auth event missing or incorrect 't=get' tag for hash {}",
+            requested_hash
+        );
+        return Err(Status::Unauthorized); // Or Forbidden?
     }
 
-    // Verify group membership if NIP-29 client is available
-    match nip29_client
-        .is_group_member(file_h_tag, &auth.event.pubkey)
-        .await
-    {
-        Ok(true) => {}
-        Ok(false) => return Err(Status::Forbidden),
-        Err(e) => {
-            log::error!("Failed to verify group membership: {}", e);
-            return Err(Status::InternalServerError);
+    // 2. Check x=<hash> tag using string comparison
+    let x_tag_matches = auth_event.tags.iter().any(|tag| {
+        let slice = tag.as_slice();
+        slice.first().map(|s| s == "x").unwrap_or(false)
+            && slice.get(1).map(|v| v == requested_hash).unwrap_or(false)
+    });
+    if !x_tag_matches {
+        warn!(
+            "Auth event missing or incorrect 'x' tag for hash {}",
+            requested_hash
+        );
+        return Err(Status::Unauthorized); // Or Forbidden?
+    }
+
+    // 3. Check for h=<group_id> tag in Auth Event using string comparison
+    let auth_h_tag_value = auth_event.tags.iter().find_map(|tag| {
+        let slice = tag.as_slice();
+        if slice.first().map(|s| s == "h").unwrap_or(false) {
+            slice.get(1).map(|s| s.as_str())
+        } else {
+            None
+        }
+    });
+
+    let auth_h_tag = match auth_h_tag_value {
+        Some(h) => h,
+        None => {
+            warn!(
+                "Auth event missing required 'h' tag for hash {}",
+                requested_hash
+            );
+            return Err(Status::Unauthorized); // Or Forbidden?
+        }
+    };
+
+    // --- File and Group Matching ---
+
+    // 4. Check if file has an h_tag and if it matches the auth h_tag
+    match file_h_tag {
+        Some(file_h) if file_h == auth_h_tag => {
+            // Tags match, proceed to membership check
+            debug!(
+                "Auth h_tag ({}) matches file h_tag for file {}",
+                auth_h_tag, requested_hash
+            );
+        }
+        Some(file_h) => {
+            // File has an h_tag, but it doesn't match the one in the auth event
+            warn!(
+                "NIP-29 check failed: Auth h_tag ({}) does not match file h_tag ({}) for file {}",
+                auth_h_tag, file_h, requested_hash
+            );
+            return Err(Status::Forbidden);
+        }
+        None => {
+            // File does NOT have an h_tag, but auth is required
+            warn!(
+                "NIP-29 check failed: File {} does not have an associated h_tag, access denied.",
+                requested_hash
+            );
+            return Err(Status::Forbidden); // File not associated with the required group context
         }
     }
 
-    Ok(())
+    // --- NIP-29 Membership Check ---
+
+    // 5. Check group membership (h_tags already confirmed to match)
+    match nip29_client
+        .is_group_member(auth_h_tag, &auth_event.pubkey)
+        .await
+    {
+        Ok(true) => {
+            debug!(
+                "NIP-29 check passed: User {} is a member of group {}",
+                auth_event.pubkey.to_hex(),
+                auth_h_tag
+            );
+            Ok(()) // User is a member, access granted
+        }
+        Ok(false) => {
+            warn!(
+                "NIP-29 check failed: User {} not a member of group {}",
+                auth_event.pubkey.to_hex(),
+                auth_h_tag
+            );
+            Err(Status::Forbidden) // User not a member
+        }
+        Err(e) => {
+            warn!("NIP-29 check error for group {}: {}", auth_h_tag, e);
+            Err(Status::InternalServerError) // Error checking membership
+        }
+    }
 }
 
 #[rocket::get("/")]
@@ -412,48 +521,235 @@ pub async fn root() -> Result<NamedFile, Status> {
     }
 }
 
-#[rocket::get("/<sha256>")]
 pub async fn get_blob(
-    sha256: &str,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    auth: Option<crate::auth::blossom::BlossomAuth>,
-    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
-) -> Result<FilePayload, Status> {
-    let sha256 = if sha256.contains(".") {
-        sha256.split('.').next().unwrap()
+    db: &Database,
+    file: &[u8],
+    range: Option<&SyntacticallyCorrectRange>,
+) -> Result<FilePayload, IoError> {
+    log::debug!("get_blob called with file hash: {}", hex::encode(file));
+
+    let file_path = match db.get_file_path(file).await {
+        Ok(path) => {
+            log::debug!("File path found: {:?}", path);
+            path
+        }
+        Err(e) => {
+            log::error!("Failed to get file path: {}", e);
+            return Err(e);
+        }
+    };
+
+    let file_size = match file_path.metadata() {
+        Ok(metadata) => {
+            let size = metadata.len() as i64;
+            log::debug!("File size: {}", size);
+            size
+        }
+        Err(e) => {
+            log::error!("Failed to get file metadata: {}", e);
+            return Err(e);
+        }
+    };
+
+    if let Some(range) = range {
+        let range = RangeBody::get_range(file_size, range);
+        if range.start > range.end || range.end >= file_size {
+            return Err(IoError::new(
+                std::io::ErrorKind::InvalidInput,
+                "Range not satisfiable",
+            ));
+        }
+        let file = File::open(&file_path).await?;
+        Ok(FilePayload::Range(RangeBody::new(file, file_size, range)))
+    } else {
+        log::debug!("Opening file: {:?}", file_path);
+        match File::open(&file_path).await {
+            Ok(file) => {
+                log::debug!("File opened successfully");
+                Ok(FilePayload::File(file))
+            }
+            Err(e) => {
+                log::error!("Failed to open file: {}", e);
+                Err(e)
+            }
+        }
+    }
+}
+
+// Request guard for Range header
+pub struct RangeHeader(pub Option<String>);
+
+#[async_trait]
+impl<'r> FromRequest<'r> for RangeHeader {
+    type Error = ();
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let range = request.headers().get_one("Range").map(|v| v.to_string());
+        Outcome::Success(RangeHeader(range))
+    }
+}
+
+// Helper function to preprocess the SHA256 hex string
+fn preprocess_sha256(sha256: &str) -> Result<Vec<u8>, Status> {
+    let sha256_cleaned = if sha256.contains('.') {
+        sha256.split('.').next().unwrap_or(sha256)
     } else {
         sha256
     };
-    let id = if let Ok(i) = hex::decode(sha256) {
-        i
-    } else {
-        return Err(Status::NotFound);
+
+    let id = match hex::decode(sha256_cleaned) {
+        Ok(i) => i,
+        Err(_) => {
+            log::error!("Invalid file id format: {}", sha256);
+            // Use BadRequest for invalid format/length
+            return Err(Status::BadRequest);
+        }
     };
 
     if id.len() != 32 {
-        return Err(Status::NotFound);
+        log::error!("Invalid file id length: {}", id.len());
+        return Err(Status::BadRequest);
     }
+    Ok(id)
+}
 
-    let info = db
-        .get_file(&id)
-        .await
-        .map_err(|_| Status::NotFound)?
-        .ok_or(Status::NotFound)?;
-
-    // If the file has an h_tag, we need to check authorization
-    if let Some(file_h_tag) = &info.h_tag {
-        authorize_file_access(file_h_tag, auth, nip29_client).await?;
+// Helper function to parse and validate the Range header
+fn parse_and_validate_range(
+    range_header_val: Option<String>,
+    file_size: i64,
+) -> Option<SyntacticallyCorrectRange> {
+    if let Some(range_str) = range_header_val {
+        match parse_range_header(&range_str) {
+            Ok(parsed_ranges) => {
+                // Validate the parsed ranges against the file size
+                match parsed_ranges.validate(file_size as u64) {
+                    // validate expects u64
+                    Ok(validated_byte_ranges) if !validated_byte_ranges.is_empty() => {
+                        if let Some(first_syntactic_range) = parsed_ranges.ranges.first() {
+                            debug!(
+                                "Valid Range header found and validated: {:?}",
+                                first_syntactic_range
+                            );
+                            Some(*first_syntactic_range)
+                        } else {
+                            // Should be unreachable, but handle defensively
+                            warn!("Range validation succeeded but no ranges found in original parse? Header: {}", range_str);
+                            None
+                        }
+                    }
+                    Ok(_) => {
+                        // Range(s) were syntactically correct but unsatisfiable for this file size.
+                        warn!(
+                            "Range header syntactically correct but unsatisfiable: {}",
+                            range_str
+                        );
+                        // Note: A 416 Range Not Satisfiable might be more appropriate here,
+                        // but returning None lets the caller decide or fall back to full file.
+                        None
+                    }
+                    Err(e) => {
+                        // Validation failed (e.g., invalid range format after parsing)
+                        warn!("Failed to validate Range header '{}': {}", range_str, e);
+                        None // Treat as invalid range
+                    }
+                }
+            }
+            Err(e) => {
+                // Parsing failed
+                warn!("Failed to parse Range header '{}': {}", range_str, e);
+                None // Treat as invalid range
+            }
+        }
+    } else {
+        None // No range header provided
     }
+}
 
-    File::open(fs.get(&id))
-        .await
-        .map(|file| FilePayload { file, info })
-        .map_err(|_| Status::NotFound)
+#[rocket::get("/<sha256>")]
+#[cfg(feature = "blossom")]
+pub async fn get_blob_route(
+    sha256: &str,
+    db: &State<Database>,
+    auth: Option<BlossomAuth>,
+    nip29_client: &State<Arc<Nip29Client>>,
+    range_header: RangeHeader,
+) -> Result<FilePayload, Status> {
+    let id = preprocess_sha256(sha256)?; // Use helper
+
+    // --- Get File Metadata (needed for auth check and range validation) ---
+    let file_meta = match db.get_file(&id).await {
+        Ok(Some(meta)) => meta,
+        Ok(None) => {
+            warn!("File not found in DB: {}", sha256); // Log original input
+            return Err(Status::NotFound);
+        }
+        Err(e) => {
+            warn!("Error getting file metadata for {}: {}", sha256, e);
+            return Err(Status::InternalServerError);
+        }
+    };
+
+    let file_size = file_meta.size;
+    let file_h_tag = file_meta.h_tag.clone(); // Clone needed for authorize_file_access
+
+    // --- Authentication/Authorization ---
+    // Pass the cleaned sha256 hex for accurate 'x' tag check
+    let sha256_cleaned = hex::encode(&id);
+    authorize_file_access(&file_h_tag, auth, nip29_client, &sha256_cleaned).await?;
+
+    // --- Range Header Processing ---
+    let valid_range_to_use = parse_and_validate_range(range_header.0, file_size); // Use helper
+
+    // --- Blob Retrieval ---
+    match get_blob(db, &id, valid_range_to_use.as_ref()).await {
+        Ok(f) => Ok(f),
+        Err(e) => {
+            log::error!("Failed to get blob for {}: {}", sha256, e);
+            // Consider mapping IoError kinds to different Status codes if needed
+            Err(Status::NotFound) // Default to NotFound, could be InternalServerError too
+        }
+    }
+}
+
+#[rocket::get("/<sha256>")]
+#[cfg(not(feature = "blossom"))]
+pub async fn get_blob_route(
+    sha256: &str,
+    db: &State<Database>,
+    range_header: RangeHeader,
+) -> Result<FilePayload, Status> {
+    let id = preprocess_sha256(sha256)?; // Use helper
+
+    // --- Get File Metadata (needed for range validation) ---
+    // Fetch metadata *before* range processing, similar to the blossom version
+    let file_meta = match db.get_file(&id).await {
+        Ok(Some(meta)) => meta,
+        Ok(None) => {
+            warn!("File not found in DB: {}", sha256);
+            return Err(Status::NotFound);
+        }
+        Err(e) => {
+            warn!("Error getting file metadata for {}: {}", sha256, e);
+            return Err(Status::InternalServerError);
+        }
+    };
+    let file_size = file_meta.size;
+
+    // --- Range Header Processing ---
+    let valid_range_to_use = parse_and_validate_range(range_header.0, file_size); // Use helper
+
+    // --- Blob Retrieval ---
+    match get_blob(db, &id, valid_range_to_use.as_ref()).await {
+        Ok(f) => Ok(f),
+        Err(e) => {
+            log::error!("Failed to get blob for {}: {}", sha256, e);
+            Err(Status::NotFound) // Default to NotFound
+        }
+    }
 }
 
 #[rocket::head("/<sha256>")]
-pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
+pub async fn head_blob(sha256: &str, db: &State<Database>) -> Status {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
@@ -468,10 +764,11 @@ pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
     if id.len() != 32 {
         return Status::NotFound;
     }
-    if fs.get(&id).exists() {
-        Status::Ok
-    } else {
-        Status::NotFound
+
+    // Use the database's get_file_path method for consistency with the flat storage
+    match db.get_file_path(&id).await {
+        Ok(_) => Status::Ok,
+        Err(_) => Status::NotFound,
     }
 }
 
@@ -586,10 +883,12 @@ pub struct VoidCatFile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::MAX_UNBOUNDED_RANGE;
+    use crate::routes::RangeBody;
+    use http_range_header::parse_range_header;
 
     #[test]
-    fn test_ranges() -> Result<()> {
+    fn test_ranges() -> std::result::Result<(), anyhow::Error> {
         let size = 16482469;
 
         let req = parse_range_header("bytes=0-1023")?;

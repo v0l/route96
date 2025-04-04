@@ -24,6 +24,7 @@ export default function Upload() {
   const [listedPage, setListedPage] = useState(0);
   const [adminListedPage, setAdminListedPage] = useState(0);
   const [mimeFilter, setMimeFilter] = useState<string>();
+  const [groupId, setGroupId] = useState<string>("");
 
   const login = useLogin();
   const pub = usePublisher();
@@ -41,8 +42,8 @@ export default function Upload() {
       if (type === "blossom") {
         const uploader = new Blossom(url, pub);
         const result = noCompress
-          ? await uploader.upload(toUpload)
-          : await uploader.media(toUpload);
+          ? await uploader.upload(toUpload, groupId)
+          : await uploader.media(toUpload, groupId);
         setResults((s) => [...s, result]);
       }
       if (type === "nip96") {
@@ -176,6 +177,18 @@ export default function Upload() {
       >
         Disable Compression
         <input type="checkbox" checked={noCompress} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-neutral-400 uppercase text-xs font-medium">
+          Group ID (NIP-29 h tag)
+        </label>
+        <input
+          type="text"
+          className="bg-neutral-700 rounded px-3 py-2"
+          value={groupId}
+          onChange={(e) => setGroupId(e.target.value)}
+        />
       </div>
 
       {toUpload && <FileList files={toUpload ? [toUpload] : []} />}

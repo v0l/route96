@@ -1,11 +1,11 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, User};
+use crate::db::Database;
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
+use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
-use rocket::{routes, Responder, Route, State};
-use sqlx::{Error, QueryBuilder, Row};
+use rocket::{routes, Route, State};
 
 pub fn admin_routes() -> Vec<Route> {
     routes![admin_list_files, admin_get_self]
@@ -75,8 +75,8 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
             };
             AdminResponse::success(SelfUser {
                 is_admin: user.is_admin,
-                file_count: s.file_count,
-                total_size: s.total_size,
+                file_count: s.file_count as u64,
+                total_size: s.total_size as u64,
             })
         }
         Err(_) => AdminResponse::error("User not found"),
@@ -104,7 +104,7 @@ async fn admin_list_files(
         return AdminResponse::error("User is not an admin");
     }
     match db
-        .list_all_files(page * server_count, server_count, mime_type)
+        .list_all_files_with_owners((page * server_count) as i32, server_count as i32, mime_type)
         .await
     {
         Ok((files, count)) => AdminResponse::success(PagedResult {
@@ -120,37 +120,5 @@ async fn admin_list_files(
                 .collect(),
         }),
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
-    }
-}
-
-impl Database {
-    pub async fn list_all_files(
-        &self,
-        offset: u32,
-        limit: u32,
-        mime_type: Option<String>,
-    ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
-        let mut q = QueryBuilder::new("select u.* from uploads u ");
-        if let Some(m) = mime_type {
-            q.push("where u.mime_type = ");
-            q.push_bind(m);
-        }
-        q.push(" order by u.created desc limit ");
-        q.push_bind(limit);
-        q.push(" offset ");
-        q.push_bind(offset);
-
-        let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
-        let count: i64 = sqlx::query("select count(u.id) from uploads u")
-            .fetch_one(&self.pool)
-            .await?
-            .try_get(0)?;
-
-        let mut res = Vec::with_capacity(results.len());
-        for upload in results.into_iter() {
-            let upd = self.get_file_owners(&upload.id).await?;
-            res.push((upload, upd));
-        }
-        Ok((res, count))
     }
 }

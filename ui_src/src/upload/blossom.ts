@@ -18,12 +18,15 @@ export class Blossom {
     this.url = new URL(this.url).toString();
   }
 
-  async upload(file: File) {
+  async upload(file: File, groupId = "") {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
-    const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
+    const tags = [
+      ["x", bytesToString("hex", new Uint8Array(hash))],
+      ["h", groupId]
+    ];
 
     const rsp = await this.#req("upload", "PUT", "upload", file, tags);
     if (rsp.ok) {
@@ -34,12 +37,15 @@ export class Blossom {
     }
   }
 
-  async media(file: File) {
+  async media(file: File, groupId = "") {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
-    const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
+    const tags = [
+      ["x", bytesToString("hex", new Uint8Array(hash))],
+      ["h", groupId]
+    ];
 
     const rsp = await this.#req("media", "PUT", "media", file, tags);
     if (rsp.ok) {

@@ -19,6 +19,9 @@ GROUP_ID="$3"
 SECRET_KEY="$4"
 OUTPUT_FILE="$5"
 
+# Ensure SERVER_URL does not end with a trailing slash
+SERVER_URL=$(echo "$SERVER_URL" | sed 's#/$##')
+
 # Check if nak is installed
 if ! command -v nak &> /dev/null; then
     echo "Error: 'nak' command not found. Please install it first."
@@ -32,38 +35,39 @@ if ! [[ "$FILE_HASH" =~ ^[0-9a-f]{64}$ ]]; then
     echo "Continuing anyway..."
 fi
 
-# Current time and expiration (10 seconds from now)
+# Current time and expiration (30 seconds from now for more reliability)
 NOW=$(date +%s)
-EXPIRATION=$((NOW + 10))
+EXPIRATION=$((NOW + 30))
 
-echo "Preparing to download file with hash: $FILE_HASH"
-echo "From server: $SERVER_URL"
-echo "Group ID: $GROUP_ID"
+# Define file URL (direct path)
+FILE_URL="${SERVER_URL}/${FILE_HASH}"
 
 # Generate the authentication event
-echo "Generating authentication event..."
 BASE64_AUTH_EVENT=$(nak event \
-    --content='' \
+    --content='Get file' \
     --kind 24242 \
-    -t method='GET' \
-    -t u="${SERVER_URL}/${FILE_HASH}" \
     -t t='get' \
     -t expiration="$EXPIRATION" \
     -t x="$FILE_HASH" \
     -t h="$GROUP_ID" \
     --sec "$SECRET_KEY" | base64)
 
-echo "Authentication event generated"
-
 # Determine output file name if not provided
 if [ -z "$OUTPUT_FILE" ]; then
     # First try to get file info to determine extension
-    echo "Getting file information..."
-    FILE_INFO=$(curl -s -I "${SERVER_URL}/${FILE_HASH}" \
-        -H "Authorization: Nostr $BASE64_AUTH_EVENT")
+    # Create temporary headers file
+    TEMP_HEADERS_FILE=$(mktemp)
+
+    # Get headers
+    curl -s -I "${FILE_URL}" \
+        -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
+        -D "$TEMP_HEADERS_FILE"
 
     # Try to extract content type
-    CONTENT_TYPE=$(echo "$FILE_INFO" | grep -i "Content-Type:" | sed 's/Content-Type: *//i' | tr -d '\r')
+    CONTENT_TYPE=$(grep -i "Content-Type:" "$TEMP_HEADERS_FILE" | sed 's/Content-Type: *//i' | tr -d '\r')
+
+    # Clean up temporary file
+    rm -f "$TEMP_HEADERS_FILE"
 
     # Determine extension based on content type
     if [[ "$CONTENT_TYPE" == *"image/jpeg"* ]]; then
@@ -80,6 +84,10 @@ if [ -z "$OUTPUT_FILE" ]; then
         EXT=".mp3"
     elif [[ "$CONTENT_TYPE" == *"application/pdf"* ]]; then
         EXT=".pdf"
+    elif [[ "$CONTENT_TYPE" == *"text/plain"* ]]; then
+        EXT=".txt"
+    elif [[ "$CONTENT_TYPE" == *"text/markdown"* ]]; then
+        EXT=".md"
     else
         EXT=""
     fi
@@ -87,39 +95,78 @@ if [ -z "$OUTPUT_FILE" ]; then
     OUTPUT_FILE="./${FILE_HASH}${EXT}"
 fi
 
-echo "Downloading file to: $OUTPUT_FILE"
-
 # Download the file to a temporary location first
 TEMP_FILE=$(mktemp)
+TEMP_HEADERS_FILE=$(mktemp)
 
 # First check if we can access the file
-HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null "${SERVER_URL}/${FILE_HASH}" \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT")
+curl -s -I "${FILE_URL}" \
+    -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
+    -D "$TEMP_HEADERS_FILE"
 
-if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+# Get the HTTP code
+HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)
+
+# Check for specific error cases
+if [ "$HTTP_CODE" = "404" ]; then
+    echo "Error: File not found (HTTP 404)"
+    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
+    exit 1
+fi
+
+if [ "$HTTP_CODE" = "403" ]; then
+    echo "Error: Access denied (HTTP 403)"
+    echo "This could be because:"
+    echo "1. The file belongs to another user"
+    echo "2. The file was uploaded with a different group ID"
+    echo "3. The authentication credentials are incorrect"
+    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
+    exit 1
+fi
+
+if [ "$HTTP_CODE" = "500" ]; then
+    echo "Error: Server internal error (HTTP 500)"
+    echo "This could be due to database connectivity issues or filesystem problems."
+    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
+    exit 1
+fi
+
+if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
     echo "Error: Server returned HTTP $HTTP_CODE"
-    rm -f "$TEMP_FILE"
+    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
     exit 1
 fi
 
 # If we get here, we have a valid response, proceed with download
-if ! curl -s "${SERVER_URL}/${FILE_HASH}" \
+if ! curl -s "${FILE_URL}" \
     -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
     --output "$TEMP_FILE"; then
     echo "Error: Failed to download file"
-    rm -f "$TEMP_FILE"
+    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
     exit 1
 fi
 
 # Check if download was successful and move to final location
-if [ -f "$TEMP_FILE" ]; then
+if [ -f "$TEMP_FILE" ] && [ -s "$TEMP_FILE" ]; then
     FILE_SIZE=$(stat -f%z "$TEMP_FILE" 2>/dev/null || stat -c%s "$TEMP_FILE")
+
+    # Calculate hash of downloaded file to verify it matches
+    DOWNLOAD_HASH=$(sha256sum "$TEMP_FILE" | cut -d ' ' -f 1)
+
+    if [ "$DOWNLOAD_HASH" != "$FILE_HASH" ]; then
+        echo "Warning: Hash of downloaded file ($DOWNLOAD_HASH) does not match expected hash ($FILE_HASH)"
+        echo "This could indicate file corruption or tampering."
+        echo "Continuing anyway..."
+    else
+        echo ""
+    fi
+
     mv "$TEMP_FILE" "$OUTPUT_FILE"
-    echo "Download complete!"
-    echo "File saved to: $OUTPUT_FILE"
-    echo "File size: $FILE_SIZE bytes"
 else
-    echo "Error: Failed to download file"
+    echo "Error: Failed to download file or file is empty"
     rm -f "$TEMP_FILE"
     exit 1
 fi
+
+# Clean up
+rm -f "$TEMP_HEADERS_FILE"

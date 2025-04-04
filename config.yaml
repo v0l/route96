@@ -1,37 +1,38 @@
 # Listen address for webserver
-listen: "0.0.0.0:8000"
+listen: "REPLACED_BY_ENV_IN_COMPOSE"
 
-# Database connection string (MYSQL)
-database: "mysql://root:root@db:3306/route96?pool_timeout=60&pool_min_idle=1&pool_max_open=10"
+# Database connection string (PostgreSQL)
+database: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Directory to store uploads
-storage_dir: "/app/data"
+storage_dir: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Maximum support filesize for uploading
-max_upload_bytes: 5e+9
+max_upload_bytes: 0 # REPLACED_BY_ENV_IN_COMPOSE
 
 # Public facing url
-public_url: "http://localhost:8000"
+public_url: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Whitelisted pubkeys, leave out to disable
-# whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
+# whitelist: ["REPLACED_BY_ENV_IN_COMPOSE"]
 
 # Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
 # vit_model:
-#   model: "/home/kieran/Downloads/falcon_nsfw.safetensors"
-#   config: "/home/kieran/Downloads/falcon_nsfw.json"
+#   model: "REPLACED_BY_ENV_IN_COMPOSE"
+#   config: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Analytics support
-# plausible_url: "https://plausible.com/"
+# plausible_url: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Support legacy void
-# void_cat_database: "postgres://postgres:postgres@localhost:41911/void"
+# void_cat_database: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # Legacy file path for void.cat uploads
-# void_cat_files: "/my/void.cat/data"
+# void_cat_files: "REPLACED_BY_ENV_IN_COMPOSE"
 
 # NIP-29 relay configuration
 nip29_relay:
-  url: "ws://host.docker.internal:8080"
-  private_key: "6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e"
-  cache_expiration: 300  # Cache expiration time in seconds (default: 300)
+  # communities.nos.social in prod
+  url: "REPLACED_BY_ENV_IN_COMPOSE"
+  private_key: "REPLACED_BY_ENV_IN_COMPOSE"
+  cache_expiration: 0 # REPLACED_BY_ENV_IN_COMPOSE

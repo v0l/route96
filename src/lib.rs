@@ -10,6 +10,7 @@ pub mod nip29;
 pub mod processing;
 pub mod routes;
 pub mod settings;
-#[cfg(any(feature = "void-cat-redirects", feature = "bin-void-cat-migrate"))]
+#[cfg(feature = "void-cat-redirects")]
 pub mod void_db;
+#[cfg(feature = "void-cat-redirects")]
 pub mod void_file;

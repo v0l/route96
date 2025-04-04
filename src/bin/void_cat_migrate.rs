@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
 
     let settings: Settings = builder.try_deserialize()?;
 
-    let db = Database::new(&settings.database).await?;
+    let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
     let fs = FileStore::new(settings.clone());
 
     let args: Args = Args::parse();
@@ -125,7 +125,6 @@ async fn migrate_file(
     let md: Option<Vec<&str>> = f.media_dimensions.as_ref().map(|s| s.split("x").collect());
     let fu = FileUpload {
         id: id_vec,
-        name: f.name.clone(),
         size: f.size as u64,
         mime_type: f.mime_type.clone(),
         created: f.uploaded,
@@ -141,6 +140,7 @@ async fn migrate_file(
         alt: f.description.clone(),
         duration: None,
         bitrate: None,
+        h_tag: None,
     };
     db.add_file(&fu, Some(uid)).await?;
     Ok(())

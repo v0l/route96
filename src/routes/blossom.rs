@@ -1,6 +1,7 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
+use crate::nip29::Nip29Client;
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
@@ -14,6 +15,7 @@ use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
@@ -22,7 +24,7 @@ use tokio_util::io::StreamReader;
 pub struct BlobDescriptor {
     pub url: String,
     pub sha256: String,
-    pub size: u64,
+    pub size: i64,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     pub uploaded: u64,
@@ -68,19 +70,27 @@ struct MirrorRequest {
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
     routes![
-        delete_blob,
+        delete,
+        admin_delete,
         upload,
-        list_files,
-        upload_head,
         upload_media,
         head_media,
+        list_files,
+        upload_head,
         mirror
     ]
 }
 
 #[cfg(not(feature = "media-compression"))]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head, mirror]
+    routes![
+        delete,
+        admin_delete,
+        upload,
+        list_files,
+        upload_head,
+        mirror
+    ]
 }
 
 /// Generic holder response, mostly for errors
@@ -200,32 +210,184 @@ fn check_whitelist(auth: &BlossomAuth, settings: &Settings) -> Option<BlossomRes
 }
 
 #[rocket::delete("/<sha256>")]
-async fn delete_blob(
+async fn delete(
     sha256: &str,
     auth: BlossomAuth,
-    fs: &State<FileStore>,
     db: &State<Database>,
-    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
-) -> BlossomResponse {
-    match try_delete_blob(sha256, auth, fs, db, nip29_client).await {
-        Ok(response) => response,
-        Err(e) => {
-            log::error!("Error in delete_blob handler: {}", e);
-            BlossomResponse::error(format!("Internal server error: {}", e))
+    nip29: &State<Arc<Nip29Client>>,
+) -> Result<BlossomResponse, (Status, String)> {
+    match try_delete_blob(sha256, auth, db, nip29).await {
+        Ok(response) => Ok(response),
+        Err((status, e)) => {
+            log::error!("Error in delete handler: {}", e);
+            Err((status, format!("Internal server error: {}", e)))
         }
     }
+}
+
+// Helper function for checking if user can delete a file
+async fn check_delete_permission(
+    file_info: &FileUpload,
+    auth: &BlossomAuth,
+    db: &State<Database>,
+    nip29: &State<Arc<Nip29Client>>,
+) -> Result<bool, BlossomResponse> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    log::debug!(
+        "Checking delete permission for file: {}",
+        hex::encode(&file_info.id)
+    );
+    log::debug!("User pubkey: {}", auth.event.pubkey.to_hex());
+    log::debug!("File h_tag: {:?}", file_info.h_tag);
+
+    // Check if user is a server admin
+    match db.get_user(&pubkey_vec).await {
+        Ok(user) if user.is_admin => {
+            log::debug!("User is a server admin, permission granted");
+            log::debug!("is_admin flag raw value: {:?}", user.is_admin);
+            return Ok(true);
+        }
+        Ok(user) => {
+            log::debug!(
+                "User found but not an admin (is_admin = {:?})",
+                user.is_admin
+            );
+            log::debug!(
+                "is_admin type: {}",
+                std::any::type_name_of_val(&user.is_admin)
+            );
+        }
+        Err(e) => {
+            log::error!("Error looking up user: {}", e);
+            return Err(BlossomResponse::forbidden("Not authorized to delete files"));
+        }
+    }
+
+    // Check if user is the file creator
+    match db.get_file_owners(&file_info.id).await {
+        Ok(owners) => {
+            log::debug!("Found {} owner(s) for the file", owners.len());
+            for owner in &owners {
+                log::debug!(
+                    "File owner: {} (id: {})",
+                    hex::encode(&owner.pubkey),
+                    owner.id
+                );
+                log::debug!(
+                    "Owner pubkey length: {}, User pubkey length: {}",
+                    owner.pubkey.len(),
+                    pubkey_vec.len()
+                );
+                if owner.pubkey.len() == pubkey_vec.len() {
+                    let matching = owner
+                        .pubkey
+                        .iter()
+                        .zip(pubkey_vec.iter())
+                        .filter(|&(a, b)| a == b)
+                        .count();
+                    log::debug!(
+                        "Matching bytes: {}/{} when comparing owner pubkey to user pubkey",
+                        matching,
+                        owner.pubkey.len()
+                    );
+                }
+            }
+
+            if owners.iter().any(|owner| owner.pubkey == pubkey_vec) {
+                log::debug!("User is a file owner, permission granted");
+                return Ok(true);
+            } else {
+                log::debug!("User is not a file owner");
+                log::debug!("User pubkey: {}", hex::encode(&pubkey_vec));
+            }
+        }
+        Err(e) => {
+            log::error!("Database error when checking file owners: {}", e);
+            return Err(BlossomResponse::error(format!("Database error: {}", e)));
+        }
+    }
+
+    // Check if user is a group admin (for files with h_tag)
+    if let Some(file_h_tag) = &file_info.h_tag {
+        log::debug!("File has h_tag: {}, checking group permissions", file_h_tag);
+
+        // Check for h tag in the auth event
+        let h_tag = check_h_tag(&auth.event);
+        if h_tag.is_none() {
+            log::error!("Missing h tag in authentication event");
+            return Err(BlossomResponse::error("Missing h tag for group file"));
+        }
+
+        let auth_h_tag = h_tag.as_deref().unwrap();
+        log::debug!("Auth event h_tag: {}", auth_h_tag);
+
+        // Verify h_tag in auth matches file's h_tag
+        if auth_h_tag != file_h_tag {
+            log::error!(
+                "Auth h_tag '{}' doesn't match file h_tag '{}'",
+                auth_h_tag,
+                file_h_tag
+            );
+            return Err(BlossomResponse::error(
+                "Auth h_tag doesn't match file h_tag",
+            ));
+        }
+
+        // Check if user is a group admin
+        match nip29.is_group_admin(file_h_tag, &auth.event.pubkey).await {
+            Ok(true) => {
+                log::debug!("User is a group admin, permission granted");
+                return Ok(true);
+            }
+            Ok(false) => {
+                log::debug!("User is not a group admin, checking if they're a member");
+                // Not a group admin, check if they're a member
+                match nip29.is_group_member(file_h_tag, &auth.event.pubkey).await {
+                    Ok(true) => {
+                        log::debug!("User is a group member but not an admin");
+                    }
+                    Ok(false) => {
+                        log::error!("User is not a member of the group");
+                        return Err(BlossomResponse::forbidden("Not a member of the group"));
+                    }
+                    Err(e) => {
+                        log::error!("Error checking group membership: {}", e);
+                        return Err(BlossomResponse::error(format!(
+                            "Error checking group membership: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Error checking group admin status: {}", e);
+                return Err(BlossomResponse::error(format!(
+                    "Error checking admin status: {e}"
+                )));
+            }
+        }
+    } else {
+        log::debug!("File has no h_tag, skipping group permission checks");
+    }
+
+    // If none of the checks passed
+    log::debug!("All permission checks failed, returning false");
+    Ok(false)
 }
 
 // Separate function to handle the actual deletion logic
 async fn try_delete_blob(
     sha256: &str,
     auth: BlossomAuth,
-    fs: &State<FileStore>,
     db: &State<Database>,
-    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
-) -> Result<BlossomResponse, anyhow::Error> {
+    nip29: &State<Arc<Nip29Client>>,
+) -> Result<BlossomResponse, (Status, String)> {
+    log::debug!("Attempting to delete blob with sha256: {}", sha256);
+    log::debug!("Auth event pubkey: {}", auth.event.pubkey.to_hex());
+
     // Check for method tag
     if !check_method(&auth.event, "delete") {
+        log::error!("Invalid method tag in auth event");
         return Ok(BlossomResponse::error("Invalid request method tag"));
     }
 
@@ -233,125 +395,78 @@ async fn try_delete_blob(
     let id = match hex::decode(sha256.split('.').next().unwrap_or(sha256)) {
         Ok(i) => {
             if i.len() != 32 {
+                log::error!("Invalid file id length: {} (expected 32)", i.len());
                 return Ok(BlossomResponse::error("Invalid file id"));
             }
+            log::debug!("Successfully decoded file id");
             i
         }
-        Err(_) => {
+        Err(e) => {
+            log::error!("Failed to decode file id: {}", e);
             return Ok(BlossomResponse::error("Invalid file id format"));
         }
     };
 
-    // First check if the user is a database admin
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    // Try to find the user - if not found, they don't have permission
-    let is_admin = match db.get_user(&pubkey_vec).await {
-        Ok(user) => user.is_admin,
-        Err(_) => {
-            // If the user isn't in the database, they don't have permission to delete anything
-            return Ok(BlossomResponse::forbidden("Not authorized to delete files"));
+    // Get the file info
+    let file_info = match db.get_file(&id).await {
+        Ok(Some(info)) => {
+            log::debug!("Found file in database with id: {}", hex::encode(&id));
+            log::debug!("File has h_tag: {:?}", info.h_tag);
+            info
+        }
+        Ok(None) => {
+            log::error!("File not found in database: {}", sha256);
+            return Ok(BlossomResponse::not_found("File not found"));
+        }
+        Err(e) => {
+            log::error!("Database error when looking up file: {}", e);
+            return Ok(BlossomResponse::error(format!("Database error: {}", e)));
         }
     };
 
-    // If user is a database admin, they can always delete files
-    if is_admin {
-        match delete_file(sha256, &auth.event, fs, db, false).await {
-            Ok(()) => {
-                return Ok(BlossomResponse::Generic(BlossomGenericResponse {
-                    status: Status::Ok,
-                    message: None,
-                }));
-            }
-            Err(e) => {
-                return Ok(BlossomResponse::error(format!(
-                    "Failed to delete file: {}",
-                    e
-                )));
-            }
-        }
-    }
+    // Check if the user has permission to delete the file
+    log::debug!("Checking user permission to delete the file");
+    match check_delete_permission(&file_info, &auth, db, nip29).await {
+        Ok(true) => {
+            log::debug!("User has permission to delete the file");
+            // User has permission, proceed with deletion
+            let is_admin = match db.get_user(&auth.event.pubkey.to_bytes().to_vec()).await {
+                Ok(user) => {
+                    log::debug!("User is_admin flag: {}", user.is_admin);
+                    user.is_admin
+                }
+                Err(e) => {
+                    log::error!("Failed to get user for admin check: {}", e);
+                    false
+                }
+            };
 
-    // Process the file access permissions and check group admin status
-    let is_group_admin = {
-        match db.get_file(&id).await {
-            Ok(Some(file_info)) => {
-                // If the file has an h_tag, we need to verify group access
-                if let Some(file_h_tag) = &file_info.h_tag {
-                    // Check for h tag in the auth event
-                    let h_tag = check_h_tag(&auth.event);
-                    if h_tag.is_none() {
-                        return Ok(BlossomResponse::error("Missing h tag for group file"));
-                    }
-
-                    let auth_h_tag = h_tag.as_deref().unwrap();
-
-                    // Verify h_tag in auth matches file's h_tag
-                    if auth_h_tag != file_h_tag {
-                        return Ok(BlossomResponse::error(
-                            "Auth h_tag doesn't match file h_tag",
-                        ));
-                    }
-
-                    // First check if the user is a group admin
-                    match nip29_client
-                        .is_group_admin(file_h_tag, &auth.event.pubkey)
-                        .await
-                    {
-                        Ok(true) => {
-                            true // User is a group admin
-                        }
-                        Ok(false) => {
-                            // Not an admin, check if they're a member
-                            match nip29_client
-                                .is_group_member(file_h_tag, &auth.event.pubkey)
-                                .await
-                            {
-                                Ok(true) => {
-                                    false // Not a group admin, ownership check needed
-                                }
-                                Ok(false) => {
-                                    return Ok(BlossomResponse::forbidden(
-                                        "Not a member of the group",
-                                    ));
-                                }
-                                Err(e) => {
-                                    return Ok(BlossomResponse::error(format!(
-                                        "Error checking group membership: {}",
-                                        e
-                                    )));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            return Ok(BlossomResponse::error(format!(
-                                "Error checking admin status: {e}"
-                            )));
-                        }
-                    }
-                } else {
-                    false // Not a group admin
+            log::debug!("Calling delete_file with is_admin={}", is_admin);
+            match delete_file(sha256, &auth.event, db, is_admin).await {
+                Ok(()) => {
+                    log::debug!("File successfully deleted");
+                    Ok(BlossomResponse::Generic(BlossomGenericResponse {
+                        status: Status::Ok,
+                        message: None,
+                    }))
+                }
+                Err(e) => {
+                    log::error!("Failed to delete file: {}", e);
+                    Ok(BlossomResponse::error(format!(
+                        "Failed to delete file: {}",
+                        e
+                    )))
                 }
             }
-            Ok(None) => {
-                return Ok(BlossomResponse::not_found("File not found"));
-            }
-            Err(e) => {
-                return Ok(BlossomResponse::error(format!("Database error: {}", e)));
-            }
         }
-    };
-
-    // Now proceed with deletion
-    match delete_file(sha256, &auth.event, fs, db, is_group_admin).await {
-        Ok(()) => Ok(BlossomResponse::Generic(BlossomGenericResponse {
-            status: Status::Ok,
-            message: None,
-        })),
-        Err(e) => Ok(BlossomResponse::error(format!(
-            "Failed to delete file: {}",
-            e
-        ))),
+        Ok(false) => {
+            log::error!("User does not have permission to delete the file");
+            Ok(BlossomResponse::forbidden("Not authorized to delete files"))
+        }
+        Err(response) => {
+            log::error!("Error checking delete permission: {:?}", response);
+            Ok(response)
+        }
     }
 }
 
@@ -438,7 +553,6 @@ async fn mirror(
             result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
         })),
         &mime_type,
-        &None,
         &pubkey,
         false,
         fs,
@@ -529,22 +643,29 @@ async fn process_upload(
     nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, method) {
+        error!(
+            "Invalid request method tag: expected '{}', found '{:?}'",
+            method,
+            auth.event
+                .tags
+                .iter()
+                .find(|t| t.kind() == TagKind::t())
+                .map(|t| t.content())
+                .flatten()
+        );
         return BlossomResponse::error("Invalid request method tag");
     }
 
-    // Check for h tag
+    // Debug log the tags to help troubleshoot
+    error!("Auth event tags: {:?}", auth.event.tags);
+
+    // Check for h tag (required for security)
     let h_tag = check_h_tag(&auth.event);
     if h_tag.is_none() {
+        error!("Missing h tag in request");
         return BlossomResponse::error("Missing h tag");
     }
 
-    let name = auth.event.tags.iter().find_map(|t| {
-        if t.kind() == TagKind::Name {
-            t.content()
-        } else {
-            None
-        }
-    });
     let size = auth.event.tags.iter().find_map(|t| {
         if t.kind() == TagKind::Size {
             t.content().and_then(|v| v.parse::<u64>().ok())
@@ -564,18 +685,18 @@ async fn process_upload(
         return e;
     }
 
-    if let Some(h_tag_str) = h_tag.as_deref() {
-        match nip29_client
-            .is_group_member(h_tag_str, &auth.event.pubkey)
-            .await
-        {
-            Ok(true) => {}
-            Ok(false) => return BlossomResponse::forbidden("Not a member of the group"),
-            Err(e) => {
-                error!("Error checking group membership: {}", e);
-                return BlossomResponse::error("Error checking group membership");
-            }
-        };
+    // Check group membership (h_tag is guaranteed to exist here)
+    let h_tag_str = h_tag.as_deref().unwrap();
+    match nip29_client
+        .is_group_member(h_tag_str, &auth.event.pubkey)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return BlossomResponse::forbidden("Not a member of the group"),
+        Err(e) => {
+            error!("Error checking group membership: {}", e);
+            return BlossomResponse::error("Error checking group membership");
+        }
     }
 
     process_stream(
@@ -583,7 +704,6 @@ async fn process_upload(
         &auth
             .content_type
             .unwrap_or("application/octet-stream".to_string()),
-        &name,
         &auth.event.pubkey.to_bytes().to_vec(),
         compress,
         fs,
@@ -597,7 +717,6 @@ async fn process_upload(
 async fn process_stream<'p, S>(
     stream: S,
     mime_type: &str,
-    name: &Option<&str>,
     pubkey: &Vec<u8>,
     compress: bool,
     fs: &State<FileStore>,
@@ -613,7 +732,6 @@ where
             let mut ret: FileUpload = (&blob).into();
 
             // update file data before inserting
-            ret.name = name.map(|s| s.to_string());
             ret.h_tag = h_tag;
 
             ret
@@ -639,5 +757,105 @@ where
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {
         BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))
+    }
+}
+
+#[rocket::delete("/admin/<sha256>")]
+async fn admin_delete(
+    sha256: &str,
+    auth: BlossomAuth,
+    db: &State<Database>,
+    nip29: &State<Arc<Nip29Client>>,
+) -> Result<BlossomResponse, (Status, String)> {
+    // Check for method tag
+    if !check_method(&auth.event, "delete") {
+        return Ok(BlossomResponse::error("Invalid request method tag"));
+    }
+
+    // Extract the hex ID and get the file info
+    let id = match hex::decode(sha256.split('.').next().unwrap_or(sha256)) {
+        Ok(i) => {
+            if i.len() != 32 {
+                return Ok(BlossomResponse::error("Invalid file id"));
+            }
+            i
+        }
+        Err(_) => {
+            return Ok(BlossomResponse::error("Invalid file id format"));
+        }
+    };
+
+    // First check if the user is a database admin
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    // Try to find the user - if not found, they don't have permission
+    let is_admin = match db.get_user(&pubkey_vec).await {
+        Ok(user) => user.is_admin,
+        Err(_) => {
+            // If the user isn't in the database, they don't have permission to delete anything
+            return Ok(BlossomResponse::forbidden("Not authorized to delete files"));
+        }
+    };
+
+    // For admin route, require the user to be a database admin
+    if !is_admin {
+        return Ok(BlossomResponse::forbidden("Admin privileges required"));
+    }
+
+    // Check if this is a group file and verify group authorization
+    match db.get_file(&id).await {
+        Ok(Some(file_info)) => {
+            // If the file has an h_tag, we still need to verify group access
+            if let Some(file_h_tag) = &file_info.h_tag {
+                // Check for h tag in the auth event
+                let h_tag = check_h_tag(&auth.event);
+                if h_tag.is_none() {
+                    return Ok(BlossomResponse::error("Missing h tag for group file"));
+                }
+
+                let auth_h_tag = h_tag.as_deref().unwrap();
+
+                // Verify h_tag in auth matches file's h_tag
+                if auth_h_tag != file_h_tag {
+                    return Ok(BlossomResponse::error(
+                        "Auth h_tag doesn't match file h_tag",
+                    ));
+                }
+
+                // Verify group membership - admins should still be members
+                match nip29.is_group_member(file_h_tag, &auth.event.pubkey).await {
+                    Ok(true) => {
+                        // Member of the group, proceed with admin privileges
+                    }
+                    Ok(false) => {
+                        return Ok(BlossomResponse::forbidden("Not a member of the group"));
+                    }
+                    Err(e) => {
+                        return Ok(BlossomResponse::error(format!(
+                            "Error checking group membership: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            return Ok(BlossomResponse::not_found("File not found"));
+        }
+        Err(e) => {
+            return Ok(BlossomResponse::error(format!("Database error: {}", e)));
+        }
+    };
+
+    // Delete the file using the admin privileges
+    match delete_file(sha256, &auth.event, db, true).await {
+        Ok(()) => Ok(BlossomResponse::Generic(BlossomGenericResponse {
+            status: Status::Ok,
+            message: None,
+        })),
+        Err(e) => Ok(BlossomResponse::error(format!(
+            "Failed to delete file: {}",
+            e
+        ))),
     }
 }

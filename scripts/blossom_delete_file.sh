@@ -18,6 +18,9 @@ SERVER_URL="$2"
 GROUP_ID="$3"
 SECRET_KEY="$4"
 
+# Ensure SERVER_URL does not end with a trailing slash
+SERVER_URL=$(echo "$SERVER_URL" | sed 's#/$##')
+
 # Check if nak is installed
 if ! command -v nak &> /dev/null; then
     echo "Error: 'nak' command not found. Please install it first."
@@ -31,75 +34,78 @@ if ! [[ "$FILE_HASH" =~ ^[0-9a-f]{64}$ ]]; then
     echo "Continuing anyway..."
 fi
 
-# Current time and expiration (10 seconds from now)
+# Current time and expiration (30 seconds from now for more reliability)
 NOW=$(date +%s)
-EXPIRATION=$((NOW + 10))
+EXPIRATION=$((NOW + 30))
 
-echo "Preparing to delete file with hash: $FILE_HASH"
-echo "From server: $SERVER_URL"
-echo "Group ID: $GROUP_ID"
+# Define the standard delete endpoint URL
+DELETE_URL="${SERVER_URL}/${FILE_HASH}"
 
-# Generate the authentication event
-echo "Generating authentication event..."
+# Create temporary files for response body and headers
+TEMP_RESPONSE_FILE=$(mktemp)
+TEMP_HEADERS_FILE=$(mktemp)
+
+# Generate the authentication event for this specific URL
 BASE64_AUTH_EVENT=$(nak event \
     --content='' \
     --kind 24242 \
     -t method='DELETE' \
-    -t u="${SERVER_URL}/${FILE_HASH}" \
     -t t='delete' \
     -t expiration="$EXPIRATION" \
     -t x="$FILE_HASH" \
     -t h="$GROUP_ID" \
     --sec "$SECRET_KEY" | base64)
 
-echo "Authentication event generated"
-
-# Delete the file
-echo "Deleting file..."
-
-# Create temporary files for response body and headers
-TEMP_RESPONSE_FILE=$(mktemp)
-TEMP_HEADERS_FILE=$(mktemp)
-
 # Send the delete request and capture HTTP status code, headers, and response body
-HTTP_CODE=$(curl -s -w "%{http_code}" \
+curl -s \
     -D "$TEMP_HEADERS_FILE" \
     -o "$TEMP_RESPONSE_FILE" \
-    "${SERVER_URL}/${FILE_HASH}" \
+    "${DELETE_URL}" \
     -X DELETE \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT")
+    -H "Authorization: Nostr $BASE64_AUTH_EVENT"
+
+# Get the HTTP code
+HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)
 
 # Read the response body from the temp file
 RESPONSE=$(cat "$TEMP_RESPONSE_FILE")
 
-# Check for error status codes
-if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-    echo "Error: Server returned HTTP $HTTP_CODE"
-    echo "Server response:"
-    echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+# Extract reason header if present
+REASON=""
+if grep -q "X-Reason:" "$TEMP_HEADERS_FILE"; then
+    REASON=$(grep "X-Reason:" "$TEMP_HEADERS_FILE" | sed 's/X-Reason: //' | tr -d '\r')
+elif grep -q "x-reason:" "$TEMP_HEADERS_FILE"; then
+    REASON=$(grep "x-reason:" "$TEMP_HEADERS_FILE" | sed 's/x-reason: //' | tr -d '\r')
+fi
 
-    # Try to extract error message if it exists
-    if command -v jq &> /dev/null; then
-        ERROR_MSG=$(echo "$RESPONSE" | jq -r '.message' 2>/dev/null)
-        if [ "$ERROR_MSG" != "null" ] && [ "$ERROR_MSG" != "" ]; then
-            echo "Error message: $ERROR_MSG"
-        fi
-    fi
-
-    # Check for X-Reason header in the response
-    if grep -q "X-Reason:" "$TEMP_HEADERS_FILE"; then
-        REASON=$(grep "X-Reason:" "$TEMP_HEADERS_FILE" | sed 's/X-Reason: //' | tr -d '\r')
-        echo "Reason: $REASON"
-    fi
-
-    # Clean up temp files
+# Check for success case
+if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
     rm -f "$TEMP_RESPONSE_FILE" "$TEMP_HEADERS_FILE"
-    exit 1
+    exit 0
+fi
+
+# Check for special cases
+if [ "$HTTP_CODE" = "404" ]; then
+    if [ "$REASON" = "File not found" ] || [[ "$RESPONSE" == *"File not found"* ]]; then
+        echo "File not found at $DELETE_URL"
+    fi
+elif [ "$HTTP_CODE" = "403" ]; then
+    if [[ "$RESPONSE" == *"dont own this file"* ]] || [[ "$RESPONSE" == *"cannot delete"* ]] || [[ "$RESPONSE" == *"forbidden"* ]] || [[ "$RESPONSE" == *"Not authorized"* ]]; then
+        echo "⚠️ You don't have permission to delete this file."
+        echo "This could be because:"
+        echo "1. The file belongs to another user"
+        echo "2. The file was uploaded with a different group ID"
+        echo "3. The authentication credentials are incorrect"
+        echo "4. The server requires admin privileges for deletion"
+    fi
+elif [ "$HTTP_CODE" = "500" ]; then
+    echo "⚠️ Server returned internal error (500) for $DELETE_URL"
+    echo "This could be due to database connectivity issues or filesystem problems."
 fi
 
 # Clean up temp files
 rm -f "$TEMP_RESPONSE_FILE" "$TEMP_HEADERS_FILE"
 
-echo "Delete successful (HTTP $HTTP_CODE)"
-echo "Server response:"
-echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+# If we get here, we didn't succeed
+echo "❌ Failed to delete file via $DELETE_URL (HTTP $HTTP_CODE)"
+exit 1
