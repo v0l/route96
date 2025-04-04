@@ -13,7 +13,7 @@ env:
 
 jobs:
 
-  get-version:
+  get_version:
     name: Determine Version
     runs-on: ubuntu-latest
     permissions:
@@ -39,8 +39,6 @@ jobs:
       - name: Determine Version
         id: get-version 
         uses: gittools/actions/gitversion/execute@v3.2.0
-        with:
-          useConfigFile: true
       
       - name: Add version to Github Actions Summary
         run: |
