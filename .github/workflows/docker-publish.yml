@@ -48,6 +48,7 @@ jobs:
           echo ${{ steps.get-version.outputs.SemVer }} >> $GITHUB_STEP_SUMMARY
 
   push_to_registry:
+    if: github.ref == 'refs/heads/main'
     name: Push Docker image to GHCR
     runs-on: ubuntu-latest
     permissions:
