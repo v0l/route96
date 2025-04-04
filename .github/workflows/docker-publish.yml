@@ -94,7 +94,7 @@ jobs:
       - name: Add built image to Github Actions Summary
         run: |
           echo "# Image Built:" >> $GITHUB_STEP_SUMMARY
-          echo $IMAGE_NAME:${{ steps.meta.outputs.tags[1] }} >> $GITHUB_STEP_SUMMARY
+          echo $IMAGE_NAME:${{ needs.get_version.outputs.SemVer }} >> $GITHUB_STEP_SUMMARY
 
   # update_helm_deployment:
   #   needs: get_version
