@@ -95,7 +95,7 @@ jobs:
         if: steps.build-and-push-image.outcome == 'success'
         run: |
           echo "Built and pushed the following images:"
-          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n' >> $GITHUB_STEP_SUMMARY
       
       # - name: Add built image to Github Actions Summary
       #   if: steps.build-and-push-image.outcome == 'success'
