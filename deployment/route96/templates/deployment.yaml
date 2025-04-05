@@ -29,22 +29,29 @@ spec:
           - name: APP__DATABASE
             value:  postgres://postgres:root@db:5432/route96 # TODO: Update the connection string here
           - name: APP__STORAGE_DIR
-            value:  /app/data
+            value:  /app/data  # This needs to match the volumeMount and volume below.
           - name: APP__MAX_UPLOAD_BYTES
             value:  5000000000
           - name: APP__PUBLIC_URL
             value:  http://localhost:8000  # TODO: check in with Daniel on this config, since the Ingress manifest will control it.
           - name: APP__NIP29_RELAY__URL
             value:  wss://communities.nos.social
-          - name: APP__NIP29_RELAY__PRIVATE_KEY
-            value:  6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e  # TODO: this will need to come from a sealed secret, replace with prod value.
           - name: APP__NIP29_RELAY__CACHE_EXPIRATION
             value:  300        
-          - name: SECRET_VALUE_EXAMPLE
+          - name: MARIADB_DATABASE  # TODO: Do I need this as well as APP__DATABASE?
+            value: route96
+          - name: APP__DATABASE
+            value: postgres://blossom@verse-postgres-blossom-cluster-do-user-5049766-0.l.db.ondigitalocean.com:25060/route96
+          - name: MARIADB_ROOT_PASSWORD # TODO: Is this how it is set in the application?
             valueFrom:
               secretKeyRef:
                 name: "{{ .Release.Name }}-secret" # TODO: match this name up with sealed-secret.yaml
-                key: secret-key
+                key: database_password 
+          - name: APP__NIP29_RELAY__PRIVATE_KEY
+            valueFrom:
+              secretKeyRef:
+                name: "{{ .Release.Name }}-secret" # TODO: match this name up with sealed-secret.yaml
+                key: app_nip29_relay_private_key 
         resources:
           requests:
             memory: "64Mi"
@@ -69,7 +76,7 @@ spec:
           protocol: TCP
         volumeMounts:
         - name: "{{ .Release.Name }}-storage"
-          mountPath: /data
+          mountPath: /app/data
       volumes:
       - name: "{{ .Release.Name }}-storage"
         persistentVolumeClaim:

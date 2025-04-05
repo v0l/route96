@@ -14,7 +14,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
 
 persistence:
-  size: "1Gi"
+  size: "10Gi"
 
 
 service:
