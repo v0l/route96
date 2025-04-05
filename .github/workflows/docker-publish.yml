@@ -113,13 +113,12 @@ jobs:
           git config --global user.name "$verse-ci"
           git config --global user.email "$ci@verse.app"
           git checkout release
-          git merge -Xtheirs --no-commit origin/main
+          git merge -Xtheirs --no-commit origin/configure-kubernetes-deployment
+# git merge -Xtheirs --no-commit origin/main
 
       - name: Apply Newest Version
         shell: bash
         run: |
-          pwd
-          ls -la
           yq -i '.version = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/Chart.yaml
           yq -i '.appVersion = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/Chart.yaml
           yq -i '.image.tag = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/values.yaml
