@@ -113,7 +113,7 @@ jobs:
           git config --global user.name "$verse-ci"
           git config --global user.email "$ci@verse.app"
           git checkout release
-          git merge -Xtheirs --no-commit main
+          git merge -Xtheirs --no-commit origin/main
 
       - name: Apply Newest Version
         shell: bash
