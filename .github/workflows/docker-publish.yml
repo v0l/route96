@@ -102,7 +102,10 @@ jobs:
       contents: write
     steps:
 
-      - name: Apply semver-sha to version
+      - name: Check Out the Repo
+        uses: actions/checkout@v4
+
+      - name: Merge main Branch Locally
         shell: bash
         run: |
           git config --global user.name "$verse-ci"
@@ -117,7 +120,7 @@ jobs:
           yq -i '.appVersion = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/Chart.yaml
           yq -i '.image.tag = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/values.yaml
 
-      - name: Commit and push
+      - name: Commit and Push to Trigger Release
         shell: bash
         run: |
           git tag ${{ needs.get_version.outputs.SemVer }}
