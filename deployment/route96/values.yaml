@@ -1,7 +1,7 @@
 replicaCount: 3
 
 image:
-  repository: nginx
+  repository: ghcr.io/verse-pbc/route96
   tag: NA
   pullPolicy: IfNotPresent
 

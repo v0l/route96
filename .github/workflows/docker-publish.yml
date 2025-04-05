@@ -94,9 +94,8 @@ jobs:
 
   merge_to_release:
     name: Merge to Release
-    needs: get_version
-    # needs: push_to_registry
-    # if: github.ref == 'refs/heads/main'
+    needs: push_to_registry
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,8 +112,7 @@ jobs:
           git config --global user.name "$verse-ci"
           git config --global user.email "$ci@verse.app"
           git checkout release
-          git merge -Xtheirs --no-commit origin/configure-kubernetes-deployment
-# git merge -Xtheirs --no-commit origin/main
+          git merge -Xtheirs --no-commit origin/main
 
       - name: Apply Newest Version
         shell: bash
