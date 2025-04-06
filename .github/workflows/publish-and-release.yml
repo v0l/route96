@@ -1,4 +1,4 @@
-name: Build and Publish Docker image
+name: Publish Image and Release Deployment
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
