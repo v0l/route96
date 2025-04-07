@@ -27,15 +27,15 @@ spec:
           - name: APP__LISTEN
             value: 0.0.0.0:8000
           - name: APP__STORAGE_DIR
-            value: /app/data  # This needs to match the volumeMount and volume below.
+            value: /app/data
           - name: APP__MAX_UPLOAD_BYTES
-            value: 5000000000
+            value: "5000000000"
           - name: APP__PUBLIC_URL
-            value: http://localhost:8000  # TODO: check in with Daniel on this config, since the Ingress manifest will control it.
+            value: http://localhost:8000
           - name: APP__NIP29_RELAY__URL
             value: wss://communities.nos.social
           - name: APP__NIP29_RELAY__CACHE_EXPIRATION
-            value: 300        
+            value: "300"
           - name: APP__NIP29_RELAY__PRIVATE_KEY
             valueFrom:
               secretKeyRef:
