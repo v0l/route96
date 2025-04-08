@@ -70,7 +70,7 @@ spec:
           protocol: TCP
         volumeMounts:
         - name: blossom-config
-          mountPath: /app/config.yaml
+          mountPath: /app/
         - name: blossom-storage
           mountPath: /app/data
         - name: database-cacert
