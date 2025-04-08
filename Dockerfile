@@ -53,7 +53,9 @@ COPY --from=build /app/ffmpeg/lib/ /lib
 RUN chown -R appuser:appgroup /app
 RUN chown -R appuser:appgroup /lib
 
+RUN ls -l /app && ls -l /app/bin
+
 USER appuser
 
 RUN ./bin/route96 --version
-ENTRYPOINT ["./bin/route96"]
+ENTRYPOINT ["/app/bin/route96"]
