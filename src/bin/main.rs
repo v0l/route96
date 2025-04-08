@@ -48,8 +48,6 @@ async fn main() -> Result<(), Error> {
         .build()?;
 
     let settings: Settings = builder.try_deserialize()?;
-    println!("settings are: {:?}", settings);
-    println!("environment variables are: {:?}", env::vars());
 
     let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
 
