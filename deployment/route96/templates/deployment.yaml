@@ -69,17 +69,22 @@ spec:
         - containerPort: 8000
           protocol: TCP
         volumeMounts:
-        - name: "blossom-storage"
+        - name: blossom-config
+          mountPath: /app/config.yaml
+        - name: blossom-storage
           mountPath: /app/data
         - name: database-cacert
           mountPath: /app/ca.pem
       volumes:
-      - name: "blossom-storage"
+      - name: blossom-config
+        configMap:
+          name: blossom-config
+      - name: blossom-storage
         persistentVolumeClaim:
-          claimName: "blossom-pvc"
+          claimName: blossom-pvc
       - name: database-cacert
         secret:
-          secretName: "blossom-secret"
+          secretName: blossom-secret
           items:
             - key: database_cacert
               path: ca.pem
