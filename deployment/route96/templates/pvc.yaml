@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: {{ .Values.persistence.size | default "1Gi" }}
