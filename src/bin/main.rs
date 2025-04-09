@@ -18,7 +18,6 @@ use route96::nip29::init_nip29_client;
 use route96::routes;
 use route96::routes::{get_blob_route, head_blob, root};
 use route96::settings::Settings;
-use std::env;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Parser, Debug)]

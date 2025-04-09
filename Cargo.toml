@@ -40,34 +40,35 @@ r96util = ["dep:walkdir", "dep:indicatif"]
 dev = ["blossom", "ranges"]
 
 [dependencies]
-log = "0.4.21"
+log = "0.4.27"
 pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros"] }
 base64 = "0.22.1"
 hex = { version = "0.4.3", features = ["serde"] }
-serde = { version = "1.0.198", features = ["derive"] }
-uuid = { version = "1.8.0", features = ["v4", "serde"] }
-anyhow = "^1.0.82"
+serde = { version = "1.0.219", features = ["derive"] }
+uuid = { version = "1.16.0", features = ["v4", "serde"] }
+anyhow = "^1.0.97"
 sha2 = "0.10.8"
-sqlx = { version = "0.8.1", features = ["postgres", "runtime-tokio", "chrono", "uuid"] }
-config = { version = "0.14.0", features = ["yaml"] }
-chrono = { version = "0.4.38", features = ["serde"] }
-serde_with = { version = "3.8.1", features = ["hex"] }
-reqwest = { version = "0.12.8", features = ["stream"] }
-clap = { version = "4.5.18", features = ["derive"] }
-mime2ext = "0.1.53"
-infer = "0.16.0"
-tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
-nostr-sdk = { version = "0.37.0", features = ["all-nips"] }
+bs58 = "0.5.0"
+sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio", "chrono", "uuid", "tls-rustls"] }
+config = { version = "0.15.11", features = ["yaml"] }
+chrono = { version = "0.4.40", features = ["serde"] }
+serde_with = { version = "3.12.0", features = ["hex"] }
+reqwest = { version = "0.12.15", features = ["stream"] }
+clap = { version = "4.5.35", features = ["derive"] }
+mime2ext = "0.1.54"
+infer = "0.19.0"
+tokio-util = { version = "0.7.14", features = ["io", "io-util"] }
+nostr-sdk = { version = "0.40.0", features = ["all-nips"] }
 
 
-libc = { version = "0.2.153", optional = true }
+libc = { version = "0.2.171", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/verse-pbc/ffmpeg-rs-raw.git", optional = true }
 candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
+sqlx-postgres = { version = "0.8.3", optional = true, features = ["chrono", "uuid"] }
 http-range-header = { version = "0.4.2", optional = true }
 regex = { version = "1.11.1", optional = true }
 walkdir = { version = "2.5.0", optional = true }

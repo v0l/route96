@@ -12,10 +12,14 @@ services:
       - "POSTGRES_PASSWORD=root"
       - "POSTGRES_DB=route96"
       - "PGDATA=/var/lib/postgresql/data/pgdata"
+      - "RUST_LOG=debug"
+      - "POSTGRES_SSL_MODE=require"
     ports:
       - "5432:5432"
     volumes:
       - "db:/var/lib/postgresql/data"
+      - "./postgres-ssl-dev:/etc/postgresql/ssl"
+    command: postgres -c ssl=on -c ssl_cert_file=/etc/postgresql/ssl/server.crt -c ssl_key_file=/etc/postgresql/ssl/server.key
 
   app:
     platform: linux/arm64
@@ -29,7 +33,7 @@ services:
         FEATURES: "blossom,ranges"
     environment:
       # Config values overridden by environment variables - keeping only essential/sensitive ones
-      APP__DATABASE: postgres://postgres:root@db:5432/route96
+      APP__DATABASE: postgres://postgres:root@db:5432/route96?sslmode=require
       APP__STORAGE_DIR: /app/data
       APP__PUBLIC_URL: http://localhost:8000
       # Nested values with double underscores

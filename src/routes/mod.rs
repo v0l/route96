@@ -10,13 +10,14 @@ pub use crate::routes::blossom::blossom_routes;
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
 use anyhow::{Error, Result};
+use bs58;
 use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
 use log::{debug, warn};
 use nostr_sdk::prelude::*;
 use rocket::fs::NamedFile;
-use rocket::http::{Header, HeaderMap, Status};
+use rocket::http::{Header, Status};
 use rocket::request::{FromRequest, Outcome};
 use rocket::response::{self, Responder};
 use rocket::serde::Serialize;
@@ -67,15 +68,26 @@ impl Nip94Event {
         } else {
             None
         };
-        let mut tags = vec![
-            vec![
-                "url".to_string(),
-                format!("{}/{}.{}", &settings.public_url, &hex_id, ext.unwrap_or("")),
-            ],
-            vec!["x".to_string(), hex_id.clone()],
-            vec!["m".to_string(), upload.mime_type.clone()],
-            vec!["size".to_string(), upload.size.to_string()],
-        ];
+
+        // Create tags using the new API
+        let mut tags = Vec::new();
+
+        // URL tag
+        tags.push(vec![
+            "url".to_string(),
+            format!("{}/{}.{}", &settings.public_url, &hex_id, ext.unwrap_or("")),
+        ]);
+
+        // X tag (hex ID)
+        tags.push(vec!["x".to_string(), hex_id.clone()]);
+
+        // M tag (mime type)
+        tags.push(vec!["m".to_string(), upload.mime_type.clone()]);
+
+        // Size tag
+        tags.push(vec!["size".to_string(), upload.size.to_string()]);
+
+        // Thumb tag for images and videos
         if upload.mime_type.starts_with("image/") || upload.mime_type.starts_with("video/") {
             tags.push(vec![
                 "thumb".to_string(),
@@ -83,19 +95,27 @@ impl Nip94Event {
             ]);
         }
 
+        // Blurhash tag
         if let Some(bh) = &upload.blur_hash {
             tags.push(vec!["blurhash".to_string(), bh.clone()]);
         }
+
+        // Dimensions tag
         if let (Some(w), Some(h)) = (upload.width, upload.height) {
             tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
         }
+
+        // Duration tag
         if let Some(d) = &upload.duration {
             tags.push(vec!["duration".to_string(), d.to_string()]);
         }
+
+        // Bitrate tag
         if let Some(b) = &upload.bitrate {
             tags.push(vec!["bitrate".to_string(), b.to_string()]);
         }
 
+        // Labels tag (if feature enabled)
         #[cfg(feature = "labels")]
         for l in &upload.labels {
             let val = if l.label.contains(',') {
@@ -839,8 +859,8 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         id
     };
     if let Some(base) = &settings.void_cat_files {
-        let uuid = if let Ok(b58) = nostr_sdk::nostr::bitcoin::base58::decode(id) {
-            uuid::Uuid::from_slice_le(b58.as_slice()).unwrap()
+        let uuid = if let Ok(b58) = bs58::decode(id).into_vec() {
+            uuid::Uuid::from_slice_le(&b58).unwrap()
         } else {
             uuid::Uuid::parse_str(id).unwrap()
         };
@@ -863,12 +883,34 @@ pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
     } else {
         id
     };
-    let uuid = uuid::Uuid::from_slice_le(
-        nostr_sdk::nostr::bitcoin::base58::decode(id)
-            .unwrap()
-            .as_slice(),
-    )
-    .unwrap();
+
+    // Handle both Result types properly
+    let uuid = match bs58::decode(id).into_vec() {
+        Ok(bytes) => match uuid::Uuid::from_slice_le(&bytes) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                // If UUID conversion fails, try parsing as string
+                match uuid::Uuid::parse_str(id) {
+                    Ok(uuid) => uuid,
+                    Err(_) => {
+                        // If both methods fail, return a default UUID
+                        uuid::Uuid::nil()
+                    }
+                }
+            }
+        },
+        Err(_) => {
+            // If base58 decoding fails, try parsing as string
+            match uuid::Uuid::parse_str(id) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    // If both methods fail, return a default UUID
+                    uuid::Uuid::nil()
+                }
+            }
+        }
+    };
+
     VoidCatFile {
         status: Status::Ok,
         uuid: Header::new("X-UUID", uuid.to_string()),

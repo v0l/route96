@@ -149,10 +149,7 @@ impl Nip29Client {
             .pubkey(self.relay_keys.public_key())
             .identifier(group_id);
 
-        let events = self
-            .client
-            .fetch_events(vec![filter], Some(FETCH_TIMEOUT))
-            .await?;
+        let events = self.client.fetch_events(filter, FETCH_TIMEOUT).await?;
 
         let mut members = HashSet::new();
         for event in events {
@@ -204,20 +201,7 @@ impl Nip29Client {
             group_id
         );
 
-        let events = match self
-            .client
-            .fetch_events(vec![filter], Some(FETCH_TIMEOUT))
-            .await
-        {
-            Ok(e) => {
-                info!("Received {} events for group admin query", e.len());
-                e
-            }
-            Err(e) => {
-                warn!("Failed to fetch group admin events: {}", e);
-                return Err(Error::msg(format!("Failed to fetch admin events: {e}")));
-            }
-        };
+        let events = self.client.fetch_events(filter, FETCH_TIMEOUT).await?;
 
         // Extract admins from the most recent event
         let mut admins = HashSet::new();

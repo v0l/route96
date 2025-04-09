@@ -182,7 +182,8 @@ fn check_method(event: &nostr_sdk::nostr::Event, method: &str) -> bool {
     // Check for t tag with the correct method
     event
         .tags
-        .find(TagKind::t())
+        .iter()
+        .find(|t| t.kind() == TagKind::t())
         .and_then(|t| t.content())
         .map_or(false, |content| content == method)
 }
@@ -191,7 +192,8 @@ fn check_h_tag(event: &nostr_sdk::nostr::Event) -> Option<String> {
     // Check for h tag (required for all operations)
     event
         .tags
-        .find(TagKind::h())
+        .iter()
+        .find(|t| t.kind() == TagKind::h())
         .and_then(|t| t.content())
         .map(|s| s.to_string())
 }
