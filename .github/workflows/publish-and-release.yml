@@ -113,7 +113,8 @@ jobs:
           git config --global user.name "$verse-ci"
           git config --global user.email "$ci@verse.app"
           git checkout release
-          git merge -Xtheirs --no-commit origin/main
+          git merge -Xtheirs --no-commit origin/configure-kubernetes-deployment
+# TODO: Adjust this back to origin/main after dev
 
       - name: Apply Newest Version
         shell: bash
