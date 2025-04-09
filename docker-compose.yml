@@ -30,17 +30,14 @@ services:
     #     # - ranges: For better file serving (partial downloads/streaming)
     #     FEATURES: "blossom,ranges"
     environment:
-      RUST_LOG: debug
-      # Config values overridden by environment variables - all using double underscores
-      APP__LISTEN: 0.0.0.0:8000
+      # Config values overridden by environment variables - keeping only essential/sensitive ones
       APP__DATABASE: postgres://postgres:root@db:5432/route96
       APP__STORAGE_DIR: /app/data
-      APP__MAX_UPLOAD_BYTES: 5000000000
       APP__PUBLIC_URL: http://localhost:8000
       # Nested values with double underscores
       APP__NIP29_RELAY__URL: ws://host.docker.internal:8080
+      # Test key (pubkey: 385c3a6ec0b9d57a4330dbd6284989be5bd00e41c535f9ca39b6ae7c521b81cd) - replace if needed
       APP__NIP29_RELAY__PRIVATE_KEY: 6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e
-      APP__NIP29_RELAY__CACHE_EXPIRATION: 300
     ports:
       - "8000:8000"
     volumes:

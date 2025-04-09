@@ -1,17 +1,17 @@
 # Listen address for webserver
-listen: "REPLACED_BY_ENV_IN_COMPOSE"
+listen: "0.0.0.0:8000"
 
 # Database connection string (PostgreSQL)
-database: "REPLACED_BY_ENV_IN_COMPOSE"
+database: "postgres://postgres:root@db:5432/route96"
 
 # Directory to store uploads
-storage_dir: "REPLACED_BY_ENV_IN_COMPOSE"
+storage_dir: "/app/data"
 
 # Maximum support filesize for uploading
-max_upload_bytes: 0 # REPLACED_BY_ENV_IN_COMPOSE
+max_upload_bytes: 5242880 # 5 MiB default
 
 # Public facing url
-public_url: "REPLACED_BY_ENV_IN_COMPOSE"
+public_url: "http://localhost:8000"
 
 # Whitelisted pubkeys, leave out to disable
 # whitelist: ["REPLACED_BY_ENV_IN_COMPOSE"]
@@ -33,6 +33,8 @@ public_url: "REPLACED_BY_ENV_IN_COMPOSE"
 # NIP-29 relay configuration
 nip29_relay:
   # communities.nos.social in prod
-  url: "REPLACED_BY_ENV_IN_COMPOSE"
-  private_key: "REPLACED_BY_ENV_IN_COMPOSE"
-  cache_expiration: 0 # REPLACED_BY_ENV_IN_COMPOSE
+  url: "ws://host.docker.internal:8080"
+  # This is a test key, replace with your own via environment variables or a local config override.
+  # The corresponding public key is 385c3a6ec0b9d57a4330dbd6284989be5bd00e41c535f9ca39b6ae7c521b81cd
+  private_key: "6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e"
+  cache_expiration: 300 # 5 minutes default
