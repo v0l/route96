@@ -25,6 +25,7 @@ ranges = ["dep:http-range-header"]
 react-ui = []
 storage-manage = ["dep:walkdir", "dep:indicatif"]
 dev = ["blossom", "ranges"]
+void-cat-redirects = []
 
 [dependencies]
 log = "0.4.27"

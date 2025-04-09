@@ -5,6 +5,18 @@
 # Exit on error
 set -e
 
+# Function to display command and wait for user input
+pause_and_run() {
+    local command="$1"
+    echo "===================================================="
+    echo "COMMAND TO RUN:"
+    echo "$command"
+    echo "===================================================="
+    read -p "Press any key to continue..." -n1 -s
+    echo ""
+    eval "$command"
+}
+
 # Check for required arguments
 if [ "$#" -lt 4 ]; then
     echo "Usage: $0 <file_hash> <server_url> <group_id> <secret_key> [output_file]"
@@ -59,9 +71,11 @@ if [ -z "$OUTPUT_FILE" ]; then
     TEMP_HEADERS_FILE=$(mktemp)
 
     # Get headers
-    curl -s -I "${FILE_URL}" \
-        -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
-        -D "$TEMP_HEADERS_FILE"
+    CURL_COMMAND="curl -s -I \"${FILE_URL}\" \\
+        -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
+        -D \"$TEMP_HEADERS_FILE\""
+
+    pause_and_run "$CURL_COMMAND"
 
     # Try to extract content type
     CONTENT_TYPE=$(grep -i "Content-Type:" "$TEMP_HEADERS_FILE" | sed 's/Content-Type: *//i' | tr -d '\r')
@@ -100,9 +114,11 @@ TEMP_FILE=$(mktemp)
 TEMP_HEADERS_FILE=$(mktemp)
 
 # First check if we can access the file
-curl -s -I "${FILE_URL}" \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
-    -D "$TEMP_HEADERS_FILE"
+CURL_COMMAND="curl -s -I \"${FILE_URL}\" \\
+    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
+    -D \"$TEMP_HEADERS_FILE\""
+
+pause_and_run "$CURL_COMMAND"
 
 # Get the HTTP code
 HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)
@@ -138,9 +154,13 @@ if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; 
 fi
 
 # If we get here, we have a valid response, proceed with download
-if ! curl -s "${FILE_URL}" \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
-    --output "$TEMP_FILE"; then
+CURL_COMMAND="curl -s \"${FILE_URL}\" \\
+    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
+    --output \"$TEMP_FILE\""
+
+pause_and_run "$CURL_COMMAND"
+
+if [ $? -ne 0 ]; then
     echo "Error: Failed to download file"
     rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
     exit 1

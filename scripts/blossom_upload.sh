@@ -2,6 +2,18 @@
 # Blossom Image Upload Script
 # This script uploads an image to a Blossom server using NIP-24242 authentication
 
+# Function to display command and wait for user input
+pause_and_run() {
+    local command="$1"
+    echo "===================================================="
+    echo "COMMAND TO RUN:"
+    echo "$command"
+    echo "===================================================="
+    read -p "Press any key to continue..." -n1 -s
+    echo ""
+    eval "$command"
+}
+
 # Check for required arguments
 if [ "$#" -lt 4 ]; then
     echo "Usage: $0 <image_file> <server_url> <group_id> <secret_key>"
@@ -64,17 +76,19 @@ fi
 # Ensure consistent content types between headers
 
 # Perform the upload and capture HTTP status code, saving headers and body
-curl -s \
-    -D "$TEMP_HEADERS_FILE" \
-    -o "$TEMP_RESPONSE_FILE" \
-    "${SERVER_URL}/upload" \
-    -X PUT \
-    -H "Content-Type: $FILE_TYPE" \
-    -H "X-Content-Type: $FILE_TYPE" \
-    -H "X-SHA-256: $FILE_HASH" \
-    -H "X-Content-Length: $FILE_SIZE" \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
-    --data-binary @"$FILE_PATH"
+CURL_COMMAND="curl -s \\
+    -D \"$TEMP_HEADERS_FILE\" \\
+    -o \"$TEMP_RESPONSE_FILE\" \\
+    \"${SERVER_URL}/upload\" \\
+    -X PUT \\
+    -H \"Content-Type: $FILE_TYPE\" \\
+    -H \"X-Content-Type: $FILE_TYPE\" \\
+    -H \"X-SHA-256: $FILE_HASH\" \\
+    -H \"X-Content-Length: $FILE_SIZE\" \\
+    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
+    --data-binary @\"$FILE_PATH\""
+
+pause_and_run "$CURL_COMMAND"
 
 # Get the HTTP code in a macOS-compatible way
 HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)

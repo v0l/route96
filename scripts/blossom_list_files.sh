@@ -5,6 +5,18 @@
 # Exit on error
 set -e
 
+# Function to display command and wait for user input
+pause_and_run() {
+    local command="$1"
+    echo "===================================================="
+    echo "COMMAND TO RUN:"
+    echo "$command"
+    echo "===================================================="
+    read -p "Press any key to continue..." -n1 -s
+    echo ""
+    eval "$command"
+}
+
 # Check for required arguments
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <server_url> <pubkey>"
@@ -31,10 +43,12 @@ TEMP_RESPONSE_FILE=$(mktemp)
 TEMP_HEADERS_FILE=$(mktemp)
 
 # Make the request to list files
-curl -s \
-    -D "$TEMP_HEADERS_FILE" \
-    -o "$TEMP_RESPONSE_FILE" \
-    "${SERVER_URL}/list/${PUBKEY}"
+CURL_COMMAND="curl -s \\
+    -D \"$TEMP_HEADERS_FILE\" \\
+    -o \"$TEMP_RESPONSE_FILE\" \\
+    \"${SERVER_URL}/list/${PUBKEY}\""
+
+pause_and_run "$CURL_COMMAND"
 
 # Get the HTTP code in a macOS-compatible way
 HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)

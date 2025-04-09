@@ -7,6 +7,8 @@ pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
 use crate::settings::Settings;
+// Import check_h_tag
+use crate::routes::blossom::check_h_tag;
 use anyhow::{Error, Result};
 use bs58;
 use http_range_header::{
@@ -399,126 +401,75 @@ async fn authorize_file_access(
     nip29_client: &State<Arc<Nip29Client>>,
     requested_hash: &str,
 ) -> Result<(), Status> {
-    // --- Auth Header Presence ---
+    // 1. Check if the file is public (no h_tag)
+    if file_h_tag.is_none() {
+        debug!(
+            "File {} is public (no h_tag), access granted.",
+            requested_hash
+        );
+        return Ok(()); // Public file, access granted
+    }
+
+    let file_h_tag = file_h_tag.as_deref().unwrap(); // We know it's Some(tag) here
+    debug!(
+        "File {} belongs to group {}. Checking auth...",
+        requested_hash, file_h_tag
+    );
+
+    // 2. Check if authentication is provided
     let auth = match auth {
         Some(a) => a,
         None => {
             warn!(
-                "Auth required but not provided for file fetch: {}",
+                "Auth required for group file {}, but none provided.",
                 requested_hash
             );
-            return Err(Status::Unauthorized);
+            return Err(Status::Unauthorized); // Auth required but not provided
         }
     };
-    let auth_event = &auth.event;
+    let auth_event = auth.event;
 
-    // --- Auth Event Tag Validation ---
+    // 3. Check for method tag (should be "read" or similar? Assuming GET implies read)
+    // Skipping explicit method check for GET routes, but might be needed for others.
 
-    // 1. Check t=get tag using string comparison
-    let t_tag_valid = auth_event.tags.iter().any(|tag| {
-        let slice = tag.as_slice();
-        slice.first().map(|s| s == "t").unwrap_or(false)
-            && slice.get(1).map(|v| v == "get").unwrap_or(false)
-    });
-    if !t_tag_valid {
-        warn!(
-            "Auth event missing or incorrect 't=get' tag for hash {}",
-            requested_hash
-        );
-        return Err(Status::Unauthorized); // Or Forbidden?
-    }
-
-    // 2. Check x=<hash> tag using string comparison
-    let x_tag_matches = auth_event.tags.iter().any(|tag| {
-        let slice = tag.as_slice();
-        slice.first().map(|s| s == "x").unwrap_or(false)
-            && slice.get(1).map(|v| v == requested_hash).unwrap_or(false)
-    });
-    if !x_tag_matches {
-        warn!(
-            "Auth event missing or incorrect 'x' tag for hash {}",
-            requested_hash
-        );
-        return Err(Status::Unauthorized); // Or Forbidden?
-    }
-
-    // 3. Check for h=<group_id> tag in Auth Event using string comparison
-    let auth_h_tag_value = auth_event.tags.iter().find_map(|tag| {
-        let slice = tag.as_slice();
-        if slice.first().map(|s| s == "h").unwrap_or(false) {
-            slice.get(1).map(|s| s.as_str())
-        } else {
-            None
-        }
-    });
-
-    let auth_h_tag = match auth_h_tag_value {
-        Some(h) => h,
+    // 4. Check h_tag in auth event
+    let auth_h_tag = match check_h_tag(&auth_event) {
+        Some(tag) => tag,
         None => {
             warn!(
-                "Auth event missing required 'h' tag for hash {}",
+                "Auth event for group file {} missing h_tag.",
                 requested_hash
             );
-            return Err(Status::Unauthorized); // Or Forbidden?
+            return Err(Status::BadRequest); // h_tag required in auth
         }
     };
 
-    // --- File and Group Matching ---
-
-    // 4. Check if file has an h_tag and if it matches the auth h_tag
-    match file_h_tag {
-        Some(file_h) if file_h == auth_h_tag => {
-            // Tags match, proceed to membership check
-            debug!(
-                "Auth h_tag ({}) matches file h_tag for file {}",
-                auth_h_tag, requested_hash
-            );
-        }
-        Some(file_h) => {
-            // File has an h_tag, but it doesn't match the one in the auth event
-            warn!(
-                "NIP-29 check failed: Auth h_tag ({}) does not match file h_tag ({}) for file {}",
-                auth_h_tag, file_h, requested_hash
-            );
-            return Err(Status::Forbidden);
-        }
-        None => {
-            // File does NOT have an h_tag, but auth is required
-            warn!(
-                "NIP-29 check failed: File {} does not have an associated h_tag, access denied.",
-                requested_hash
-            );
-            return Err(Status::Forbidden); // File not associated with the required group context
-        }
+    if file_h_tag != auth_h_tag {
+        warn!(
+            "Auth h_tag mismatch for file {}: file has '{}', auth has '{}'",
+            requested_hash, file_h_tag, auth_h_tag
+        );
+        return Err(Status::Forbidden); // Tags don't match
     }
-
-    // --- NIP-29 Membership Check ---
 
     // 5. Check group membership (h_tags already confirmed to match)
-    match nip29_client
-        .is_group_member(auth_h_tag, &auth_event.pubkey)
+    if nip29_client
+        .is_group_member(&auth_h_tag, &auth_event.pubkey)
         .await
     {
-        Ok(true) => {
-            debug!(
-                "NIP-29 check passed: User {} is a member of group {}",
-                auth_event.pubkey.to_hex(),
-                auth_h_tag
-            );
-            Ok(()) // User is a member, access granted
-        }
-        Ok(false) => {
-            warn!(
-                "NIP-29 check failed: User {} not a member of group {}",
-                auth_event.pubkey.to_hex(),
-                auth_h_tag
-            );
-            Err(Status::Forbidden) // User not a member
-        }
-        Err(e) => {
-            warn!("NIP-29 check error for group {}: {}", auth_h_tag, e);
-            Err(Status::InternalServerError) // Error checking membership
-        }
+        debug!(
+            "NIP-29 check passed: User {} is a member of group {}",
+            auth_event.pubkey.to_hex(),
+            auth_h_tag
+        );
+        Ok(()) // User is a member, access granted
+    } else {
+        warn!(
+            "NIP-29 check failed: User {} not a member of group {}",
+            auth_event.pubkey.to_hex(),
+            auth_h_tag
+        );
+        Err(Status::Forbidden) // User not a member
     }
 }
 
