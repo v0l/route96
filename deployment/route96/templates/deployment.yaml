@@ -22,7 +22,7 @@ spec:
       containers:
       - name: my-container
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
         env:
           - name: APP__LISTEN
             value: 0.0.0.0:8000
@@ -71,7 +71,7 @@ spec:
         volumeMounts:
         - name: blossom-config
           mountPath: /app/config.yaml
-          subPath: config.yaml
+          subPath: config
         - name: blossom-storage
           mountPath: /app/data
         - name: database-cacert

@@ -4,7 +4,7 @@ metadata:
   name: blossom-config
   namespace: blossom 
 data:
-  config.yaml: |
+  config: |
     listen: "REPLACED_BY_ENV"
     database: "REPLACED_BY_ENV"
     storage_dir: "REPLACED_BY_ENV"

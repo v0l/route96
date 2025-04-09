@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/verse-pbc/route96
   tag: latest
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 pdb:
   minAvailable: 1
