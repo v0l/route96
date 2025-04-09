@@ -4,21 +4,13 @@ version = "0.4.0"
 edition = "2021"
 
 [[bin]]
-name = "void_cat_migrate"
-required-features = ["bin-void-cat-migrate"]
-
-[[bin]]
-name = "void_cat_forced_migrate"
-required-features = ["bin-void-cat-force-migrate"]
-
-[[bin]]
 name = "route96"
 path = "src/bin/main.rs"
 
 [[bin]]
-name = "r96util"
-path = "src/bin/r96util.rs"
-required-features = ["r96util"]
+name = "storage-manage"
+path = "src/bin/storage-manage.rs"
+required-features = ["storage-manage"]
 
 [lib]
 name = "route96"
@@ -28,14 +20,10 @@ default = ["blossom", "ranges"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 blossom = []
-bin-void-cat-migrate = ["dep:sqlx-postgres"]
-bin-void-cat-force-migrate = ["dep:regex"]
 torrent-v2 = []
-analytics = []
-void-cat-redirects = ["dep:sqlx-postgres"]
 ranges = ["dep:http-range-header"]
 react-ui = []
-r96util = ["dep:walkdir", "dep:indicatif"]
+storage-manage = ["dep:walkdir", "dep:indicatif"]
 dev = ["blossom", "ranges"]
 
 [dependencies]
@@ -61,7 +49,6 @@ infer = "0.19.0"
 tokio-util = { version = "0.7.14", features = ["io", "io-util"] }
 nostr-sdk = { version = "0.40.0", features = ["all-nips"] }
 
-
 libc = { version = "0.2.171", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/verse-pbc/ffmpeg-rs-raw.git", optional = true }
 candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
@@ -69,6 +56,5 @@ candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", 
 candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 sqlx-postgres = { version = "0.8.3", optional = true, features = ["chrono", "uuid"] }
 http-range-header = { version = "0.4.2", optional = true }
-regex = { version = "1.11.1", optional = true }
 walkdir = { version = "2.5.0", optional = true }
 indicatif = { version = "0.17.11", optional = true }

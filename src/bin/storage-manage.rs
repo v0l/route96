@@ -26,24 +26,24 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Check file hash matches filename / path
-    Check {
+    /// Verify file hash matches filename / path and optionally delete mismatches.
+    VerifyIntegrity {
         #[arg(long)]
         delete: Option<bool>,
     },
 
-    /// Import a directory into the filesystem
-    /// (does NOT import files into the database, use database-import command for that)
-    Import {
+    /// Import files from an external directory into the storage directory.
+    /// Does NOT index files into the database; use index-storage for that.
+    ImportFiles {
         #[arg(long)]
         from: PathBuf,
         #[arg(long, default_missing_value = "true", num_args = 0..=1)]
         probe_media: Option<bool>,
     },
 
-    /// Import files from filesystem into database
-    DatabaseImport {
-        /// Don't actually import data and just print which files WOULD be imported
+    /// Scan storage directory and add files missing from the database index.
+    IndexStorage {
+        /// Print files that would be indexed without actually modifying the database.
         #[arg(long, default_missing_value = "true", num_args = 0..=1)]
         dry_run: Option<bool>,
     },
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Error> {
     let settings: Settings = builder.try_deserialize()?;
 
     match args.command {
-        Commands::Check { delete } => {
+        Commands::VerifyIntegrity { delete } => {
             info!("Checking files in: {}", settings.storage_dir);
             let fs = FileStore::new(settings.clone());
             iter_files(&fs.storage_dir(), 4, |entry, p| {
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Error> {
             })
             .await?;
         }
-        Commands::Import { from, probe_media } => {
+        Commands::ImportFiles { from, probe_media } => {
             let fs = FileStore::new(settings.clone());
             let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
             db.migrate().await?;
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Error> {
             })
             .await?;
         }
-        Commands::DatabaseImport { dry_run } => {
+        Commands::IndexStorage { dry_run } => {
             let fs = FileStore::new(settings.clone());
             let db = Database::new_with_settings(&settings.database, &settings.storage_dir).await?;
             db.migrate().await?;

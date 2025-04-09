@@ -3358,7 +3358,6 @@ dependencies = [
  "mime2ext",
  "nostr-sdk",
  "pretty_env_logger",
- "regex",
  "reqwest",
  "rocket",
  "serde",
