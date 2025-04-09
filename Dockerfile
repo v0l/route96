@@ -56,4 +56,5 @@ RUN chown -R appuser:appgroup /lib
 USER appuser
 
 RUN ./bin/route96 --version
-ENTRYPOINT ["./bin/route96"]
+# ENTRYPOINT ["./bin/route96"]
+ENTRYPOINT ["tail", "-f", "/dev/null"]
