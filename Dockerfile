@@ -58,5 +58,4 @@ RUN ls -l /app && ls -l /app/bin
 USER appuser
 
 RUN ./bin/route96 --version
-# ENTRYPOINT ["./bin/route96"]
-ENTRYPOINT ["tail", "-f", "/dev/null"]
+ENTRYPOINT ["./bin/route96"]
