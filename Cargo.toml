@@ -16,23 +16,34 @@ required-features = ["storage-manage"]
 name = "route96"
 
 [features]
-default = ["blossom", "ranges"]
-media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
+default = ["media-compression", "sqlx-postgres", "s3-storage", "ranges"]
+media-compression = [
+    "dep:ffmpeg-the-third",
+    "dep:infer",
+    "dep:image",
+    "dep:rgb",
+    "dep:half",
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+]
 labels = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 blossom = []
 torrent-v2 = []
-ranges = ["dep:http-range-header"]
 react-ui = []
 storage-manage = ["dep:walkdir", "dep:indicatif"]
 dev = ["blossom", "ranges"]
 void-cat-redirects = []
+s3-storage = ["dep:aws-config", "dep:aws-sdk-s3", "dep:http-body-0-4"]
+ranges = ["dep:http-range-header"]
 
 [dependencies]
 log = "0.4.27"
 pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros"] }
-base64 = "0.22.1"
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"
+bytes = "1"
 hex = { version = "0.4.3", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 uuid = { version = "1.16.0", features = ["v4", "serde"] }
@@ -46,16 +57,30 @@ serde_with = { version = "3.12.0", features = ["hex"] }
 reqwest = { version = "0.12.15", features = ["stream"] }
 clap = { version = "4.5.35", features = ["derive"] }
 mime2ext = "0.1.54"
-infer = "0.19.0"
+infer = { version = "0.19.0", optional = true }
 tokio-util = { version = "0.7.14", features = ["io", "io-util"] }
 nostr-sdk = { version = "0.40.0", features = ["all-nips"] }
 
 libc = { version = "0.2.171", optional = true }
-ffmpeg-rs-raw = { git = "https://github.com/verse-pbc/ffmpeg-rs-raw.git", optional = true }
-candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
+ffmpeg-the-third = { git = "https://git.v0l.io/Kieran/ffmpeg-the-third.git", rev = "e5f8e077b04b10d5887bce4df1eb1a71738a6c66", optional = true }
+candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }
+candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }
 sqlx-postgres = { version = "0.8.3", optional = true, features = ["chrono", "uuid"] }
 http-range-header = { version = "0.4.2", optional = true }
 walkdir = { version = "2.5.0", optional = true }
 indicatif = { version = "0.17.11", optional = true }
+async-trait = "0.1.80"
+
+futures = "0.3"
+
+# AWS SDK Dependencies for S3/Spaces
+aws-config = { version = "1.1.8", optional = true }
+aws-sdk-s3 = { version = "1.19.0", optional = true }
+http-body-0-4 = { version = "1.0.0", package = "http-body", optional = true }
+
+serde_json = "1.0.117"
+image = { version = "0.25.1", optional = true }
+rgb = { version = "0.8.38", optional = true }
+half = { version = "2.6.0", features = ["serde"], optional = true }
+async-compression = { version = "0.4", features = ["gzip", "tokio", "brotli", "zstd", "deflate"] }

@@ -48,7 +48,7 @@ fi
 
 # Current time and expiration (30 seconds from now for more reliability)
 NOW=$(date +%s)
-EXPIRATION=$((NOW + 30))
+EXPIRATION=$((NOW + 120))
 
 # Define the standard delete endpoint URL
 DELETE_URL="${SERVER_URL}/${FILE_HASH}"

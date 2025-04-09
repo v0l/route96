@@ -1,5 +1,5 @@
 use base64::prelude::*;
-use log::info;
+use log::{debug, info, warn};
 use nostr_sdk::nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
@@ -19,22 +19,36 @@ impl<'r> FromRequest<'r> for BlossomAuth {
     type Error = &'static str;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        debug!("Attempting BlossomAuth from_request");
         if let Some(auth) = request.headers().get_one("authorization") {
+            debug!(
+                "Found Authorization header starting with: {:?}...",
+                &auth.chars().take(10).collect::<String>()
+            );
             if auth.starts_with("Nostr ") {
+                debug!("Authorization header scheme is Nostr");
                 let event = if let Ok(j) = BASE64_STANDARD.decode(&auth[6..]) {
                     if let Ok(ev) = Event::from_json(j) {
+                        debug!("Successfully decoded and parsed Nostr event: {}", ev.id);
                         ev
                     } else {
+                        warn!("Failed to parse JSON from base64 decoded auth string");
                         return Outcome::Error((Status::new(400), "Invalid nostr event"));
                     }
                 } else {
+                    warn!("Failed to base64 decode auth string: {}", &auth[6..]);
                     return Outcome::Error((Status::new(400), "Invalid auth string"));
                 };
 
                 if event.kind != Kind::Custom(24242) {
+                    warn!("Auth event has wrong kind: {:?}", event.kind);
                     return Outcome::Error((Status::new(400), "Wrong event kind"));
                 }
                 if event.created_at > Timestamp::now() {
+                    warn!(
+                        "Auth event created_at is in the future: {}",
+                        event.created_at
+                    );
                     return Outcome::Error((
                         Status::new(400),
                         "Created timestamp is in the future",
@@ -50,17 +64,26 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     }
                 }) {
                     let u_exp: Timestamp = expiration.parse().unwrap();
+                    debug!(
+                        "Auth event expiration timestamp: {}, Current time: {}",
+                        u_exp,
+                        Timestamp::now()
+                    );
                     if u_exp <= Timestamp::now() {
+                        warn!("Auth event has expired: {} <= {}", u_exp, Timestamp::now());
                         return Outcome::Error((Status::new(400), "Expiration invalid"));
                     }
                 } else {
+                    warn!("Auth event missing expiration tag");
                     return Outcome::Error((Status::new(400), "Missing expiration tag"));
                 }
 
-                if event.verify().is_err() {
+                if let Err(e) = event.verify() {
+                    warn!("Auth event signature verification failed: {}", e);
                     return Outcome::Error((Status::new(400), "Event signature invalid"));
                 }
 
+                info!("Successful BlossomAuth validation for event: {}", event.id);
                 info!("{}", event.as_json());
                 Outcome::Success(BlossomAuth {
                     event,
@@ -94,9 +117,11 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                     }),
                 })
             } else {
+                warn!("Authorization header scheme is not Nostr: {}", auth);
                 Outcome::Error((Status::new(400), "Auth scheme must be Nostr"))
             }
         } else {
+            warn!("Authorization header not found in request");
             Outcome::Error((Status::new(401), "Auth header not found"))
         }
     }

@@ -1,0 +1,754 @@
+├── LICENSE.txt
+├── README.md
+└── buds
+    ├── 01.md
+    ├── 02.md
+    ├── 03.md
+    ├── 04.md
+    ├── 05.md
+    ├── 06.md
+    ├── 08.md
+    └── 09.md
+
+
+/LICENSE.txt:
+--------------------------------------------------------------------------------
+ 1 | This is free and unencumbered software released into the public domain.
+ 2 |
+ 3 | Anyone is free to copy, modify, publish, use, compile, sell, or
+ 4 | distribute this software, either in source code form or as a compiled
+ 5 | binary, for any purpose, commercial or non-commercial, and by any
+ 6 | means.
+ 7 |
+ 8 | In jurisdictions that recognize copyright laws, the author or authors
+ 9 | of this software dedicate any and all copyright interest in the
+10 | software to the public domain. We make this dedication for the benefit
+11 | of the public at large and to the detriment of our heirs and
+12 | successors. We intend this dedication to be an overt act of
+13 | relinquishment in perpetuity of all present and future rights to this
+14 | software under copyright law.
+15 |
+16 | THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+17 | EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+18 | MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+19 | IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+20 | OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+21 | ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+22 | OTHER DEALINGS IN THE SOFTWARE.
+23 |
+24 | For more information, please refer to <https://unlicense.org>
+25 |
+
+
+--------------------------------------------------------------------------------
+/README.md:
+--------------------------------------------------------------------------------
+ 1 | # 🌸 Blossom - Blobs stored simply on mediaservers
+ 2 |
+ 3 | Blossom uses [nostr](https://github.com/nostr-protocol/nostr) public / private keys for identities. Users are expected to sign authorization events to prove their identity when interacting with servers
+ 4 |
+ 5 | ## What is it?
+ 6 |
+ 7 | Blossom is a spec for a set of HTTP endpoints that allow users to store blobs of data on publicly accessible servers
+ 8 |
+ 9 | ## What are blobs
+10 |
+11 | Blobs are packs of binary data addressed by their sha256 hash
+12 |
+13 | ## How does it work?
+14 |
+15 | Blossom Servers expose a few endpoints for managing blobs
+16 |
+17 | - `GET /<sha256>` (optional file `.ext`) [BUD-01](./buds/01.md#get-sha256---get-blob)
+18 | - `HEAD /<sha256>` (optional file `.ext`) [BUD-01](./buds/01.md#head-sha256---has-blob)
+19 | - `PUT /upload` [BUD-02](./buds/02.md#put-upload---upload-blob)
+20 |   - `Authentication`: Signed [nostr event](./buds/02.md#upload-authorization-required)
+21 |   - Return a blob descriptor
+22 | - `HEAD /upload` [BUD-06](./buds/06.md#head-upload---upload-requirements)
+23 | - `GET /list/<pubkey>` [BUD-02](./buds/02.md#get-listpubkey---list-blobs)
+24 |   - Returns an array of blob descriptors
+25 |   - `Authentication` _(optional)_: Signed [nostr event](./buds/02.md#list-authorization-optional)
+26 | - `DELETE /<sha256>` [BUD-02](./buds/02.md#delete-sha256---delete-blob)
+27 |   - `Authentication`: Signed [nostr event](./buds/02.md#delete-authorization-required)
+28 | - `PUT /mirror` [BUD-04](./buds/04.md#put-mirror---mirror-blob)
+29 |   - `Authentication`: Signed [nostr event](./buds/02.md#upload-authorization-required)
+30 | - `HEAD /media` [BUD-05](./buds/05.md#head-media)
+31 | - `PUT /media` [BUD-05](./buds/05.md#put-media)
+32 |   - `Authentication`: Signed [nostr event](./buds/05.md#upload-authorization)
+33 | - `PUT /report` [BUD-09](./buds/09.md)
+34 |
+35 | ## Protocol specification (BUDs)
+36 |
+37 | BUDs stand for **Blossom Upgrade Documents**.
+38 |
+39 | See the [BUDs](./buds) folder and specifically [BUD-01](./buds/01.md) and [BUD-02](./buds/02.md) for a detailed explanation of the endpoints
+40 |
+41 | ## BUDs
+42 |
+43 | - [BUD-01: Server requirements and blob retrieval](./buds/01.md)
+44 | - [BUD-02: Blob upload and management](./buds/02.md)
+45 | - [BUD-03: User Server List](./buds/03.md)
+46 | - [BUD-04: Mirroring blobs](./buds/04.md)
+47 | - [BUD-05: Media optimization](./buds/05.md)
+48 | - [BUD-06: Upload requirements](./buds/06.md)
+49 | - [BUD-08: Nostr File Metadata Tags](./buds/08.md)
+50 | - [BUD-09: Blob Report](./buds/09.md)
+51 |
+52 | ## Event kinds
+53 |
+54 | | kind    | description         | BUD                |
+55 | | ------- | ------------------- | ------------------ |
+56 | | `24242` | Authorization event | [01](./buds/01.md) |
+57 | | `10063` | User Server List    | [03](./buds/03.md) |
+58 |
+59 | ## License
+60 |
+61 | Public domain.
+62 |
+
+
+--------------------------------------------------------------------------------
+/buds/01.md:
+--------------------------------------------------------------------------------
+  1 | # BUD-01
+  2 |
+  3 | ## Server requirements and blob retrieval
+  4 |
+  5 | `draft` `mandatory`
+  6 |
+  7 | _All pubkeys MUST be in hex format_
+  8 |
+  9 | ## Cross origin headers
+ 10 |
+ 11 | Servers MUST set the `Access-Control-Allow-Origin: *` header on all responses to ensure compatibility with applications hosted on other domains.
+ 12 |
+ 13 | For [preflight](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#preflighted_requests) (`OPTIONS`) requests,
+ 14 | servers MUST also set, at minimum, the `Access-Control-Allow-Headers: Authorization, *` and `Access-Control-Allow-Methods: GET, PUT,
+ 15 | DELETE` headers.
+ 16 |
+ 17 | The header `Access-Control-Max-Age: 86400` MAY be set to cache the results of a preflight request for 24 hours.
+ 18 |
+ 19 | ## Error responses
+ 20 |
+ 21 | Every time a server sends an error response (HTTP status codes >=400), it may include a human-readable header `X-Reason` that can be displayed to the user.
+ 22 |
+ 23 | ## Authorization events
+ 24 |
+ 25 | Authorization events are used to identify the users to the server
+ 26 |
+ 27 | Authorization events must be generic and must NOT be scoped to specific servers. This allows pubkeys to sign a single event and interact the same way with multiple servers.
+ 28 |
+ 29 | Events MUST be kind `24242` and have a `t` tag with a verb of `get`, `upload`, `list`, or `delete`
+ 30 |
+ 31 | Events MUST have the `content` set to a human readable string explaining to the user what the events inteded use is. For example `Upload Blob`, `Delete dog-picture.png`, `List Images`, etc
+ 32 |
+ 33 | All events MUST have a [NIP-40](https://github.com/nostr-protocol/nips/blob/master/40.md) `expiration` tag set to a unix timestamp at which the event should be considered expired.
+ 34 |
+ 35 | Authorization events MAY have multiple `x` tags for endpoints that require a sha256 hash.
+ 36 |
+ 37 | Example event:
+ 38 |
+ 39 | ```jsonc
+ 40 | {
+ 41 |   "id": "bb653c815da18c089f3124b41c4b5ec072a40b87ca0f50bbbc6ecde9aca442eb",
+ 42 |   "pubkey": "b53185b9f27962ebdf76b8a9b0a84cd8b27f9f3d4abd59f715788a3bf9e7f75e",
+ 43 |   "kind": 24242,
+ 44 |   "content": "Upload bitcoin.pdf",
+ 45 |   "created_at": 1708773959,
+ 46 |   "tags": [
+ 47 |     ["t", "upload"],
+ 48 |     // Authorization events MAY have multiple "x" tags.
+ 49 |     ["x", "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553"],
+ 50 |     ["expiration", "1708858680"]
+ 51 |   ],
+ 52 |   "sig": "d0d58c92afb3f4f1925120b99c39cffe77d93e82f488c5f8f482e8f97df75c5357175b5098c338661c37d1074b0a18ab5e75a9df08967bfb200930ec6a76562f"
+ 53 | }
+ 54 | ```
+ 55 |
+ 56 | Servers must perform the following checks in order to validate the event
+ 57 |
+ 58 | 1. The `kind` must be `24242`
+ 59 | 2. `created_at` must be in the past
+ 60 | 3. The `expiration` tag must be set to a Unix timestamp in the future
+ 61 | 4. The `t` tag must have a verb matching the intended action of the endpoint
+ 62 | 5. Additional checks for specific endpoints. `/upload`, `/delete`, etc
+ 63 |
+ 64 | Using the `Authorization` HTTP header, the kind `24242` event MUST be base64 encoded and use the Authorization scheme Nostr
+ 65 |
+ 66 | Example HTTP Authorization header:
+ 67 |
+ 68 | ```
+ 69 | Authorization: Nostr eyJpZCI6IjhlY2JkY2RkNTMyOTIwMDEwNTUyNGExNDI4NzkxMzg4MWIzOWQxNDA5ZDhiOTBjY2RiNGI0M2Y4ZjBmYzlkMGMiLCJwdWJrZXkiOiI5ZjBjYzE3MDIzYjJjZjUwOWUwZjFkMzA1NzkzZDIwZTdjNzIyNzY5MjhmZDliZjg1NTM2ODg3YWM1NzBhMjgwIiwiY3JlYXRlZF9hdCI6MTcwODc3MTIyNywia2luZCI6MjQyNDIsInRhZ3MiOltbInQiLCJnZXQiXSxbImV4cGlyYXRpb24iLCIxNzA4ODU3NTQwIl1dLCJjb250ZW50IjoiR2V0IEJsb2JzIiwic2lnIjoiMDJmMGQyYWIyM2IwNDQ0NjI4NGIwNzFhOTVjOThjNjE2YjVlOGM3NWFmMDY2N2Y5NmNlMmIzMWM1M2UwN2I0MjFmOGVmYWRhYzZkOTBiYTc1NTFlMzA4NWJhN2M0ZjU2NzRmZWJkMTVlYjQ4NTFjZTM5MGI4MzI4MjJiNDcwZDIifQ==
+ 70 | ```
+ 71 |
+ 72 | ## Endpoints
+ 73 |
+ 74 | All endpoints MUST be served from the root of the domain (eg. the `/upload` endpoint MUST be accessible from `https://cdn.example.com/upload`, etc). This allows clients to talk to servers interchangeably when uploading or retrieving blobs
+ 75 |
+ 76 | ## GET /sha256 - Get Blob
+ 77 |
+ 78 | The `GET /<sha256>` endpoint MUST return the contents of the blob with the `Content-Type` header set to the appropriate MIME-type
+ 79 |
+ 80 | The endpoint MUST accept an optional file extension in the URL. ie. `.pdf`, `.png`, etc
+ 81 |
+ 82 | If the endpoints returns a 301 or 302 redirect it MUST redirect to a URL containing the same sha256 hash as the requested blob.
+ 83 | This ensures that if a user was to copy or reuse the redirect URL it would still contain the original sha256 hash
+ 84 |
+ 85 | ### Get Authorization (optional)
+ 86 |
+ 87 | The server may optionally require authorization when retrieving blobs from the `GET /<sha256>` endpoint
+ 88 |
+ 89 | In this case, the server MUST perform additional checks on the authorization event
+ 90 |
+ 91 | 1. A `t` tag MUST be present and set to `get`
+ 92 | 2. The event MUST contain either a `server` tag containing the full URL to the server or MUST contain at least one `x` tag matching the sha256 hash of the blob being retrieved
+ 93 |
+ 94 | If the client did not send an `Authorization` header the server must respond with the appropriate HTTP status code `401` (Unauthorized)
+ 95 |
+ 96 | Example event for retrieving a single blob:
+ 97 |
+ 98 | ```json
+ 99 | {
+100 |   "id": "06d4842b9d7f8bf72440471704de4efa9ef8f0348e366d097405573994f66294",
+101 |   "pubkey": "ec0d11351457798907a3900fe465bfdc3b081be6efeb3d68c4d67774c0bc1f9a",
+102 |   "kind": 24242,
+103 |   "content": "Get bitcoin.pdf",
+104 |   "created_at": 1708771927,
+105 |   "tags": [
+106 |     ["t", "get"],
+107 |     ["expiration", "1708857340"],
+108 |     ["x", "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553"]
+109 |   ],
+110 |   "sig": "22ecb5116ba143e4c3d6dc4b53d549aed6970ec455f6d25d145e0ad1fd7c0e26c465b2e92d5fdf699c7050fa43e6a41f087ef167208d4f06425f61548168fd7f"
+111 | }
+112 | ```
+113 |
+114 | Example event for retrieving multiple blobs from single server:
+115 |
+116 | ```json
+117 | {
+118 |   "id": "d9484f18533d5e36f000f902a45b15a7eecf5fbfcb046789756d57ea87115dc5",
+119 |   "pubkey": "b5f07faa8d3529f03bd898a23dfb3257bab8d8f5490777c46076ff9647e205dc",
+120 |   "kind": 24242,
+121 |   "content": "Get blobs from example.com",
+122 |   "created_at": 1708771927,
+123 |   "tags": [
+124 |     ["t", "get"],
+125 |     ["expiration", "1708857340"],
+126 |     ["server", "https://cdn.example.com/"]
+127 |   ],
+128 |   "sig": "e402ade78e1714d40cd6bd3091bc5f4ada8e904e90301b5a2b9b5f0b6e95ce908d4f22b15e9fb86f8268a2131f8adbb3d1f0e7e7afd1ab0f4f08acb15822a999"
+129 | }
+130 | ```
+131 |
+132 | ## HEAD /sha256 - Has Blob
+133 |
+134 | The `HEAD /<sha256>` endpoint MUST respond with either a `200` or `404` status code
+135 |
+136 | The endpoint MUST accept an optional file extension in the URL similar to the `GET /<sha256>` endpoint. ie. `.pdf`, `.png`, etc
+137 |
+138 | ## Range requests
+139 |
+140 | To better support mobile devices, video files, or low bandwidth connections. servers should support range requests ([RFC 7233 section 3](https://www.rfc-editor.org/rfc/rfc7233#section-3)) on the `GET /<sha256>` endpoint and signal support using the `accept-ranges: bytes` and `content-length` headers on the `HEAD /<sha256>` endpoint
+141 |
+142 | See [MDN docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests) for more details
+143 |
+
+
+--------------------------------------------------------------------------------
+/buds/02.md:
+--------------------------------------------------------------------------------
+  1 | # BUD-02
+  2 |
+  3 | ## Blob upload and management
+  4 |
+  5 | `draft` `optional`
+  6 |
+  7 | _All pubkeys MUST be in hex format_
+  8 |
+  9 | Defines the `/upload`, `/list` and `DELETE /<sha256>` endpoints
+ 10 |
+ 11 | ## Blob Descriptor
+ 12 |
+ 13 | A blob descriptor is a JSON object containing `url`, `sha256`, `size`, `type`, and `uploaded` fields
+ 14 |
+ 15 | - `url` A publicly accessible URL to the [BUD-01](./01.md#get-sha256---get-blob) `GET /<sha256>` endpoint with a file extension
+ 16 | - `sha256` The sha256 hash of the blob
+ 17 | - `size` The size of the blob in bytes
+ 18 | - `type` (optional) The MIME type of the blob
+ 19 | - `uploaded` The unix timestamp of when the blob was uploaded to the server
+ 20 |
+ 21 | Servers MUST include a file extension in the URL in the `url` field to allow clients to easily embed the URL in social posts or other content
+ 22 |
+ 23 | Servers MAY include additional fields in the descriptor like `magnet`, `infohash`, or `ipfs` depending on other protocols they support
+ 24 |
+ 25 | Example:
+ 26 |
+ 27 | ```json
+ 28 | {
+ 29 |   "url": "https://cdn.example.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf",
+ 30 |   "sha256": "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553",
+ 31 |   "size": 184292,
+ 32 |   "type": "application/pdf",
+ 33 |   "uploaded": 1725105921
+ 34 | }
+ 35 | ```
+ 36 |
+ 37 | ## PUT /upload - Upload Blob
+ 38 |
+ 39 | The `PUT /upload` endpoint MUST accept binary data in the body of the request and MAY use the `Content-Type` and `Content-Length` headers to get the MIME type and size of the data
+ 40 |
+ 41 | The endpoint MUST NOT modify the blob in any way and should return the exact same sha256 that was uploaded. This is critical to allow users to re-upload their blobs to new servers
+ 42 |
+ 43 | The endpoint MUST return a [Blob Descriptor](#blob-descriptor) if the upload was successful or an error object if it was not
+ 44 |
+ 45 | Servers MAY reject an upload for any reason and should respond with the appropriate HTTP `4xx` status code and an error message explaining the reason for the rejection
+ 46 |
+ 47 | ### Upload Authorization (Optional)
+ 48 |
+ 49 | Servers MAY accept an authorization event when uploading blobs and should perform additional checks
+ 50 |
+ 51 | 1. The `t` tag MUST be set to `upload`
+ 52 | 2. MUST contain at least one `x` tag matching the sha256 hash of the body of the request
+ 53 |
+ 54 | Example Authorization event:
+ 55 |
+ 56 | ```json
+ 57 | {
+ 58 |   "id": "bb653c815da18c089f3124b41c4b5ec072a40b87ca0f50bbbc6ecde9aca442eb",
+ 59 |   "pubkey": "b53185b9f27962ebdf76b8a9b0a84cd8b27f9f3d4abd59f715788a3bf9e7f75e",
+ 60 |   "kind": 24242,
+ 61 |   "content": "Upload bitcoin.pdf",
+ 62 |   "created_at": 1708773959,
+ 63 |   "tags": [
+ 64 |     ["t", "upload"],
+ 65 |     ["x", "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553"],
+ 66 |     ["expiration", "1708858680"]
+ 67 |   ],
+ 68 |   "sig": "d0d58c92afb3f4f1925120b99c39cffe77d93e82f488c5f8f482e8f97df75c5357175b5098c338661c37d1074b0a18ab5e75a9df08967bfb200930ec6a76562f"
+ 69 | }
+ 70 | ```
+ 71 |
+ 72 | ## GET /list/pubkey - List Blobs (Optional)
+ 73 |
+ 74 | The `/list/<pubkey>` endpoint MUST return a JSON array of [Blob Descriptor](#blob-descriptor) that where uploaded by the specified pubkey
+ 75 |
+ 76 | The endpoint MUST support a `since` and `until` query parameter to limit the returned blobs by their `uploaded` date
+ 77 |
+ 78 | Servers may reject a list for any reason and MUST respond with the appropriate HTTP `4xx` status code and an error message explaining the reason for the rejection
+ 79 |
+ 80 | ### List Authorization (optional)
+ 81 |
+ 82 | The server may optionally require Authorization when listing blobs uploaded by the pubkey
+ 83 |
+ 84 | In this case the server must perform additional checks on the authorization event
+ 85 |
+ 86 | 1. The `t` tag must be set to `list`
+ 87 |
+ 88 | Example Authorization event:
+ 89 |
+ 90 | ```json
+ 91 | {
+ 92 |   "id": "cbb1cab9566355bfdf04e1f1fc1e655fe903ecc193e8a750092ee53beec2a0e8",
+ 93 |   "pubkey": "a5fc3654296e6de3cda6ba3e8eba7224fac8b150fd035d66b4c3c1dc2888b8fc",
+ 94 |   "kind": 24242,
+ 95 |   "content": "List Blobs",
+ 96 |   "created_at": 1708772350,
+ 97 |   "tags": [
+ 98 |     ["t", "list"],
+ 99 |     ["expiration", "1708858680"]
+100 |   ],
+101 |   "sig": "ff9c716f8de0f633738036472be553ce4b58dc71d423a0ef403f95f64ef28582ef82129b41d4d0ef64d2338eb4aeeb66dbc03f8b3a3ed405054ea8ecb14fa36c"
+102 | }
+103 | ```
+104 |
+105 | ## DELETE /sha256 - Delete Blob
+106 |
+107 | Servers MUST accept `DELETE` requests to the `/<sha256>` endpoint
+108 |
+109 | Servers may reject a delete request for any reason and should respond with the appropriate HTTP `4xx` status code and an error message explaining the reason for the rejection
+110 |
+111 | ### Delete Authorization (required)
+112 |
+113 | Servers MUST accept an authorization event when deleting blobs
+114 |
+115 | Servers should perform additional checks on the authorization event
+116 |
+117 | 1. The `t` tag must be set to `delete`
+118 | 2. MUST contain at least one `x` tag matching the sha256 hash of the blob being deleted
+119 |
+120 | When multiple `x` tags are present on the authorization event the server MUST only delete the blob listed in the URL.
+121 |
+122 | **Multiple `x` tags MUST NOT be interpreted as the user requesting a bulk delete.**
+123 |
+124 | Example Authorization event:
+125 |
+126 | ```json
+127 | {
+128 |   "id": "a92868bd8ea740706d931f5d205308eaa0e6698e5f8026a990e78ee34ce47fe8",
+129 |   "pubkey": "ae0063dd2c81ec469f2291ac029a19f39268bfc40aea7ab4136d7a858c3a06de",
+130 |   "kind": 24242,
+131 |   "content": "Delete bitcoin.pdf",
+132 |   "created_at": 1708774469,
+133 |   "tags": [
+134 |     ["t", "delete"],
+135 |     ["x", "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553"],
+136 |     ["expiration", "1708858680"]
+137 |   ],
+138 |   "sig": "2ba9af680505583e3eb289a1624a08661a2f6fa2e5566a5ee0036333d517f965e0ffba7f5f7a57c2de37e00a2e85fd7999076468e52bdbcfad8abb76b37a94b0"
+139 | }
+140 | ```
+141 |
+
+
+--------------------------------------------------------------------------------
+/buds/03.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-03
+ 2 |
+ 3 | ## User Server List
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | Defines a replaceable event using `kind:10063` to advertise the blossom servers a user uses to host their blobs.
+ 8 |
+ 9 | The event MUST include at least one `server` tag containing the full server URL including the `http://` or `https://`.
+10 |
+11 | The order of these tags is important and should be arranged with the users most "reliable" or "trusted" servers being first.
+12 |
+13 | The `.content` field is not used.
+14 |
+15 | ```json
+16 | {
+17 |   "id": "e4bee088334cb5d38cff1616e964369c37b6081be997962ab289d6c671975d71",
+18 |   "pubkey": "781208004e09102d7da3b7345e64fd193cd1bc3fce8fdae6008d77f9cabcd036",
+19 |   "content": "",
+20 |   "kind": 10063,
+21 |   "created_at": 1708774162,
+22 |   "tags": [
+23 |     ["server", "https://cdn.self.hosted"],
+24 |     ["server", "https://cdn.satellite.earth"]
+25 |   ],
+26 |   "sig": "cc5efa74f59e80622c77cacf4dd62076bcb7581b45e9acff471e7963a1f4d8b3406adab5ee1ac9673487480e57d20e523428e60ffcc7e7a904ac882cfccfc653"
+27 | }
+28 | ```
+29 |
+30 | ## Client Upload Implementation
+31 |
+32 | When uploading blobs clients MUST attempt to upload the blob to at least the first `server` listed in the users server list.
+33 |
+34 | Optionally clients MAY upload the blob to all the servers or mirror the blob to the other servers if they support [BUD-04](./04.md)
+35 |
+36 | This ensures that the blob is available in multiple locations in the case one of the servers goes offline.
+37 |
+38 | ## Client Retrieval Implementation
+39 |
+40 | When extracting the SHA256 hash from the URL clients MUST use the last occurrence of a 64 char hex string. This allows clients to extract hashes from blossom URLs and SOME non-blossom URLs.
+41 |
+42 | In all the following examples, the hash `b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553` should be selected
+43 |
+44 | - Blossom URLs
+45 |   - `https://blossom.example.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf`
+46 |   - `https://cdn.example.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553`
+47 | - Non Blossom URLs
+48 |   - `https://cdn.example.com/user/ec4425ff5e9446080d2f70440188e3ca5d6da8713db7bdeef73d0ed54d9093f0/media/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf`
+49 |   - `https://cdn.example.com/media/user-name/documents/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf`
+50 |   - `http://download.example.com/downloads/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553`
+51 |   - `http://media.example.com/documents/b1/67/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf`
+52 |
+53 | In the context of nostr events, clients SHOULD use the author's server list when looking for blobs that are no longer available at the original URL.
+54 |
+55 | Take the following event as an example
+56 |
+57 | ```json
+58 | {
+59 |   "id": "834185269f4ab72539193105060dbb1c8b2efd702d14481cea345c47beefe6eb",
+60 |   "pubkey": "ec4425ff5e9446080d2f70440188e3ca5d6da8713db7bdeef73d0ed54d9093f0",
+61 |   "content": "I've developed a new open source P2P e-cash system called Bitcoin. check it out\nhttps://cdn.broken-domain.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf",
+62 |   "kind": 1,
+63 |   "created_at": 1297484820,
+64 |   "tags": [],
+65 |   "sig": "bd4bb200bdd5f7ffe5dbc3e539052e27b05d6f9f528e255b1bc4261cc16b8f2ad85c89eef990c5f2eee756ef71b4c571ecf6a88ad12f7338e321dd60c6a903b5"
+66 | }
+67 | ```
+68 |
+69 | Once the client discovers that the URL `https://cdn.broken-domain.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf` is no longer available. It can perform the following steps to find the blob:
+70 |
+71 | 1. Get the SHA256 has from the URL
+72 | 2. Look for the authors server list `kind:10063`
+73 | 3. If found, Attempt to retrieve the blob from each `server` listed started with the first
+74 | 4. If not found, the client MAY fallback to using a well-known popular blossom server to retrieve the blob
+75 |
+76 | This ensures clients can quickly find missing blobs using the users list of trusted servers.
+77 |
+
+
+--------------------------------------------------------------------------------
+/buds/04.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-04
+ 2 |
+ 3 | ## Mirroring blobs
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | Defines the `/mirror` endpoint
+ 8 |
+ 9 | ## PUT /mirror - Mirror Blob
+10 |
+11 | A server may expose a `PUT /mirror` endpoint to allow users to copy a blob from a URL instead of uploading it
+12 |
+13 | Clients MUST pass the URL of the remote blob as a stringified JSON object in the request body
+14 |
+15 | ```jsonc
+16 | // request body...
+17 | {
+18 |   "url": "https://cdn.satellite.earth/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf"
+19 | }
+20 | ```
+21 |
+22 | Clients MAY set the `Authorization` header to an upload authorization event defined in [BUD-02](./02.md#upload-authorization-required). When using authorization, the event MUST be of type "upload".
+23 |
+24 | The `/mirror` endpoint MUST download the blob from the specified URL and verify that there is at least one `x` tag in the authorization event matching the sha256 hash of the download blob
+25 |
+26 | **Multiple `x` tags in the authorization event MUST NOT be interpreted as the user requesting a bulk mirror.**
+27 |
+28 | The endpoint MUST return a [Blob Descriptor](#blob-descriptor) if the mirroring was successful or an error object if it was not
+29 |
+30 | Servers should re-use the `Content-Type` header returned from the URL to discover the mime type of the blob. if none is returned it may use the file extension in the URL
+31 |
+32 | Servers MAY reject a mirror request for any reason and should respond with the appropriate HTTP `4xx` status code and an error message explaining the reason for the rejection
+33 |
+34 | ## Example Flow
+35 |
+36 | 1. Client signs authorization event and uploads blob to Server A
+37 | 1. Server A returns blob descriptor with `url`
+38 | 1. Client sends the `url` to Server B `/mirror` using the original authorization event
+39 | 1. Server B downloads blob from Server A using the url
+40 | 1. Server B verifies downloaded blob hash matches `x` tag in authorization event
+41 | 1. Server B returns [Blob Descriptor](./02.md#blob-descriptor)
+42 |
+
+
+--------------------------------------------------------------------------------
+/buds/05.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-05
+ 2 |
+ 3 | ## Media optimization endpoints
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | Defines the `PUT /media` endpoint for processing and optimizing media
+ 8 |
+ 9 | ## PUT /media
+10 |
+11 | The `PUT /media` endpoint MUST accept binary data in the body of the request and MAY use the `Content-Type` and `Content-Length` headers to get the MIME type and size of the media
+12 |
+13 | The server should preform any optimizations or conversions it deems necessary in order to make the media more suitable for distribution
+14 |
+15 | The endpoint MUST respond with a `2xx` status and a [blob descriptor](./02.md#blob-descriptor) of the new processed blob
+16 |
+17 | Servers MAY reject media uploads for any reason and should respond with the appropriate HTTP `4xx` status code and an error message explaining the reason for the rejection
+18 |
+19 | ### Upload Authorization
+20 |
+21 | Servers MAY require a `media` [authorization event](./02.md#upload-authorization-required) to identify the uploader
+22 |
+23 | If a server requires a `media` authorization event it MUST preform the following checks
+24 |
+25 | 1. The `t` tag MUST be set to `media`
+26 | 2. MUST contain at least one `x` tag matching the sha256 hash of the body of the request
+27 |
+28 | ## HEAD /media
+29 |
+30 | Servers MUST respond to `HEAD` requests on the `/media` endpoint in a similar way to the `HEAD /upload` endpoint defined in [BUD-06](./06.md)
+31 |
+32 | ## Limitations
+33 |
+34 | This endpoint is intentionally limited to optimizing a single blob with the goal of making it easier to distribute
+35 |
+36 | How the blob is optimized is the sole respirability of the server and the client should have no say in what optimization process is used
+37 |
+38 | The goal of this endpoint is to provide a simple "trusted" optimization endpoint clients can use to optimize media for distribution
+39 |
+40 | If a longer optimization or transformation process is needed, or if the client needs to specify how a blob should be transformed. there are other tools and protocol that should be used.
+41 |
+42 | ## Client Implementation
+43 |
+44 | Clients MAY let a user selected a "trusted processing" server for uploading images or short videos
+45 |
+46 | Once a server has been selected, the client uploads the original media to the `/media` endpoint of the trusted server and get the optimized blob back
+47 |
+48 | Then the client can ask the user to sign another `upload` authorization event for the new optimized blob and call the `/mirror` endpoint on other servers to distribute the blob
+49 |
+
+
+--------------------------------------------------------------------------------
+/buds/06.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-06
+ 2 |
+ 3 | ## Upload requirements
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | Defines how clients can verify if the upload can be completed before sending the blob to the server. This mechanism helps prevent unnecessary traffic to other endpoints by rejecting files based on their hash, size, MIME type or other server-specific requirements.
+ 8 |
+ 9 | ## HEAD /upload - Upload requirements
+10 |
+11 | The `HEAD /upload` endpoint `MUST` use the `X-SHA-256`, `X-Content-Type` and `X-Content-Length` headers sent by client to get the SHA-256 hash, MIME type and size of the blob that will be uploaded, returning a HTTP status code and a custom header `X-Reason` to indicate some human readable message about the upload requirements.
+12 |
+13 | ### Headers
+14 |
+15 | - `X-SHA-256`: A string that represents the blob's SHA-256 hash.
+16 | - `X-Content-Length`: An integer that represents the blob size in bytes.
+17 | - `X-Content-Type`: A string that specifies the blob's MIME type, like `application/pdf` or `image/png`.
+18 |
+19 | ### Upload Authorization
+20 |
+21 | The `HEAD /upload` endpoint MAY accept an `upload` authorization event using the `Authorization` header similar to what is used in the [`PUT /upload`](./02.md#upload-authorization-required) endpoint
+22 |
+23 | If the server requires authorization to upload it may respond with the `401` status code, or if authorization was provided and is invalid or not permitted it may respond with `403` status code
+24 |
+25 | ### Examples
+26 |
+27 | Example request from the client:
+28 |
+29 | ```http
+30 | X-Content-Type: application/pdf
+31 | X-Content-Length: 184292
+32 | X-SHA-256: 88a74d0b866c8ba79251a11fe5ac807839226870e77355f02eaf68b156522576
+33 | ```
+34 |
+35 | Example response from the server if the upload can be done:
+36 |
+37 | ```http
+38 | HTTP/1.1 200 OK
+39 | ```
+40 |
+41 | If the upload cannot proceed, the server `MUST` return an appropriate `4xx` HTTP status code and a custom header `X-Reason` with a human readable error message.
+42 |
+43 | Some examples of error messages:
+44 |
+45 | ```http
+46 | HTTP/1.1 400 Bad Request
+47 | X-Reason: Invalid X-SHA-256 header format. Expected a string.
+48 | ```
+49 |
+50 | ```http
+51 | HTTP/1.1 401 Unauthorized
+52 | X-Reason: Authorization required for uploading video files.
+53 | ```
+54 |
+55 | ```http
+56 | HTTP/1.1 403 Forbidden
+57 | X-Reason: SHA-256 hash banned.
+58 | ```
+59 |
+60 | ```http
+61 | HTTP/1.1 411 Length Required
+62 | X-Reason: Missing X-Content-Length header.
+63 | ```
+64 |
+65 | ```http
+66 | HTTP/1.1 413 Content Too Large
+67 | X-Reason: File too large. Max allowed size is 100MB.
+68 | ```
+69 |
+70 | ```http
+71 | HTTP/1.1 415 Unsupported Media Type
+72 | X-Reason: Unsupported file type.
+73 | ```
+74 |
+
+
+--------------------------------------------------------------------------------
+/buds/08.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-08
+ 2 |
+ 3 | ## Nostr File Metadata Tags
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | Describes how a server could return nostr [NIP-94 File Metadata](https://github.com/nostr-protocol/nips/blob/master/94.md) tags from the `/upload` and `/mirror` endpoints
+ 8 |
+ 9 | ### Returning tags
+10 |
+11 | As described in [BUD-02](./02.md#blob-descriptor) servers MAY add any additional fields to a blob descriptor
+12 |
+13 | Servers MAY return an additional `nip94` field in the [blob descriptor](./02.md#blob-descriptor) from the `/upload` or `/mirror` endpoints
+14 |
+15 | The `nip94` field should contain a JSON array with KV pairs as defined in [NIP-94](https://github.com/nostr-protocol/nips/blob/master/94.md)
+16 |
+17 | An example response would look like:
+18 |
+19 | ```json
+20 | {
+21 | 	"url": "https://cdn.example.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf",
+22 | 	"sha256": "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553",
+23 | 	"size": 184292,
+24 | 	"type": "application/pdf",
+25 | 	"uploaded": 1725909682,
+26 | 	"nip94": [
+27 | 		["url", "https://cdn.example.com/b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553.pdf"],
+28 | 		["m", "application/pdf"],
+29 | 		["x", "b1674191a88ec5cdd733e4240a81803105dc412d6c6708d53ab94fc248f4f553"],
+30 | 		["size", "184292"],
+31 | 		["magnet", "magnet:?xt=urn:btih:9804c5286a3fb07b2244c968b39bc3cc814313bc&dn=bitcoin.pdf"],
+32 | 		["i", "9804c5286a3fb07b2244c968b39bc3cc814313bc"]
+33 | 	]
+34 | }
+35 | ```
+36 |
+
+
+--------------------------------------------------------------------------------
+/buds/09.md:
+--------------------------------------------------------------------------------
+ 1 | # BUD-09
+ 2 |
+ 3 | ## Blob Report
+ 4 |
+ 5 | `draft` `optional`
+ 6 |
+ 7 | This bud defines a new endpoint for clients and users to report blobs to servers.
+ 8 |
+ 9 |
+10 | ### PUT /report - reporting a blob
+11 |
+12 | The request body MUST be a signed [NIP-56](https://github.com/nostr-protocol/nips/blob/master/56.md) report event with one or more `x` tags containing the hashes of the blobs being reported.
+13 |
+14 | Example:
+15 |
+16 | ```jsonc
+17 | {
+18 |   "kind": 1984,
+19 |   "tags": [
+20 |     ["x", "<blob-sha256>", "<type-based-on-nip-56>"],
+21 |     ["x", "<another-blob-sha256>", "<type-based-on-nip-56>"]
+22 |   ],
+23 |   "content": "<human readable report details>",
+24 |   // other fields...
+25 | }
+26 | ```
+27 |
+28 | The clients can include `e` or `p` tags to point to the event or the profile that contains this media if they want to make this report event useful for relays as well.
+29 |
+30 | Server MUST respond to a report request with a success code or a code in the 4xx/5xx range if there was any error.
+31 |
+32 | ### Client behavior
+33 |
+34 | The clients can show a blob report button on posts or in blob details. Or its RECOMMENDED to merge this with normal nostr report and send it to both relays and blossom server. other clients can receive it from relays and hide or blur reported blob from trusted friends.
+35 |
+36 | ### Server behavior
+37 |
+38 | The servers MAY keep the reports somewhere for operators to check and take action on them. they MAY use a list of trusted people or moderators to directly take action on blob without operator request.
+39 |
+40 | Servers MAY consider removed blobs sha256 as blocked to prevent rewrite.
+41 | Servers SHOULD advertise a route or landing page to provide their rules and term of service which affects the report process.
+42 |
+
+
+--------------------------------------------------------------------------------

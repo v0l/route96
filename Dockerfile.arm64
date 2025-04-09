@@ -1,5 +1,4 @@
 ARG IMAGE=rust:bookworm
-ARG FEATURES
 
 FROM --platform=linux/arm64 ${IMAGE} AS build
 WORKDIR /app/src
@@ -58,8 +57,9 @@ RUN wget https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz && \
 COPY src src
 COPY migrations migrations
 
-# Build with our local fork of ffmpeg-rs-raw
-RUN cargo install --path . --root /app/build --features "${FEATURES}"
+# Clean potential stale artifacts and Build with hardcoded features using cargo build
+RUN cargo clean && \
+    cargo build --release --no-default-features --features "blossom,ranges"
 
 FROM --platform=linux/arm64 node:bookworm AS ui_builder
 WORKDIR /app/src
@@ -83,7 +83,7 @@ WORKDIR /app
 RUN apt update && \
     apt install -y libx264-164 libwebp7 libvpx7 && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/build .
+COPY --from=build /app/src/target/release/route96 ./bin/route96
 COPY --from=ui_builder /app/src/dist ui
 COPY --from=build /app/ffmpeg/lib/ /lib
 RUN ./bin/route96 --version

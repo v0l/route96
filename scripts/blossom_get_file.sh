@@ -5,18 +5,6 @@
 # Exit on error
 set -e
 
-# Function to display command and wait for user input
-pause_and_run() {
-    local command="$1"
-    echo "===================================================="
-    echo "COMMAND TO RUN:"
-    echo "$command"
-    echo "===================================================="
-    read -p "Press any key to continue..." -n1 -s
-    echo ""
-    eval "$command"
-}
-
 # Check for required arguments
 if [ "$#" -lt 4 ]; then
     echo "Usage: $0 <file_hash> <server_url> <group_id> <secret_key> [output_file]"
@@ -49,7 +37,7 @@ fi
 
 # Current time and expiration (30 seconds from now for more reliability)
 NOW=$(date +%s)
-EXPIRATION=$((NOW + 30))
+EXPIRATION=$((NOW + 120))
 
 # Define file URL (direct path)
 FILE_URL="${SERVER_URL}/${FILE_HASH}"
@@ -62,103 +50,19 @@ BASE64_AUTH_EVENT=$(nak event \
     -t expiration="$EXPIRATION" \
     -t x="$FILE_HASH" \
     -t h="$GROUP_ID" \
-    --sec "$SECRET_KEY" | base64)
+    --sec "$SECRET_KEY" | tr -d '\n' | base64 -w 0)
 
-# Determine output file name if not provided
-if [ -z "$OUTPUT_FILE" ]; then
-    # First try to get file info to determine extension
-    # Create temporary headers file
-    TEMP_HEADERS_FILE=$(mktemp)
-
-    # Get headers
-    CURL_COMMAND="curl -s -I \"${FILE_URL}\" \\
-        -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
-        -D \"$TEMP_HEADERS_FILE\""
-
-    pause_and_run "$CURL_COMMAND"
-
-    # Try to extract content type
-    CONTENT_TYPE=$(grep -i "Content-Type:" "$TEMP_HEADERS_FILE" | sed 's/Content-Type: *//i' | tr -d '\r')
-
-    # Clean up temporary file
-    rm -f "$TEMP_HEADERS_FILE"
-
-    # Determine extension based on content type
-    if [[ "$CONTENT_TYPE" == *"image/jpeg"* ]]; then
-        EXT=".jpg"
-    elif [[ "$CONTENT_TYPE" == *"image/png"* ]]; then
-        EXT=".png"
-    elif [[ "$CONTENT_TYPE" == *"image/gif"* ]]; then
-        EXT=".gif"
-    elif [[ "$CONTENT_TYPE" == *"image/webp"* ]]; then
-        EXT=".webp"
-    elif [[ "$CONTENT_TYPE" == *"video/mp4"* ]]; then
-        EXT=".mp4"
-    elif [[ "$CONTENT_TYPE" == *"audio/mpeg"* ]]; then
-        EXT=".mp3"
-    elif [[ "$CONTENT_TYPE" == *"application/pdf"* ]]; then
-        EXT=".pdf"
-    elif [[ "$CONTENT_TYPE" == *"text/plain"* ]]; then
-        EXT=".txt"
-    elif [[ "$CONTENT_TYPE" == *"text/markdown"* ]]; then
-        EXT=".md"
-    else
-        EXT=""
-    fi
-
-    OUTPUT_FILE="./${FILE_HASH}${EXT}"
-fi
+# Fallback: If no output file is provided, use hash as filename in current dir
+OUTPUT_FILE=${OUTPUT_FILE:-./$FILE_HASH}
 
 # Download the file to a temporary location first
 TEMP_FILE=$(mktemp)
 TEMP_HEADERS_FILE=$(mktemp)
 
-# First check if we can access the file
-CURL_COMMAND="curl -s -I \"${FILE_URL}\" \\
-    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
-    -D \"$TEMP_HEADERS_FILE\""
-
-pause_and_run "$CURL_COMMAND"
-
-# Get the HTTP code
-HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)
-
-# Check for specific error cases
-if [ "$HTTP_CODE" = "404" ]; then
-    echo "Error: File not found (HTTP 404)"
-    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
-    exit 1
-fi
-
-if [ "$HTTP_CODE" = "403" ]; then
-    echo "Error: Access denied (HTTP 403)"
-    echo "This could be because:"
-    echo "1. The file belongs to another user"
-    echo "2. The file was uploaded with a different group ID"
-    echo "3. The authentication credentials are incorrect"
-    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
-    exit 1
-fi
-
-if [ "$HTTP_CODE" = "500" ]; then
-    echo "Error: Server internal error (HTTP 500)"
-    echo "This could be due to database connectivity issues or filesystem problems."
-    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
-    exit 1
-fi
-
-if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-    echo "Error: Server returned HTTP $HTTP_CODE"
-    rm -f "$TEMP_FILE" "$TEMP_HEADERS_FILE"
-    exit 1
-fi
-
-# If we get here, we have a valid response, proceed with download
-CURL_COMMAND="curl -s \"${FILE_URL}\" \\
-    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\" \\
-    --output \"$TEMP_FILE\""
-
-pause_and_run "$CURL_COMMAND"
+# If we get here, we have a valid response, proceed with download using GET request
+curl -s "${FILE_URL}" \
+    -H "Authorization: Nostr $BASE64_AUTH_EVENT" \
+    --output "$TEMP_FILE"
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to download file"

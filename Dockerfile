@@ -31,6 +31,8 @@ RUN git clone --single-branch --branch release/7.1 https://github.com/ffmpeg/FFm
     --disable-postproc \
     --enable-shared && \
     make -j$(nproc) install
+RUN rm Cargo.lock
+# RUN cargo tree -i half | cat
 RUN cargo install --path . --root /app/build --features "blossom,ranges"
 
 FROM node:bookworm AS ui_builder
