@@ -109,10 +109,6 @@ async fn main() -> Result<(), Error> {
     {
         rocket = rocket.mount("/", routes::blossom_routes());
     }
-    #[cfg(feature = "nip96")]
-    {
-        rocket = rocket.mount("/", routes::nip96_routes());
-    }
     #[cfg(feature = "media-compression")]
     {
         rocket = rocket.mount("/", routes![routes::get_blob_thumb]);

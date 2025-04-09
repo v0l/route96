@@ -1,4 +1,4 @@
-use crate::auth::nip98::Nip98Auth;
+use crate::auth::blossom::BlossomAuth;
 use crate::db::Database;
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
@@ -63,7 +63,7 @@ pub struct AdminNip94File {
 }
 
 #[rocket::get("/self")]
-async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<SelfUser> {
+async fn admin_get_self(auth: BlossomAuth, db: &State<Database>) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     match db.get_user(&pubkey_vec).await {
         Ok(user) => {
@@ -85,7 +85,7 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
 
 #[rocket::get("/files?<page>&<count>&<mime_type>")]
 async fn admin_list_files(
-    auth: Nip98Auth,
+    auth: BlossomAuth,
     page: u32,
     count: u32,
     mime_type: Option<String>,

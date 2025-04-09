@@ -4,7 +4,6 @@ Image hosting service
 
 ## Features
 
-- [NIP-96 Support](https://github.com/nostr-protocol/nips/blob/master/96.md)
 - [Blossom Support](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
   - [BUD-01](https://github.com/hzrd149/blossom/blob/master/buds/01.md)
   - [BUD-02](https://github.com/hzrd149/blossom/blob/master/buds/02.md)
