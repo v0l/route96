@@ -6,10 +6,6 @@ use rocket::config::Ident;
 use rocket::data::{ByteUnit, Limits};
 use rocket::routes;
 use rocket::shield::Shield;
-#[cfg(feature = "analytics")]
-use route96::analytics::plausible::PlausibleAnalytics;
-#[cfg(feature = "analytics")]
-use route96::analytics::AnalyticsFairing;
 use route96::background::start_background_tasks;
 use route96::cors::CORS;
 use route96::db::Database;
@@ -18,7 +14,6 @@ use route96::nip29::init_nip29_client;
 use route96::routes;
 use route96::routes::{get_blob_route, head_blob, root};
 use route96::settings::Settings;
-use std::env;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Parser, Debug)]
@@ -100,19 +95,9 @@ async fn main() -> Result<(), Error> {
         )
         .mount("/admin", routes::admin_routes());
 
-    #[cfg(feature = "analytics")]
-    {
-        if settings.plausible_url.is_some() {
-            rocket = rocket.attach(AnalyticsFairing::new(PlausibleAnalytics::new(&settings)))
-        }
-    }
     #[cfg(feature = "blossom")]
     {
         rocket = rocket.mount("/", routes::blossom_routes());
-    }
-    #[cfg(feature = "nip96")]
-    {
-        rocket = rocket.mount("/", routes::nip96_routes());
     }
     #[cfg(feature = "media-compression")]
     {

@@ -5,6 +5,18 @@
 # Exit on error
 set -e
 
+# Function to display command and wait for user input
+pause_and_run() {
+    local command="$1"
+    echo "===================================================="
+    echo "COMMAND TO RUN:"
+    echo "$command"
+    echo "===================================================="
+    read -p "Press any key to continue..." -n1 -s
+    echo ""
+    eval "$command"
+}
+
 # Check for required arguments
 if [ "$#" -lt 4 ]; then
     echo "Usage: $0 <file_hash> <server_url> <group_id> <secret_key>"
@@ -57,12 +69,14 @@ BASE64_AUTH_EVENT=$(nak event \
     --sec "$SECRET_KEY" | base64)
 
 # Send the delete request and capture HTTP status code, headers, and response body
-curl -s \
-    -D "$TEMP_HEADERS_FILE" \
-    -o "$TEMP_RESPONSE_FILE" \
-    "${DELETE_URL}" \
-    -X DELETE \
-    -H "Authorization: Nostr $BASE64_AUTH_EVENT"
+CURL_COMMAND="curl -s \\
+    -D \"$TEMP_HEADERS_FILE\" \\
+    -o \"$TEMP_RESPONSE_FILE\" \\
+    \"${DELETE_URL}\" \\
+    -X DELETE \\
+    -H \"Authorization: Nostr $BASE64_AUTH_EVENT\""
+
+pause_and_run "$CURL_COMMAND"
 
 # Get the HTTP code
 HTTP_CODE=$(head -1 "$TEMP_HEADERS_FILE" | cut -d' ' -f2)

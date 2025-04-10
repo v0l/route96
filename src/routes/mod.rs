@@ -6,17 +6,18 @@ use crate::processing::WebpProcessor;
 pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
-#[cfg(feature = "nip96")]
-pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
+// Import check_h_tag
+use crate::routes::blossom::check_h_tag;
 use anyhow::{Error, Result};
+use bs58;
 use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
 use log::{debug, warn};
 use nostr_sdk::prelude::*;
 use rocket::fs::NamedFile;
-use rocket::http::{Header, HeaderMap, Status};
+use rocket::http::{Header, Status};
 use rocket::request::{FromRequest, Outcome};
 use rocket::response::{self, Responder};
 use rocket::serde::Serialize;
@@ -32,8 +33,6 @@ use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 
 #[cfg(feature = "blossom")]
 mod blossom;
-#[cfg(feature = "nip96")]
-mod nip96;
 
 mod admin;
 
@@ -67,15 +66,26 @@ impl Nip94Event {
         } else {
             None
         };
-        let mut tags = vec![
-            vec![
-                "url".to_string(),
-                format!("{}/{}.{}", &settings.public_url, &hex_id, ext.unwrap_or("")),
-            ],
-            vec!["x".to_string(), hex_id.clone()],
-            vec!["m".to_string(), upload.mime_type.clone()],
-            vec!["size".to_string(), upload.size.to_string()],
-        ];
+
+        // Create tags using the new API
+        let mut tags = Vec::new();
+
+        // URL tag
+        tags.push(vec![
+            "url".to_string(),
+            format!("{}/{}.{}", &settings.public_url, &hex_id, ext.unwrap_or("")),
+        ]);
+
+        // X tag (hex ID)
+        tags.push(vec!["x".to_string(), hex_id.clone()]);
+
+        // M tag (mime type)
+        tags.push(vec!["m".to_string(), upload.mime_type.clone()]);
+
+        // Size tag
+        tags.push(vec!["size".to_string(), upload.size.to_string()]);
+
+        // Thumb tag for images and videos
         if upload.mime_type.starts_with("image/") || upload.mime_type.starts_with("video/") {
             tags.push(vec![
                 "thumb".to_string(),
@@ -83,19 +93,27 @@ impl Nip94Event {
             ]);
         }
 
+        // Blurhash tag
         if let Some(bh) = &upload.blur_hash {
             tags.push(vec!["blurhash".to_string(), bh.clone()]);
         }
+
+        // Dimensions tag
         if let (Some(w), Some(h)) = (upload.width, upload.height) {
             tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
         }
+
+        // Duration tag
         if let Some(d) = &upload.duration {
             tags.push(vec!["duration".to_string(), d.to_string()]);
         }
+
+        // Bitrate tag
         if let Some(b) = &upload.bitrate {
             tags.push(vec!["bitrate".to_string(), b.to_string()]);
         }
 
+        // Labels tag (if feature enabled)
         #[cfg(feature = "labels")]
         for l in &upload.labels {
             let val = if l.label.contains(',') {
@@ -383,126 +401,75 @@ async fn authorize_file_access(
     nip29_client: &State<Arc<Nip29Client>>,
     requested_hash: &str,
 ) -> Result<(), Status> {
-    // --- Auth Header Presence ---
+    // 1. Check if the file is public (no h_tag)
+    if file_h_tag.is_none() {
+        debug!(
+            "File {} is public (no h_tag), access granted.",
+            requested_hash
+        );
+        return Ok(()); // Public file, access granted
+    }
+
+    let file_h_tag = file_h_tag.as_deref().unwrap(); // We know it's Some(tag) here
+    debug!(
+        "File {} belongs to group {}. Checking auth...",
+        requested_hash, file_h_tag
+    );
+
+    // 2. Check if authentication is provided
     let auth = match auth {
         Some(a) => a,
         None => {
             warn!(
-                "Auth required but not provided for file fetch: {}",
+                "Auth required for group file {}, but none provided.",
                 requested_hash
             );
-            return Err(Status::Unauthorized);
+            return Err(Status::Unauthorized); // Auth required but not provided
         }
     };
-    let auth_event = &auth.event;
+    let auth_event = auth.event;
 
-    // --- Auth Event Tag Validation ---
+    // 3. Check for method tag (should be "read" or similar? Assuming GET implies read)
+    // Skipping explicit method check for GET routes, but might be needed for others.
 
-    // 1. Check t=get tag using string comparison
-    let t_tag_valid = auth_event.tags.iter().any(|tag| {
-        let slice = tag.as_slice();
-        slice.first().map(|s| s == "t").unwrap_or(false)
-            && slice.get(1).map(|v| v == "get").unwrap_or(false)
-    });
-    if !t_tag_valid {
-        warn!(
-            "Auth event missing or incorrect 't=get' tag for hash {}",
-            requested_hash
-        );
-        return Err(Status::Unauthorized); // Or Forbidden?
-    }
-
-    // 2. Check x=<hash> tag using string comparison
-    let x_tag_matches = auth_event.tags.iter().any(|tag| {
-        let slice = tag.as_slice();
-        slice.first().map(|s| s == "x").unwrap_or(false)
-            && slice.get(1).map(|v| v == requested_hash).unwrap_or(false)
-    });
-    if !x_tag_matches {
-        warn!(
-            "Auth event missing or incorrect 'x' tag for hash {}",
-            requested_hash
-        );
-        return Err(Status::Unauthorized); // Or Forbidden?
-    }
-
-    // 3. Check for h=<group_id> tag in Auth Event using string comparison
-    let auth_h_tag_value = auth_event.tags.iter().find_map(|tag| {
-        let slice = tag.as_slice();
-        if slice.first().map(|s| s == "h").unwrap_or(false) {
-            slice.get(1).map(|s| s.as_str())
-        } else {
-            None
-        }
-    });
-
-    let auth_h_tag = match auth_h_tag_value {
-        Some(h) => h,
+    // 4. Check h_tag in auth event
+    let auth_h_tag = match check_h_tag(&auth_event) {
+        Some(tag) => tag,
         None => {
             warn!(
-                "Auth event missing required 'h' tag for hash {}",
+                "Auth event for group file {} missing h_tag.",
                 requested_hash
             );
-            return Err(Status::Unauthorized); // Or Forbidden?
+            return Err(Status::BadRequest); // h_tag required in auth
         }
     };
 
-    // --- File and Group Matching ---
-
-    // 4. Check if file has an h_tag and if it matches the auth h_tag
-    match file_h_tag {
-        Some(file_h) if file_h == auth_h_tag => {
-            // Tags match, proceed to membership check
-            debug!(
-                "Auth h_tag ({}) matches file h_tag for file {}",
-                auth_h_tag, requested_hash
-            );
-        }
-        Some(file_h) => {
-            // File has an h_tag, but it doesn't match the one in the auth event
-            warn!(
-                "NIP-29 check failed: Auth h_tag ({}) does not match file h_tag ({}) for file {}",
-                auth_h_tag, file_h, requested_hash
-            );
-            return Err(Status::Forbidden);
-        }
-        None => {
-            // File does NOT have an h_tag, but auth is required
-            warn!(
-                "NIP-29 check failed: File {} does not have an associated h_tag, access denied.",
-                requested_hash
-            );
-            return Err(Status::Forbidden); // File not associated with the required group context
-        }
+    if file_h_tag != auth_h_tag {
+        warn!(
+            "Auth h_tag mismatch for file {}: file has '{}', auth has '{}'",
+            requested_hash, file_h_tag, auth_h_tag
+        );
+        return Err(Status::Forbidden); // Tags don't match
     }
-
-    // --- NIP-29 Membership Check ---
 
     // 5. Check group membership (h_tags already confirmed to match)
-    match nip29_client
-        .is_group_member(auth_h_tag, &auth_event.pubkey)
+    if nip29_client
+        .is_group_member(&auth_h_tag, &auth_event.pubkey)
         .await
     {
-        Ok(true) => {
-            debug!(
-                "NIP-29 check passed: User {} is a member of group {}",
-                auth_event.pubkey.to_hex(),
-                auth_h_tag
-            );
-            Ok(()) // User is a member, access granted
-        }
-        Ok(false) => {
-            warn!(
-                "NIP-29 check failed: User {} not a member of group {}",
-                auth_event.pubkey.to_hex(),
-                auth_h_tag
-            );
-            Err(Status::Forbidden) // User not a member
-        }
-        Err(e) => {
-            warn!("NIP-29 check error for group {}: {}", auth_h_tag, e);
-            Err(Status::InternalServerError) // Error checking membership
-        }
+        debug!(
+            "NIP-29 check passed: User {} is a member of group {}",
+            auth_event.pubkey.to_hex(),
+            auth_h_tag
+        );
+        Ok(()) // User is a member, access granted
+    } else {
+        warn!(
+            "NIP-29 check failed: User {} not a member of group {}",
+            auth_event.pubkey.to_hex(),
+            auth_h_tag
+        );
+        Err(Status::Forbidden) // User not a member
     }
 }
 
@@ -839,8 +806,8 @@ pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<N
         id
     };
     if let Some(base) = &settings.void_cat_files {
-        let uuid = if let Ok(b58) = nostr_sdk::nostr::bitcoin::base58::decode(id) {
-            uuid::Uuid::from_slice_le(b58.as_slice()).unwrap()
+        let uuid = if let Ok(b58) = bs58::decode(id).into_vec() {
+            uuid::Uuid::from_slice_le(&b58).unwrap()
         } else {
             uuid::Uuid::parse_str(id).unwrap()
         };
@@ -863,12 +830,34 @@ pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
     } else {
         id
     };
-    let uuid = uuid::Uuid::from_slice_le(
-        nostr_sdk::nostr::bitcoin::base58::decode(id)
-            .unwrap()
-            .as_slice(),
-    )
-    .unwrap();
+
+    // Handle both Result types properly
+    let uuid = match bs58::decode(id).into_vec() {
+        Ok(bytes) => match uuid::Uuid::from_slice_le(&bytes) {
+            Ok(uuid) => uuid,
+            Err(_) => {
+                // If UUID conversion fails, try parsing as string
+                match uuid::Uuid::parse_str(id) {
+                    Ok(uuid) => uuid,
+                    Err(_) => {
+                        // If both methods fail, return a default UUID
+                        uuid::Uuid::nil()
+                    }
+                }
+            }
+        },
+        Err(_) => {
+            // If base58 decoding fails, try parsing as string
+            match uuid::Uuid::parse_str(id) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    // If both methods fail, return a default UUID
+                    uuid::Uuid::nil()
+                }
+            }
+        }
+    };
+
     VoidCatFile {
         status: Status::Ok,
         uuid: Header::new("X-UUID", uuid.to_string()),
