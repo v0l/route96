@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono;
 #[cfg(feature = "media-compression")]
-use ffmpeg_the_third as ffmpeg;
+use ffmpeg_the_third::{self as ffmpeg, codec::Context as CodecContext};
 use hex;
 // #[cfg(feature = "media-compression")] Remove unused
 // use image::ImageFormat;
@@ -157,11 +157,10 @@ impl StorageBackend for FileStore {
                 Ok(probe_result) => {
                     // Use probe_result.streams() directly
                     if let Some(stream) = probe_result.streams().best(ffmpeg::media::Type::Video) {
-                        // Remove the `if let Ok()` as parameters() might return Parameters directly
+                        // Get ParametersRef
                         let params = stream.parameters();
-                        if let Ok(decoder_ctx) =
-                            ffmpeg::codec::Context::from_parameters(params.clone())
-                        {
+                        // Use CodecContext alias and pass params directly
+                        if let Ok(decoder_ctx) = CodecContext::from_parameters(params) {
                             if let Ok(decoder) = decoder_ctx.decoder().video() {
                                 file_upload.width = Some(decoder.width() as i32);
                                 file_upload.height = Some(decoder.height() as i32);

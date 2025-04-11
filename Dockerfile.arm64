@@ -75,16 +75,31 @@ RUN yarn install
 COPY ui_src .
 RUN yarn build
 
-FROM --platform=linux/arm64 ${IMAGE} AS runner
+FROM --platform=linux/arm64 debian:bookworm-slim AS runner
 LABEL org.opencontainers.image.source="https://github.com/Kieran/route96"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.authors="Kieran"
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 libvpx7 && \
+    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates && \
     rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r appgroup && useradd --no-log-init -r -g appgroup appuser
+
 COPY --from=build /app/src/target/release/route96 ./bin/route96
 COPY --from=ui_builder /app/src/dist ui
 COPY --from=build /app/ffmpeg/lib/ /lib
+
+# Update the linker cache
+RUN ldconfig
+
+RUN chown -R appuser:appgroup /app
+RUN chown -R appuser:appgroup /lib
+
+# Optional: Add ls command if needed for debugging, similar to Dockerfile
+# RUN ls -l /app && ls -l /app/bin
+
+USER appuser
+
 RUN ./bin/route96 --version
 ENTRYPOINT ["./bin/route96"]

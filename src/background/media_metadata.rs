@@ -3,12 +3,7 @@ use crate::filesystem::FileStore;
 use crate::storage::StorageBackend;
 
 use anyhow::{Context, Result};
-use ffmpeg_the_third::{
-    self,
-    codec::{decoder, Context as CodecContext, Parameters},
-    ffi::AV_NOPTS_VALUE,
-    media,
-};
+use ffmpeg_the_third::{self, codec::Context as CodecContext, ffi::AV_NOPTS_VALUE, media};
 use log::{debug, error, info, warn};
 
 use std::path::PathBuf;
@@ -164,54 +159,43 @@ impl MediaMetadata {
                 };
 
                 if let Some(stream) = v_stream {
-                    let params: Parameters = stream.parameters();
-                    match decoder::find(params.id()) {
-                        Some(codec) => match CodecContext::from_parameters(params) {
-                            Ok(context) => match context.decoder().video() {
-                                Ok(video_decoder) => {
-                                    let width = Some(video_decoder.width() as i32);
-                                    let height = Some(video_decoder.height() as i32);
-                                    info!(
-                                                "Updating video metadata for file {}: width={:?}, height={:?}, duration={:?}, bitrate={:?}",
-                                                hex::encode(&file_record.id),
-                                                width,
-                                                height,
-                                                duration_f32,
-                                                bitrate
-                                            );
-                                    self.db
-                                        .update_metadata(
-                                            &file_record.id,
-                                            width,
-                                            height,
-                                            duration_f32,
-                                            bitrate,
-                                        )
-                                        .await
-                                        .context("Failed to update metadata in database")?;
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "Could not get video decoder for file {}: {}",
-                                        hex::encode(&file_record.id),
-                                        e
-                                    );
-                                }
-                            },
-                            Err(e) => {
-                                warn!(
-                                    "Could not get codec context for file {}: {}",
-                                    hex::encode(&file_record.id),
-                                    e
-                                );
-                            }
-                        },
-                        None => {
+                    let stream_index = stream.index();
+                    let params = stream.parameters();
+                    if let Ok(decoder_ctx) = CodecContext::from_parameters(params) {
+                        if let Ok(decoder) = decoder_ctx.decoder().video() {
+                            let width = Some(decoder.width() as i32);
+                            let height = Some(decoder.height() as i32);
+                            info!(
+                                "Updating video metadata for file {}: width={:?}, height={:?}, duration={:?}, bitrate={:?}",
+                                hex::encode(&file_record.id),
+                                width,
+                                height,
+                                duration_f32,
+                                bitrate
+                            );
+                            self.db
+                                .update_metadata(
+                                    &file_record.id,
+                                    width,
+                                    height,
+                                    duration_f32,
+                                    bitrate,
+                                )
+                                .await
+                                .context("Failed to update metadata in database")?;
+                        } else {
                             warn!(
-                                "Could not find decoder for file {}",
-                                hex::encode(&file_record.id)
+                                "Could not get video decoder for file {}: {}",
+                                hex::encode(&file_record.id),
+                                "Could not get video decoder"
                             );
                         }
+                    } else {
+                        warn!(
+                            "Could not get codec context for file {}: {}",
+                            hex::encode(&file_record.id),
+                            "Could not get codec context"
+                        );
                     }
                 }
                 // Add similar logic for audio stream if needed

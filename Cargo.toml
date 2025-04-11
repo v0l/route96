@@ -62,7 +62,7 @@ tokio-util = { version = "0.7.14", features = ["io", "io-util"] }
 nostr-sdk = { version = "0.40.0", features = ["all-nips"] }
 
 libc = { version = "0.2.171", optional = true }
-ffmpeg-the-third = { git = "https://git.v0l.io/Kieran/ffmpeg-the-third.git", rev = "e5f8e077b04b10d5887bce4df1eb1a71738a6c66", optional = true }
+ffmpeg-the-third = { version = "3.0.1+ffmpeg-7.1", optional = true }
 candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }
 candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.4", optional = true }

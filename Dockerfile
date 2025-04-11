@@ -33,6 +33,9 @@ RUN git clone --single-branch --branch release/7.1 https://github.com/ffmpeg/FFm
     make -j$(nproc) install
 RUN rm Cargo.lock
 # RUN cargo tree -i half | cat
+RUN mkdir -p ~/.cargo && \
+    echo '[net]' > ~/.cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
 RUN cargo install --path . --root /app/build --features "blossom,ranges"
 
 FROM node:bookworm AS ui_builder
@@ -43,14 +46,24 @@ RUN yarn && yarn build
 FROM debian:bookworm-slim AS runner
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates && \
+    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates libxcb1 libxcb-shm0 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r appgroup && useradd --no-log-init -r -g appgroup appuser
 
 COPY --from=build /app/build .
 COPY --from=ui_builder /app/src/dist ui
-COPY --from=build /app/ffmpeg/lib/ /lib
+COPY --from=build /app/ffmpeg/lib/libavcodec.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavdevice.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavfilter.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavformat.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavutil.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libswresample.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libswscale.so.* /lib/
+COPY --from=build /usr/lib/x86_64-linux-gnu/libwebpmux.so.* /usr/lib/x86_64-linux-gnu/
+
+# Update the linker cache
+RUN ldconfig
 
 RUN chown -R appuser:appgroup /app
 RUN chown -R appuser:appgroup /lib
