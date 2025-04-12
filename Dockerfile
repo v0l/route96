@@ -46,7 +46,7 @@ RUN yarn && yarn build
 FROM debian:bookworm-slim AS runner
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates libxcb1 libxcb-shm0 && \
+    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates libxcb1 libxcb-shm0 gosu && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r appgroup && useradd --no-log-init -r -g appgroup appuser
@@ -62,7 +62,7 @@ COPY --from=build /app/ffmpeg/lib/libswresample.so.* /lib/
 COPY --from=build /app/ffmpeg/lib/libswscale.so.* /lib/
 COPY --from=build /usr/lib/x86_64-linux-gnu/libwebpmux.so.* /usr/lib/x86_64-linux-gnu/
 
-# Update the linker cache
+# Update the linker cache *after* copying all libraries
 RUN ldconfig
 
 RUN chown -R appuser:appgroup /app
@@ -73,4 +73,7 @@ RUN ls -l /app && ls -l /app/bin
 USER appuser
 
 RUN ./bin/route96 --version
-ENTRYPOINT ["/app/bin/route96"]
+
+# Entrypoint runs as root initially to fix permissions, then switches to appuser
+USER root
+ENTRYPOINT ["sh", "-c", "chown -R appuser:appgroup /app/data && exec gosu appuser /app/bin/route96 \"$@\""]

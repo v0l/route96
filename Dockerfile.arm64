@@ -81,25 +81,29 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.authors="Kieran"
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates && \
+    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates gosu && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r appgroup && useradd --no-log-init -r -g appgroup appuser
 
 COPY --from=build /app/src/target/release/route96 ./bin/route96
 COPY --from=ui_builder /app/src/dist ui
-COPY --from=build /app/ffmpeg/lib/ /lib
+COPY --from=build /app/ffmpeg/lib/libavcodec.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavdevice.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavfilter.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavformat.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libavutil.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libswresample.so.* /lib/
+COPY --from=build /app/ffmpeg/lib/libswscale.so.* /lib/
+COPY --from=build /usr/lib/aarch64-linux-gnu/libwebpmux.so.* /usr/lib/aarch64-linux-gnu/
 
-# Update the linker cache
 RUN ldconfig
 
 RUN chown -R appuser:appgroup /app
 RUN chown -R appuser:appgroup /lib
 
-# Optional: Add ls command if needed for debugging, similar to Dockerfile
-# RUN ls -l /app && ls -l /app/bin
-
-USER appuser
-
 RUN ./bin/route96 --version
-ENTRYPOINT ["./bin/route96"]
+
+# Entrypoint runs as root initially to fix permissions, then switches to appuser
+USER root
+ENTRYPOINT ["sh", "-c", "chown -R appuser:appgroup /app/data && exec gosu appuser /app/bin/route96 \"$@\""]

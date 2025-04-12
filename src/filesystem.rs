@@ -121,15 +121,35 @@ impl StorageBackend for FileStore {
             return Ok(StorageResult::AlreadyExists(hash));
         }
 
-        fs::create_dir_all(final_path.parent().unwrap()).await?;
-        fs::copy(&temp_file_path, &final_path)
-            .await
-            .with_context(|| {
-                format!(
+        // Ensure parent directories exist
+        if let Some(parent) = final_path.parent() {
+            fs::create_dir_all(parent).await.with_context(|| {
+                format!("Failed to create directory structure for {:?}", final_path)
+            })?;
+        } else {
+            return Err(anyhow!(
+                "Could not determine parent directory for {:?}",
+                final_path
+            ));
+        }
+
+        // Attempt the copy
+        match fs::copy(&temp_file_path, &final_path).await {
+            Ok(_bytes_copied) => {}
+            Err(e) => {
+                log::error!(
+                    "fs::copy from {:?} to {:?} failed with error: {}",
+                    temp_file_path,
+                    final_path,
+                    e // Log the specific std::io::Error
+                );
+                // Re-wrap the error with the original context message for the function return
+                return Err(anyhow!(e)).context(format!(
                     "Failed to copy temp file {:?} to final path {:?}",
                     temp_file_path, final_path
-                )
-            })?;
+                ));
+            }
+        }
 
         let mime_type = mime_type.to_string();
 
