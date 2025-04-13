@@ -8,7 +8,7 @@ data:
     listen: "REPLACED_BY_ENV"
     database: "REPLACED_BY_ENV"
     storage_dir: "REPLACED_BY_ENV"
-    max_upload_bytes: 0
+    max_upload_bytes: 5000000000
     public_url: "REPLACED_BY_ENV"
     nip29_relay:
       url: "REPLACED_BY_ENV"

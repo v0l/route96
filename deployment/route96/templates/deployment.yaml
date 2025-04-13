@@ -55,14 +55,14 @@ spec:
             cpu: "2"
         livenessProbe:
           httpGet:
-            path: /
-            port: 80
+            path: /health
+            port: 8000
           initialDelaySeconds: 30
           timeoutSeconds: 5
         readinessProbe:
           httpGet:
-            path: /
-            port: 80
+            path: /health
+            port: 8000
           initialDelaySeconds: 5
           timeoutSeconds: 3
         ports:
