@@ -1,11 +1,30 @@
 # Listen address for webserver
 listen: "0.0.0.0:8000"
 
+# Specifies which storage backend to use ("FileSystem" or "S3")
+# Defaults to FileSystem if not specified.
+# storage_type: FileSystem
+# storage_type: S3 # Requires the 's3-storage' feature to be enabled during build
+
 # Database connection string (PostgreSQL)
 database: "postgres://postgres:root@db:5432/route96"
 
-# Directory to store uploads
-storage_dir: "/app/data"
+# --- Storage Backend Settings ---
+
+# Settings for the FileSystem backend (used if storage_type is FileSystem or omitted)
+filesystem:
+  # Directory to store uploads
+  storage_dir: "/app/data"
+
+# Settings for the S3 backend (used if storage_type is S3)
+# Requires the 's3-storage' feature flag during compilation.
+# s3:
+#   region: "us-east-1" # Optional, defaults to provider default
+#   endpoint_url: "https://nyc3.digitaloceanspaces.com" # Optional, use for non-AWS S3-compatible storage like DigitalOcean Spaces
+#   bucket_name: "your-bucket-name"
+#   access_key_id: "YOUR_ACCESS_KEY"
+#   secret_access_key: "YOUR_SECRET_KEY"
+#   force_path_style: false # Optional, default is false. Set to true for some S3-compatible services like MinIO
 
 # Maximum support filesize for uploading
 max_upload_bytes: 5242880 # 5 MiB default
