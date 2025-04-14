@@ -52,9 +52,6 @@ pub struct Settings {
     /// Path for ViT image model
     pub vit_model: Option<VitModelConfig>,
 
-    /// Webhook api endpoint
-    pub webhook_url: Option<String>,
-
     /// Analytics tracking
     pub plausible_url: Option<String>,
 
