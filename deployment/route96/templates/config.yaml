@@ -5,12 +5,12 @@ metadata:
   namespace: blossom 
 data:
   config: |
-    listen: "0.0.0.0:8000"
+    listen: "REPLACED_BY_ENV"
     database: "REPLACED_BY_ENV"
-    storage_dir: "/app/data"
-    max_upload_bytes: 5000000000
-    public_url: "http://localhost:8000"
+    storage_dir: "REPLACED_BY_ENV"
+    max_upload_bytes: 0
+    public_url: "REPLACED_BY_ENV"
     nip29_relay:
-      url: "wss://communities.nos.social"
+      url: "REPLACED_BY_ENV"
       private_key: "REPLACED_BY_ENV"
-      cache_expiration: 300
+      cache_expiration: 0
