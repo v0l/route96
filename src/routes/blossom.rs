@@ -1,23 +1,30 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::{Database, FileUpload};
-use crate::filesystem::{FileStore, FileSystemResult};
 use crate::nip29::Nip29Client;
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
+use crate::storage::{StorageBackend, StorageResult};
+use anyhow::Result;
 use log::error;
 use nostr_sdk::prelude::hex;
 use nostr_sdk::prelude::TagKind;
-use rocket::data::ByteUnit;
+use rocket::data::{ByteUnit, ToByteUnit};
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
 use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::fs::{self, File};
 use tokio::io::AsyncRead as TokioAsyncRead;
-use tokio_util::io::StreamReader;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(crate = "rocket::serde")]
@@ -67,30 +74,26 @@ struct MirrorRequest {
     pub url: String,
 }
 
-#[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![
+    println!("DEBUG: Defining blossom routes...");
+    // Start with base blossom routes
+    let mut routes_vec = routes![
         delete,
         admin_delete,
         upload,
-        upload_media,
-        head_media,
         list_files,
         upload_head,
         mirror
-    ]
-}
+    ];
 
-#[cfg(not(feature = "media-compression"))]
-pub fn blossom_routes() -> Vec<Route> {
-    routes![
-        delete,
-        admin_delete,
-        upload,
-        list_files,
-        upload_head,
-        mirror
-    ]
+    // Conditionally add media routes
+    #[cfg(feature = "media-compression")]
+    {
+        println!("Adding media compression routes to blossom...");
+        routes_vec.extend(routes![upload_media, head_media,]);
+    }
+
+    routes_vec // Return the final Vec
 }
 
 /// Generic holder response, mostly for errors
@@ -215,8 +218,9 @@ async fn delete(
     auth: BlossomAuth,
     db: &State<Database>,
     nip29: &State<Arc<Nip29Client>>,
+    storage: &State<Arc<dyn StorageBackend>>,
 ) -> Result<BlossomResponse, (Status, String)> {
-    match try_delete_blob(sha256, auth, db, nip29).await {
+    match try_delete_blob(sha256, auth, db, nip29, storage).await {
         Ok(response) => Ok(response),
         Err((status, e)) => {
             log::error!("Error in delete handler: {}", e);
@@ -300,6 +304,7 @@ async fn try_delete_blob(
     auth: BlossomAuth,
     db: &State<Database>,
     nip29: &State<Arc<Nip29Client>>,
+    storage: &State<Arc<dyn StorageBackend>>,
 ) -> Result<BlossomResponse, (Status, String)> {
     log::debug!("Attempting to delete blob with sha256: {}", sha256);
     log::debug!("Auth event pubkey: {}", auth.event.pubkey.to_hex());
@@ -361,7 +366,7 @@ async fn try_delete_blob(
             };
 
             log::debug!("Calling delete_file with is_admin={}", is_admin);
-            match delete_file(sha256, &auth.event, db, is_admin).await {
+            match delete_file(sha256, &auth.event, db, storage, is_admin).await {
                 Ok(()) => {
                     log::debug!("File successfully deleted");
                     Ok(BlossomResponse::Generic(BlossomGenericResponse {
@@ -419,65 +424,173 @@ fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
 #[rocket::put("/upload", data = "<data>")]
 async fn upload(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
+    storage: &State<Arc<dyn StorageBackend>>,
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
     nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
 ) -> BlossomResponse {
-    process_upload("upload", false, auth, fs, db, settings, data, nip29_client).await
+    process_upload("upload", auth, storage, db, settings, data, nip29_client).await
 }
 
 #[rocket::put("/mirror", data = "<req>", format = "json")]
 async fn mirror(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
+    storage: &State<Arc<dyn StorageBackend>>,
     db: &State<Database>,
     settings: &State<Settings>,
     req: Json<MirrorRequest>,
+    nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
 ) -> BlossomResponse {
-    if !check_method(&auth.event, "mirror") {
-        return BlossomResponse::error("Invalid request method tag");
-    }
-
-    // Check for h tag
-    let h_tag = check_h_tag(&auth.event);
-    if h_tag.is_none() {
-        return BlossomResponse::error("Missing h tag");
+    if !check_method(&auth.event, "upload") {
+        return BlossomResponse::forbidden(
+            "Invalid request method tag (must be 'upload' for mirror)",
+        );
     }
 
     if let Some(e) = check_whitelist(&auth, settings) {
         return e;
     }
 
-    // download file
-    let rsp = match reqwest::get(&req.url).await {
-        Err(e) => {
-            error!("Error downloading file: {}", e);
-            return BlossomResponse::error("Failed to mirror file");
+    let h_tag = check_h_tag(&auth.event);
+    if let Some(ref tag_val) = h_tag {
+        if !nip29_client
+            .is_group_member(tag_val, &auth.event.pubkey)
+            .await
+        {
+            return BlossomResponse::forbidden("Not a member of the group specified in 'h' tag");
         }
-        Ok(rsp) => rsp,
+        log::debug!("Group membership check passed for h_tag: {}", tag_val);
+    }
+
+    log::debug!("Mirroring file from URL: {}", req.url);
+    let rsp = match reqwest::get(&req.url).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Error downloading file for mirroring: {}", e);
+            return BlossomResponse::error(format!("Failed to download mirror file: {}", e));
+        }
     };
+
+    if !rsp.status().is_success() {
+        log::error!(
+            "Mirror download failed with status: {} for URL: {}",
+            rsp.status(),
+            req.url
+        );
+        return BlossomResponse::error(format!(
+            "Failed to download mirror file (status {})",
+            rsp.status()
+        ));
+    }
 
     let mime_type = rsp
         .headers()
-        .get("content-type")
-        .map(|h| h.to_str().unwrap())
-        .unwrap_or("application/octet-stream")
-        .to_string();
-    let pubkey = auth.event.pubkey.to_bytes().to_vec();
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or("application/octet-stream".to_string());
 
-    process_stream(
-        StreamReader::new(rsp.bytes_stream().map(|result| {
-            result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
-        })),
-        &mime_type,
-        &pubkey,
-        false,
-        fs,
+    log::debug!("Downloaded file MIME type: {}", mime_type);
+
+    let temp_dir_path = env::temp_dir();
+    let (temp_file_guard, downloaded_hash, downloaded_size) = {
+        let uid = Uuid::new_v4();
+        let temp_path = temp_dir_path.join(uid.to_string());
+
+        if let Err(e) = fs::create_dir_all(&temp_dir_path).await {
+            return BlossomResponse::error(format!("Failed to create temp directory: {}", e));
+        }
+
+        let mut file = match File::create(&temp_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return BlossomResponse::error(format!(
+                    "Failed to create temp file {:?}: {}",
+                    temp_path, e
+                ));
+            }
+        };
+
+        let mut stream = rsp.bytes_stream();
+        let mut hasher = Sha256::new();
+        let mut total_bytes = 0u64;
+
+        while let Some(chunk_result) = stream.next().await {
+            match chunk_result {
+                Ok(chunk) => {
+                    if let Err(e) = file.write_all(&chunk).await {
+                        let _ = fs::remove_file(&temp_path).await;
+                        return BlossomResponse::error(format!(
+                            "Failed to write to temp file {:?}: {}",
+                            temp_path, e
+                        ));
+                    }
+                    hasher.update(&chunk);
+                    total_bytes += chunk.len() as u64;
+                }
+                Err(e) => {
+                    let _ = fs::remove_file(&temp_path).await;
+                    return BlossomResponse::error(format!("Error reading download stream: {}", e));
+                }
+            }
+        }
+
+        if let Err(e) = file.flush().await {
+            let _ = fs::remove_file(&temp_path).await;
+            return BlossomResponse::error(format!(
+                "Failed to flush temp file {:?}: {}",
+                temp_path, e
+            ));
+        }
+        drop(file);
+
+        let hash_vec = hasher.finalize().to_vec();
+        (TempFileCleanup(temp_path), hash_vec, total_bytes)
+    };
+    let temp_file_path = temp_file_guard.0.clone();
+
+    let x_tags: Vec<&str> = auth
+        .event
+        .tags
+        .iter()
+        .filter(|t| t.kind() == TagKind::x())
+        .filter_map(|t| t.content())
+        .collect();
+
+    if x_tags.is_empty() {
+        return BlossomResponse::forbidden("Missing hash ('x') tag in authorization for mirror");
+    }
+
+    let hex_downloaded_hash = hex::encode(&downloaded_hash);
+    if !x_tags
+        .iter()
+        .any(|tag_hash| *tag_hash == hex_downloaded_hash)
+    {
+        log::warn!(
+            "Mirror auth failed: Provided hash(es) {:?} do not match downloaded hash {}",
+            x_tags,
+            hex_downloaded_hash
+        );
+        return BlossomResponse::forbidden("Hash ('x') tag mismatch for mirrored file");
+    }
+    log::debug!(
+        "Mirror auth check passed: Hash {} matched one of {:?}.",
+        hex_downloaded_hash,
+        x_tags
+    );
+
+    process_original_upload(
+        storage,
         db,
         settings,
+        temp_file_path,
+        downloaded_hash,
+        downloaded_size,
+        &mime_type,
+        &auth.event.pubkey.to_bytes().to_vec(),
         h_tag,
+        None,
     )
     .await
 }
@@ -492,13 +605,13 @@ fn head_media(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
 #[rocket::put("/media", data = "<data>")]
 async fn upload_media(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
+    storage: &State<Arc<dyn StorageBackend>>,
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
     nip29_client: &State<std::sync::Arc<crate::nip29::Nip29Client>>,
 ) -> BlossomResponse {
-    process_upload("media", true, auth, fs, db, settings, data, nip29_client).await
+    process_upload("media", auth, storage, db, settings, data, nip29_client).await
 }
 
 fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
@@ -532,14 +645,12 @@ fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
         };
     }
 
-    // Check for h tag
     if check_h_tag(&auth.event).is_none() {
         return BlossomHead {
             msg: Some("Missing h tag"),
         };
     }
 
-    // check whitelist
     if let Some(wl) = &settings.whitelist {
         if !wl.contains(&auth.event.pubkey.to_hex()) {
             return BlossomHead {
@@ -551,11 +662,104 @@ fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
     BlossomHead { msg: None }
 }
 
+struct TempFileCleanup(PathBuf);
+
+impl Drop for TempFileCleanup {
+    fn drop(&mut self) {
+        let path = &self.0;
+        if path.exists() {
+            log::debug!("Cleaning up temporary upload file: {:?}", path);
+            let path_clone = path.clone();
+            tokio::spawn(async move {
+                if let Err(e) = fs::remove_file(&path_clone).await {
+                    log::error!("Failed to clean up temporary file {:?}: {}", path_clone, e);
+                } else {
+                    log::debug!("Successfully cleaned up temporary file: {:?}", path_clone);
+                }
+            });
+        }
+    }
+}
+
+async fn stream_to_temp_file_and_hash<'d>(
+    data_stream: Data<'d>,
+    limit: ByteUnit,
+) -> Result<(TempFileCleanup, Vec<u8>, u64), BlossomResponse> {
+    let uid = Uuid::new_v4();
+    let temp_dir = env::temp_dir();
+    let temp_path = temp_dir.join(uid.to_string());
+
+    if let Err(e) = fs::create_dir_all(&temp_dir).await {
+        return Err(BlossomResponse::error(format!(
+            "Failed to create temp directory: {}",
+            e
+        )));
+    }
+
+    let mut file = File::create(&temp_path).await.map_err(|e| {
+        BlossomResponse::error(format!("Failed to create temp file {:?}: {}", temp_path, e))
+    })?;
+
+    let mut stream = data_stream.open(limit);
+    let mut hasher = Sha256::new();
+    let mut total_bytes = 0u64;
+    let mut buf = [0; 8192];
+
+    loop {
+        match stream.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                let bytes = &buf[..n];
+                file.write_all(bytes).await.map_err(|e| {
+                    let _cleanup = TempFileCleanup(temp_path.clone());
+                    BlossomResponse::error(format!(
+                        "Failed to write to temp file {:?}: {}",
+                        temp_path, e
+                    ))
+                })?;
+                hasher.update(bytes);
+                total_bytes += n as u64;
+            }
+            Err(e) => {
+                let _cleanup = TempFileCleanup(temp_path.clone());
+                return Err(BlossomResponse::error(format!(
+                    "Error reading chunk from stream: {}",
+                    e
+                )));
+            }
+        }
+    }
+
+    let hash = hasher.finalize().to_vec();
+    file.flush().await.map_err(|e| {
+        let _cleanup = TempFileCleanup(temp_path.clone());
+        BlossomResponse::error(format!("Failed to flush temp file {:?}: {}", temp_path, e))
+    })?;
+    drop(file);
+
+    Ok((TempFileCleanup(temp_path), hash, total_bytes))
+}
+
+async fn hash_file(file_path: &Path) -> anyhow::Result<Vec<u8>> {
+    let mut file = File::open(file_path).await?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0; 8192];
+
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+
+    Ok(hasher.finalize().to_vec())
+}
+
 async fn process_upload(
     method: &str,
-    compress: bool,
     auth: BlossomAuth,
-    fs: &State<FileStore>,
+    storage: &State<Arc<dyn StorageBackend>>,
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
@@ -564,80 +768,213 @@ async fn process_upload(
     if let Some(e) = check_whitelist(&auth, settings) {
         return e;
     }
+
+    let (temp_file_guard, original_hash, original_size) =
+        match stream_to_temp_file_and_hash(data, settings.max_upload_bytes.bytes()).await {
+            Ok(result) => result,
+            Err(resp) => return resp,
+        };
+
+    let original_temp_path = temp_file_guard.0.clone();
+
     if !check_method(&auth.event, method) {
-        return BlossomResponse::error("Invalid request method tag");
+        return BlossomResponse::forbidden("Invalid request method tag");
     }
 
-    // Check for h tag
+    let x_tags: Vec<&str> = auth
+        .event
+        .tags
+        .iter()
+        .filter(|t| t.kind() == TagKind::x())
+        .filter_map(|t| t.content())
+        .collect();
+
+    if x_tags.is_empty() {
+        return BlossomResponse::forbidden("Missing hash ('x') tag in authorization");
+    }
+
+    let hex_original_hash = hex::encode(&original_hash);
+    if !x_tags.iter().any(|tag_hash| *tag_hash == hex_original_hash) {
+        log::warn!(
+            "Auth check failed: Provided hash(es) {:?} do not match calculated hash {}",
+            x_tags,
+            hex_original_hash
+        );
+        return BlossomResponse::forbidden("Hash ('x') tag mismatch");
+    }
+    log::debug!(
+        "Auth check passed: Hash {} matched one of {:?}.",
+        hex_original_hash,
+        x_tags
+    );
+
     let h_tag = check_h_tag(&auth.event);
     if let Some(ref tag_val) = h_tag {
-        // Ensure user is a member of the group if h_tag is present
         if !nip29_client
             .is_group_member(tag_val, &auth.event.pubkey)
             .await
         {
-            return BlossomResponse::forbidden("Not a member of the group");
+            return BlossomResponse::forbidden("Not a member of the group specified in 'h' tag");
         }
+        log::debug!("Group membership check passed for h_tag: {}", tag_val);
     }
 
-    process_stream(
-        data.open(ByteUnit::Byte(settings.max_upload_bytes)),
-        &auth
-            .content_type
-            .unwrap_or("application/octet-stream".to_string()),
-        &auth.event.pubkey.to_bytes().to_vec(),
-        compress,
-        fs,
+    let mime_type = auth
+        .content_type
+        .unwrap_or("application/octet-stream".to_string());
+
+    // Always process the original upload directly
+    log::debug!("Processing original upload...");
+    process_original_upload(
+        storage,
         db,
         settings,
+        original_temp_path,
+        original_hash,
+        original_size,
+        &mime_type,
+        &auth.event.pubkey.to_bytes().to_vec(),
         h_tag,
+        None,
     )
     .await
 }
 
-async fn process_stream<'p, S>(
-    stream: S,
-    mime_type: &str,
-    pubkey: &Vec<u8>,
-    compress: bool,
-    fs: &State<FileStore>,
+async fn process_original_upload(
+    storage: &State<Arc<dyn StorageBackend>>,
     db: &State<Database>,
     settings: &State<Settings>,
+    temp_file_path: PathBuf,
+    original_hash: Vec<u8>,
+    original_size: u64,
+    mime_type: &str,
+    pubkey: &Vec<u8>,
     h_tag: Option<String>,
-) -> BlossomResponse
-where
-    S: TokioAsyncRead + Unpin + 'p,
-{
-    let upload = match fs.put(stream, mime_type, compress).await {
-        Ok(FileSystemResult::NewFile(blob)) => {
-            let mut ret: FileUpload = (&blob).into();
-
-            // update file data before inserting
-            ret.h_tag = h_tag;
-
-            ret
-        }
-        Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
-            Ok(Some(f)) => f,
-            _ => return BlossomResponse::not_found("File not found"),
-        },
+    _optimized_metadata: Option<FileUpload>,
+) -> BlossomResponse {
+    let file_stream = match File::open(&temp_file_path).await {
+        Ok(file) => Box::new(file) as Box<dyn TokioAsyncRead + Send + Unpin>,
         Err(e) => {
-            error!("{}", e.to_string());
-            return BlossomResponse::error(format!("Error saving file (disk): {}", e));
+            log::error!(
+                "Failed to re-open temp file {:?} for storage backend: {}",
+                temp_file_path,
+                e
+            );
+            return BlossomResponse::error(format!("Internal error reading temp file: {}", e));
+        }
+    };
+
+    let storage_result = match storage.put(file_stream, mime_type).await {
+        Ok(res) => res,
+        Err(e) => {
+            error!("Storage backend put error: {}", e.to_string());
+            return BlossomResponse::error(format!("Error saving file (storage): {}", e));
+        }
+    };
+
+    let upload_metadata = match storage_result {
+        StorageResult::NewFile {
+            id,
+            size,
+            mime_type,
+        } => {
+            if id != original_hash {
+                error!(
+                    "CRITICAL: Hash mismatch! Calculated={}, StoragePutReturned={}",
+                    hex::encode(&original_hash),
+                    hex::encode(&id)
+                );
+                return BlossomResponse::error(
+                    "Internal Server Error: Hash mismatch during storage.",
+                );
+            }
+            if size != original_size {
+                log::warn!(
+                    "Size mismatch: Calculated={}, StoragePutReturned={}. Using storage value.",
+                    original_size,
+                    size
+                );
+            }
+
+            FileUpload {
+                id,
+                size: size as i64,
+                mime_type,
+                created: chrono::Utc::now(),
+                width: None,
+                height: None,
+                blur_hash: None,
+                alt: None,
+                duration: None,
+                bitrate: None,
+                h_tag,
+                #[cfg(feature = "labels")]
+                labels: Vec::new(),
+            }
+        }
+        StorageResult::AlreadyExists(id) => {
+            if id != original_hash {
+                error!("CRITICAL: Hash mismatch on AlreadyExists! Calculated={}, StorageReportedExisting={}", hex::encode(&original_hash), hex::encode(&id));
+                return BlossomResponse::error(
+                    "Internal Server Error: Hash mismatch for existing file.",
+                );
+            }
+            log::debug!(
+                "File already exists in storage backend: {}",
+                hex::encode(&id)
+            );
+            match db.get_file(&id).await {
+                Ok(Some(f)) => f,
+                Ok(None) => {
+                    log::warn!(
+                        "File {} exists in storage but not DB. Creating DB record.",
+                        hex::encode(&id)
+                    );
+                    FileUpload {
+                        id,
+                        size: original_size as i64,
+                        mime_type: mime_type.to_string(),
+                        created: chrono::Utc::now(),
+                        width: None,
+                        height: None,
+                        blur_hash: None,
+                        alt: None,
+                        duration: None,
+                        bitrate: None,
+                        h_tag,
+                        #[cfg(feature = "labels")]
+                        labels: Vec::new(),
+                    }
+                }
+                Err(e) => {
+                    return BlossomResponse::error(format!(
+                        "DB error fetching existing file: {}",
+                        e
+                    ));
+                }
+            }
         }
     };
 
     let user_id = match db.upsert_user(pubkey).await {
         Ok(u) => u,
         Err(e) => {
-            return BlossomResponse::error(format!("Failed to save file (db): {}", e));
+            return BlossomResponse::error(format!("Failed to save user (db): {}", e));
         }
     };
-    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
-        error!("{}", e.to_string());
-        BlossomResponse::error(format!("Error saving file (db): {}", e))
+
+    if let Err(e) = db.add_file(&upload_metadata, Some(user_id)).await {
+        error!("Failed to add file to DB: {}", e.to_string());
+        BlossomResponse::error(format!("Error saving file metadata (db): {}", e))
     } else {
-        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))
+        log::info!(
+            "Successfully processed upload for hash: {}",
+            hex::encode(&upload_metadata.id)
+        );
+        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(
+            settings,
+            &upload_metadata,
+        )))
     }
 }
 
@@ -647,13 +984,12 @@ async fn admin_delete(
     auth: BlossomAuth,
     db: &State<Database>,
     nip29: &State<Arc<Nip29Client>>,
+    storage: &State<Arc<dyn StorageBackend>>,
 ) -> Result<BlossomResponse, (Status, String)> {
-    // Check for method tag
     if !check_method(&auth.event, "delete") {
         return Ok(BlossomResponse::error("Invalid request method tag"));
     }
 
-    // Extract the hex ID and get the file info
     let id = match hex::decode(sha256.split('.').next().unwrap_or(sha256)) {
         Ok(i) => {
             if i.len() != 32 {
@@ -666,17 +1002,15 @@ async fn admin_delete(
         }
     };
 
-    // First check if the user is a database admin
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let is_db_admin = match db.get_user(&pubkey_vec).await {
         Ok(user) => user.is_admin,
-        Err(_) => false, // If not found or error, not admin
+        Err(_) => false,
     };
     if !is_db_admin {
         return Ok(BlossomResponse::forbidden("Admin privileges required"));
     }
 
-    // Check if this is a group file and verify group authorization (even for DB admins)
     match db.get_file(&id).await {
         Ok(Some(file_info)) => {
             if let Some(file_h_tag) = &file_info.h_tag {
@@ -690,16 +1024,12 @@ async fn admin_delete(
                         "Auth h_tag doesn't match file h_tag",
                     ));
                 }
-                // Verify group membership for DB admins too, just to be safe?
-                // Or assume DB admin overrides group membership?
-                // For now, let's enforce membership for consistency.
                 if !nip29.is_group_member(file_h_tag, &auth.event.pubkey).await {
                     return Ok(BlossomResponse::forbidden(
                         "Admin not a member of the group (required for group file deletion)",
                     ));
                 }
             }
-            // If no h_tag, DB admin can delete.
         }
         Ok(None) => {
             return Ok(BlossomResponse::not_found("File not found"));
@@ -709,8 +1039,7 @@ async fn admin_delete(
         }
     };
 
-    // Delete the file using the admin privileges
-    match delete_file(sha256, &auth.event, db, true).await {
+    match delete_file(sha256, &auth.event, db, storage, true).await {
         Ok(()) => Ok(BlossomResponse::Generic(BlossomGenericResponse {
             status: Status::Ok,
             message: None,

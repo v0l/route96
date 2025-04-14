@@ -1,10 +1,9 @@
-use crate::filesystem::{FileStore, NewFileResult};
+use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use hex;
 use serde::Serialize;
 use sqlx::migrate::MigrateError;
 use sqlx::{Error, Executor, FromRow, Row};
-use std::path::PathBuf;
 
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
@@ -95,69 +94,13 @@ pub struct UserStats {
 
 #[derive(Clone)]
 pub struct Database {
-    pool: sqlx::pool::Pool<sqlx::postgres::Postgres>,
-    fs: FileStore,
+    pub pool: sqlx::pool::Pool<sqlx::postgres::Postgres>,
 }
 
 impl Database {
     pub async fn new(conn: &str) -> Result<Self, Error> {
         let pool = sqlx::postgres::PgPool::connect(conn).await?;
-
-        // Create a default Settings
-        let settings = crate::settings::Settings {
-            storage_dir: "uploads".to_string(),
-            // Initialize other fields with default values
-            listen: None,
-            database: conn.to_string(),
-            max_upload_bytes: 0,
-            public_url: "".to_string(),
-            whitelist: None,
-            vit_model: None,
-            webhook_url: None,
-            plausible_url: None,
-            #[cfg(feature = "void-cat-redirects")]
-            void_cat_database: None,
-            void_cat_files: None,
-            nip29_relay: crate::settings::Nip29RelayConfig {
-                url: "".to_string(),
-                private_key: "".to_string(),
-                cache_expiration: None,
-            },
-        };
-
-        // Use the filesystem::FileStore
-        let fs = FileStore::new(settings);
-        Ok(Self { pool, fs })
-    }
-
-    pub async fn new_with_settings(conn: &str, storage_dir: &str) -> Result<Self, Error> {
-        let pool = sqlx::postgres::PgPool::connect(conn).await?;
-
-        // Create a Settings with the provided storage_dir
-        let settings = crate::settings::Settings {
-            storage_dir: storage_dir.to_string(),
-            // Initialize other fields with default values
-            listen: None,
-            database: conn.to_string(),
-            max_upload_bytes: 0,
-            public_url: "".to_string(),
-            whitelist: None,
-            vit_model: None,
-            webhook_url: None,
-            plausible_url: None,
-            #[cfg(feature = "void-cat-redirects")]
-            void_cat_database: None,
-            void_cat_files: None,
-            nip29_relay: crate::settings::Nip29RelayConfig {
-                url: "".to_string(),
-                private_key: "".to_string(),
-                cache_expiration: None,
-            },
-        };
-
-        // Use the filesystem::FileStore
-        let fs = FileStore::new(settings);
-        Ok(Self { pool, fs })
+        Ok(Self { pool })
     }
 
     pub async fn migrate(&self) -> Result<(), MigrateError> {
@@ -339,29 +282,6 @@ impl Database {
             .bind(file)
             .fetch_optional(&self.pool)
             .await
-    }
-
-    pub async fn get_file_path(&self, file: &[u8]) -> Result<PathBuf, std::io::Error> {
-        log::debug!(
-            "db.get_file_path called with file hash: {}",
-            hex::encode(file)
-        );
-
-        // Convert &[u8] to Vec<u8> to match FileStore's get signature
-        let file_vec = file.to_vec();
-        let file_path = self.fs.get(&file_vec);
-        log::debug!("Mapped file path (flat storage): {:?}", file_path);
-
-        if !file_path.exists() {
-            log::error!("File path does not exist: {:?}", file_path);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "File not found",
-            ));
-        }
-
-        log::debug!("File exists at path: {:?}", file_path);
-        Ok(file_path)
     }
 
     pub async fn list_all_files_with_owners(
