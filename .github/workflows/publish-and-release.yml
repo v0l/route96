@@ -51,7 +51,7 @@ jobs:
 
   push_to_registry:
     needs: get_version
-    # if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     name: Push Docker image to GHCR
     runs-on: ubuntu-latest
     permissions:
@@ -96,7 +96,7 @@ jobs:
   merge_to_release:
     name: Merge to Release
     needs: push_to_registry
-    # if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,8 +113,7 @@ jobs:
           git config --global user.name "$verse-ci"
           git config --global user.email "$ci@verse.app"
           git checkout release
-          git merge -Xtheirs --no-commit origin/configure-kubernetes-deployment
-# TODO: Adjust this back to origin/main after dev
+          git merge -Xtheirs --no-commit origin/main
 
       - name: Apply Newest Version
         shell: bash
