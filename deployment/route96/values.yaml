@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/verse-pbc/route96
-  tag: main-ee8a383
+  tag: latest
   pullPolicy: Always
 
 pdb:
