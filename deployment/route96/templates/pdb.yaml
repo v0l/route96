@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: blossom-pdb
+  namespace: blossom
+  labels:
+    app.kubernetes.io/part-of: blossom
+    app.kubernetes.io/managed-by: Helm
+spec:
+  minAvailable: { { .Values.pdb.minAvailable | default 1 } }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blossom
