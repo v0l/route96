@@ -1,5 +1,3 @@
-#![cfg(feature = "s3-storage")]
-
 use crate::settings::S3StorageSettings;
 use crate::storage::{BlobMetadata, HttpRange, StorageBackend, StorageResult};
 use anyhow::{anyhow, Context, Result};
@@ -156,29 +154,54 @@ impl StorageBackend for SpacesStore {
                     key,
                     self.bucket_name
                 );
-                // Note: Temp file is deleted automatically when _cleanup goes out of scope here
                 return Ok(StorageResult::AlreadyExists(hash));
             }
-            Err(e) => {
-                // Check if the error is NotFound using ProvideErrorMetadata trait
-                if let Some(aws_err) = e.as_service_error() {
-                    if aws_err.is_not_found() {
-                        log::debug!("Object {} not found, proceeding with upload", key);
-                        // Continue to upload logic below
-                    } else {
-                        // Other AWS error, clean up temp file and return error
-                        // Note: Temp file is deleted automatically when _cleanup goes out of scope here
-                        return Err(anyhow::Error::new(e).context(format!(
-                            "Failed to check S3 object existence for key {}",
-                            key
-                        )));
-                    }
+            Err(aws_sdk_s3::error::SdkError::ServiceError(service_err)) => {
+                // Extract the raw HTTP response from the ServiceError variant
+                let raw_response = service_err.raw();
+                let http_status = raw_response.status().as_u16();
+                // Get the underlying HeadObjectError
+                let inner_error = service_err.into_err();
+
+                // Check the specific error type OR the HTTP status code
+                if inner_error.is_not_found() {
+                    log::debug!(
+                        "Object {} not found (is_not_found() == true, HTTP {}), proceeding with upload",
+                        key,
+                        http_status
+                    );
+                // Fallthrough to upload logic
+                } else if http_status == 404 {
+                    log::debug!(
+                        "Object {} not found (HTTP status 404), proceeding with upload",
+                        key
+                    );
+                    // Fallthrough to upload logic
                 } else {
-                    // Not an AWS service error (e.g., network error), clean up and return
-                    // Note: Temp file is deleted automatically when _cleanup goes out of scope here
-                    return Err(anyhow::Error::new(e)
-                        .context(format!("Error during S3 head_object call for key {}", key)));
+                    // It's a different service error (not NotFound or 404)
+                    log::error!(
+                        "S3 head_object failed. SDK Error: {:?}, HTTP Status: {} for key {}",
+                        inner_error,
+                        http_status,
+                        key
+                    );
+                    // Note: Temp file cleanup happens when _cleanup guard drops
+                    return Err(anyhow::Error::new(inner_error).context(format!(
+                        "Failed to check S3 object existence (HTTP {}), key {}",
+                        http_status, key
+                    )));
                 }
+            }
+            Err(other_err) => {
+                // Handle other SDK errors (timeout, connection, build errors, etc.)
+                log::error!(
+                    "Non-service error during S3 head_object call for key {}: {}",
+                    key,
+                    other_err
+                );
+                // Note: Temp file cleanup happens when _cleanup guard drops
+                return Err(anyhow::Error::new(other_err)
+                    .context(format!("Error during S3 head_object call for key {}", key)));
             }
         }
 

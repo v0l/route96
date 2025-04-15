@@ -57,9 +57,8 @@ RUN wget https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz && \
 COPY src src
 COPY migrations migrations
 
-# Clean potential stale artifacts and Build with hardcoded features using cargo build
-RUN cargo clean && \
-    cargo build --release --no-default-features --features "blossom,ranges"
+# Build the binary without default features, enabling only s3-storage and ranges
+RUN cargo build --release
 
 FROM --platform=linux/arm64 node:bookworm AS ui_builder
 WORKDIR /app/src
@@ -81,7 +80,7 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.authors="Kieran"
 WORKDIR /app
 RUN apt update && \
-    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates gosu && \
+    apt install -y libx264-164 libwebp7 libvpx7 ca-certificates gosu libxcb1 libxcb-shm0 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r appgroup && useradd --no-log-init -r -g appgroup appuser

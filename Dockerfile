@@ -34,9 +34,15 @@ RUN git clone --single-branch --branch release/7.1 https://github.com/ffmpeg/FFm
 RUN rm Cargo.lock
 # RUN cargo tree -i half | cat
 RUN mkdir -p ~/.cargo && \
-    echo '[net]' > ~/.cargo/config.toml && \
+    echo '[build]' > ~/.cargo/config.toml && \
+    echo 'rustflags = ["-C", "target-cpu=native"]' >> ~/.cargo/config.toml && \
+    echo '[net]' >> ~/.cargo/config.toml && \
     echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
-RUN cargo install --path . --root /app/build --features "blossom,ranges"
+
+# Perform the installation, enabling only necessary features
+# Remove s3-storage and ranges from features
+# Ensure default features (like media-compression) are included
+RUN cargo install --path . --root /app/build
 
 FROM node:bookworm AS ui_builder
 WORKDIR /app/src
