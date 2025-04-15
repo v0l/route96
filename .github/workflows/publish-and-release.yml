@@ -95,7 +95,7 @@ jobs:
 
   merge_to_release:
     name: Merge to Release
-    needs: push_to_registry
+    needs: [ push_to_registry, get_version ]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -118,6 +118,8 @@ jobs:
       - name: Apply Newest Version
         shell: bash
         run: |
+          echo "Image tag being patched to manifests:"
+          echo ${{ needs.get_version.outputs.SemVer }}
           yq -i '.version = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/Chart.yaml
           yq -i '.appVersion = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/Chart.yaml
           yq -i '.image.tag = "${{ needs.get_version.outputs.SemVer }}"' ./deployment/route96/values.yaml
