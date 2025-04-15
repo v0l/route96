@@ -26,15 +26,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.arm64
-      args:
-        # Only including essential features:
-        # - ranges: For better file serving (partial downloads/streaming)
-        FEATURES: "ranges"
     environment:
       # Config values overridden by environment variables - keeping only essential/sensitive ones
       APP__DATABASE: postgres://postgres:root@db:5432/route96?sslmode=require
       APP__FILESYSTEM__STORAGE_DIR: /app/data
       APP__PUBLIC_URL: http://localhost:8000
+      # S3 credentials
+      APP__S3__SECRET_ACCESS_KEY: ${BLOSSOM_DEV_SECRET}
       # Nested values with double underscores
       APP__NIP29_RELAY__URL: ws://host.docker.internal:8080
       # Test key (pubkey: 385c3a6ec0b9d57a4330dbd6284989be5bd00e41c535f9ca39b6ae7c521b81cd) - replace if needed

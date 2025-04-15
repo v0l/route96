@@ -18,8 +18,7 @@ use route96::filesystem::FileStore;
 use route96::nip29::init_nip29_client;
 use route96::routes;
 use route96::routes::{get_blob_route, head_blob, health_check, root};
-use route96::settings::{Settings, StorageBackendType};
-#[cfg(feature = "s3-storage")]
+use route96::settings::{Settings, StorageType};
 use route96::spaces::SpacesStore;
 use route96::storage::StorageBackend;
 use std::env;
@@ -71,7 +70,7 @@ async fn main() -> Result<(), Error> {
     info!("Using temporary directory: {:?}", temp_dir);
 
     let storage: Arc<dyn StorageBackend> = match settings.storage_type {
-        StorageBackendType::FileSystem => {
+        StorageType::FileSystem => {
             info!("Using FileSystem storage backend.");
             let fs_settings = settings.filesystem.clone().context(
                 "FileSystem storage type selected, but [filesystem] settings are missing",
@@ -80,8 +79,7 @@ async fn main() -> Result<(), Error> {
             let fs = FileStore::new(&fs_settings).expect("Failed to initialize FileStore");
             Arc::new(fs)
         }
-        #[cfg(feature = "s3-storage")]
-        StorageBackendType::S3 => {
+        StorageType::S3 => {
             info!("Using S3 storage backend.");
             let s3_settings = settings
                 .s3

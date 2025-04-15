@@ -13,7 +13,6 @@ pub mod nip29;
 pub mod processing;
 pub mod routes;
 pub mod settings;
-#[cfg(feature = "s3-storage")]
 pub mod spaces;
 pub mod storage;
 // pub mod types; // Removed
