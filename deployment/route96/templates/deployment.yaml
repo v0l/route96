@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: blossom
     app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: { { .Values.replicaCount } }
   selector:
     matchLabels:
       app.kubernetes.io/name: blossom
@@ -20,72 +20,72 @@ spec:
         app.kubernetes.io/managed-by: Helm
     spec:
       containers:
-      - name: my-container
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
-        env:
-          - name: APP__LISTEN
-            value: 0.0.0.0:8000
-          - name: APP__FILESYSTEM__STORAGE_DIR
-            value: /app/data
-          - name: APP__MAX_UPLOAD_BYTES
-            value: "5000000000"
-          - name: APP__PUBLIC_URL
-            value: http://localhost:8000
-          - name: APP__NIP29_RELAY__URL
-            value: wss://communities.nos.social
-          - name: APP__NIP29_RELAY__CACHE_EXPIRATION
-            value: "300"
-          - name: APP__NIP29_RELAY__PRIVATE_KEY
-            valueFrom:
-              secretKeyRef:
-                name: "blossom-secret"
-                key: app_nip29_relay_private_key 
-          - name: APP__DATABASE 
-            valueFrom:
-              secretKeyRef:
-                name: "blossom-secret"
-                key: database_connection_string
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "1"
-          limits:
-            memory: "1028Mi"
-            cpu: "2"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 30
-          timeoutSeconds: 5
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 5
-          timeoutSeconds: 3
-        ports:
-        - containerPort: 8000
-          protocol: TCP
-        volumeMounts:
-        - name: blossom-config
-          mountPath: /app/config.yaml
-          subPath: config
-        - name: blossom-storage
-          mountPath: /app/data
-        - name: database-cacert
-          mountPath: /app/ca.pem
+        - name: my-container
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: { { .Values.image.pullPolicy | default "Always" } }
+          env:
+            - name: APP__LISTEN
+              value: 0.0.0.0:8000
+            - name: APP__FILESYSTEM__STORAGE_DIR
+              value: /app/data
+            - name: APP__MAX_UPLOAD_BYTES
+              value: "5000000000"
+            - name: APP__PUBLIC_URL
+              value: http://localhost:8000
+            - name: APP__NIP29_RELAY__URL
+              value: wss://communities.nos.social
+            - name: APP__NIP29_RELAY__CACHE_EXPIRATION
+              value: "300"
+            - name: APP__NIP29_RELAY__PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "blossom-secret"
+                  key: app_nip29_relay_private_key
+            - name: APP__DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: "blossom-secret"
+                  key: database_connection_string
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "1"
+            limits:
+              memory: "1028Mi"
+              cpu: "2"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          volumeMounts:
+            - name: blossom-config
+              mountPath: /app/config.yaml
+              subPath: config
+            - name: blossom-storage
+              mountPath: /app/data
+            - name: database-cacert
+              mountPath: /app/ca.pem
       volumes:
-      - name: blossom-config
-        configMap:
-          name: blossom-config
-      - name: blossom-storage
-        persistentVolumeClaim:
-          claimName: blossom-pvc
-      - name: database-cacert
-        secret:
-          secretName: blossom-secret
-          items:
-            - key: database_cacert
-              path: ca.pem
+        - name: blossom-config
+          configMap:
+            name: blossom-config
+        - name: blossom-storage
+          persistentVolumeClaim:
+            claimName: blossom-pvc
+        - name: database-cacert
+          secret:
+            secretName: blossom-secret
+            items:
+              - key: database_cacert
+                path: ca.pem

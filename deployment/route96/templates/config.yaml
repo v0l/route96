@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: blossom-config
-  namespace: blossom 
+  namespace: blossom
 data:
   config: |
     listen: "REPLACED_BY_ENV"

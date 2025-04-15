@@ -11,12 +11,17 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: blossom-deployment
-  minReplicas: {{ .Values.autoscaling.minReplicas | default 1 }}
-  maxReplicas: {{ .Values.autoscaling.maxReplicas | default 10 }}
+  minReplicas: { { .Values.autoscaling.minReplicas | default 1 } }
+  maxReplicas: { { .Values.autoscaling.maxReplicas | default 10 } }
   metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage | default 80 }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization:
+            {
+              {
+                .Values.autoscaling.targetCPUUtilizationPercentage | default 80,
+              },
+            }
