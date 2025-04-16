@@ -21,6 +21,6 @@ service:
   port: 80
 
 ingress:
-  enabled: false
+  enabled: true
   className: "nginx"
   host: "blossom.plur.app"
