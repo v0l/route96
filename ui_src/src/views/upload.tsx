@@ -6,10 +6,9 @@ import { Blossom } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96, Report } from "../upload/admin";
+import { AdminSelf, Route96 } from "../upload/admin";
 import { FormatBytes } from "../const";
-import ReportJson from "../report.json";
-import ReportList from "./reports";
+import Report from "../report.json";
 
 export default function Upload() {
   const [type, setType] = useState<"blossom" | "nip96">("blossom");
@@ -22,21 +21,14 @@ export default function Upload() {
   const [results, setResults] = useState<Array<object>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
-  const [adminListedReports, setAdminListedReports] = useState<{
-    total: number;
-    page: number;
-    count: number;
-    files: Array<Report>;
-  }>();
   const [listedPage, setListedPage] = useState(0);
   const [adminListedPage, setAdminListedPage] = useState(0);
-  const [adminReportsPage, setAdminReportsPage] = useState(0);
   const [mimeFilter, setMimeFilter] = useState<string>();
 
   const login = useLogin();
   const pub = usePublisher();
 
-  const legacyFiles = ReportJson as Record<string, Array<string>>;
+  const legacyFiles = Report as Record<string, Array<string>>;
   const myLegacyFiles = login ? (legacyFiles[login.pubkey] ?? []) : [];
 
   const url =
@@ -107,43 +99,6 @@ export default function Upload() {
     }
   }
 
-  async function listReports(n: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const uploader = new Route96(url, pub);
-      const result = await uploader.listReports(n, 50);
-      setAdminListedReports(result);
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "List reports failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("List reports failed");
-      }
-    }
-  }
-
-  async function acknowledgeReport(reportId: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const uploader = new Route96(url, pub);
-      await uploader.acknowledgeReport(reportId);
-      // Refresh the reports list
-      await listReports(adminReportsPage);
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "Acknowledge failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("Acknowledge failed");
-      }
-    }
-  }
-
   async function deleteFile(id: string) {
     if (!pub) return;
     try {
@@ -182,10 +137,6 @@ export default function Upload() {
   useEffect(() => {
     listAllUploads(adminListedPage);
   }, [adminListedPage, mimeFilter]);
-
-  useEffect(() => {
-    listReports(adminReportsPage);
-  }, [adminReportsPage]);
 
   useEffect(() => {
     if (pub && !self) {
@@ -320,23 +271,6 @@ export default function Upload() {
               onDelete={async (x) => {
                 await deleteFile(x);
                 await listAllUploads(adminListedPage);
-              }}
-            />
-          )}
-          
-          <hr />
-          <h3>Admin Reports:</h3>
-          <Button onClick={() => listReports(0)}>List Reports</Button>
-          {adminListedReports && (
-            <ReportList
-              reports={adminListedReports.files}
-              pages={Math.ceil(adminListedReports.total / adminListedReports.count)}
-              page={adminListedReports.page}
-              onPage={(x) => setAdminReportsPage(x)}
-              onAcknowledge={acknowledgeReport}
-              onDeleteFile={async (fileId) => {
-                await deleteFile(fileId);
-                await listReports(adminReportsPage);
               }}
             />
           )}

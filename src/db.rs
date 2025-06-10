@@ -116,6 +116,7 @@ pub struct Report {
     pub reporter_id: u64,
     pub event_json: String,
     pub created: DateTime<Utc>,
+    pub reviewed: bool,
 }
 
 #[derive(Clone)]
@@ -394,14 +395,14 @@ impl Database {
     /// List reports with pagination for admin view
     pub async fn list_reports(&self, offset: u32, limit: u32) -> Result<(Vec<Report>, i64), Error> {
         let reports: Vec<Report> = sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created from reports order by created desc limit ? offset ?"
+            "select id, file_id, reporter_id, event_json, created, reviewed from reports where reviewed = false order by created desc limit ? offset ?"
         )
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)
             .await?;
         
-        let count: i64 = sqlx::query("select count(id) from reports")
+        let count: i64 = sqlx::query("select count(id) from reports where reviewed = false")
             .fetch_one(&self.pool)
             .await?
             .try_get(0)?;
@@ -412,16 +413,16 @@ impl Database {
     /// Get reports for a specific file
     pub async fn get_file_reports(&self, file_id: &[u8]) -> Result<Vec<Report>, Error> {
         sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created from reports where file_id = ? order by created desc"
+            "select id, file_id, reporter_id, event_json, created, reviewed from reports where file_id = ? order by created desc"
         )
             .bind(file_id)
             .fetch_all(&self.pool)
             .await
     }
 
-    /// Delete a report (used for acknowledging)
-    pub async fn delete_report(&self, report_id: u64) -> Result<(), Error> {
-        sqlx::query("delete from reports where id = ?")
+    /// Mark a report as reviewed (used for acknowledging)
+    pub async fn mark_report_reviewed(&self, report_id: u64) -> Result<(), Error> {
+        sqlx::query("update reports set reviewed = true where id = ?")
             .bind(report_id)
             .execute(&self.pool)
             .await?;

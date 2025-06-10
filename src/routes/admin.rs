@@ -208,7 +208,7 @@ async fn admin_acknowledge_report(
         return AdminResponse::error("User is not an admin");
     }
 
-    match db.delete_report(report_id).await {
+    match db.mark_report_reviewed(report_id).await {
         Ok(()) => AdminResponse::success(()),
         Err(e) => AdminResponse::error(&format!("Could not acknowledge report: {}", e)),
     }

@@ -18,6 +18,7 @@ export interface Report {
   reporter_id: number;
   event_json: string;
   created: string;
+  reviewed: boolean;
 }
 
 export class Route96 {
