@@ -6,6 +6,10 @@ export interface AdminSelf {
   is_admin: boolean;
   file_count: number;
   total_size: number;
+  paid_until?: number;
+  quota?: number;
+  free_quota?: number;
+  total_available_quota?: number;
 }
 
 export class Route96 {
@@ -22,9 +26,9 @@ export class Route96 {
     return data;
   }
 
-  async listFiles(page = 0, count = 10, mime: string | undefined) {
+  async listFiles(page = 0, count = 10) {
     const rsp = await this.#req(
-      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}`,
+      `admin/files?page=${page}&count=${count}`,
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);

@@ -53,6 +53,14 @@ pub struct SelfUser {
     pub is_admin: bool,
     pub file_count: u64,
     pub total_size: u64,
+    #[cfg(feature = "payments")]
+    pub paid_until: u64,
+    #[cfg(feature = "payments")]
+    pub quota: u64,
+    #[cfg(feature = "payments")]
+    pub free_quota: u64,
+    #[cfg(feature = "payments")]
+    pub total_available_quota: u64,
 }
 
 #[derive(Serialize)]
@@ -63,7 +71,7 @@ pub struct AdminNip94File {
 }
 
 #[rocket::get("/self")]
-async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<SelfUser> {
+async fn admin_get_self(auth: Nip98Auth, db: &State<Database>, settings: &State<Settings>) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     match db.get_user(&pubkey_vec).await {
         Ok(user) => {
@@ -73,10 +81,38 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>) -> AdminResponse<
                     return AdminResponse::error(&format!("Failed to load user stats: {}", e))
                 }
             };
+
+            #[cfg(feature = "payments")]
+            let (free_quota, total_available_quota) = {
+                let free_quota = settings.free_quota_bytes.unwrap_or(104857600);
+                let mut total_available = free_quota;
+                
+                // Add paid quota if still valid
+                if let Some(paid_until) = &user.paid_until {
+                    if *paid_until > chrono::Utc::now() {
+                        total_available += user.paid_size;
+                    }
+                }
+                
+                (free_quota, total_available)
+            };
+
             AdminResponse::success(SelfUser {
                 is_admin: user.is_admin,
                 file_count: s.file_count,
                 total_size: s.total_size,
+                #[cfg(feature = "payments")]
+                paid_until: if let Some(u) = &user.paid_until {
+                    u.timestamp() as u64
+                } else {
+                    0
+                },
+                #[cfg(feature = "payments")]
+                quota: user.paid_size,
+                #[cfg(feature = "payments")]
+                free_quota,
+                #[cfg(feature = "payments")]
+                total_available_quota,
             })
         }
         Err(_) => AdminResponse::error("User not found"),

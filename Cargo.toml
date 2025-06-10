@@ -4,43 +4,26 @@ version = "0.4.0"
 edition = "2021"
 
 [[bin]]
-name = "void_cat_migrate"
-required-features = ["bin-void-cat-migrate"]
-
-[[bin]]
-name = "void_cat_forced_migrate"
-required-features = ["bin-void-cat-force-migrate"]
-
-[[bin]]
 name = "route96"
 path = "src/bin/main.rs"
-
-[[bin]]
-name = "r96util"
-path = "src/bin/r96util.rs"
-required-features = ["r96util"]
 
 [lib]
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "react-ui", "r96util"]
+default = ["nip96", "blossom", "analytics", "react-ui", "payments"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
-labels = ["nip96", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
+labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
 blossom = []
-bin-void-cat-migrate = ["dep:sqlx-postgres"]
-bin-void-cat-force-migrate = ["dep:regex", "dep:nostr-cursor"]
-torrent-v2 = []
 analytics = []
-void-cat-redirects = ["dep:sqlx-postgres"]
 react-ui = []
-r96util = ["dep:walkdir", "dep:indicatif"]
+payments = ["dep:fedimint-tonic-lnd"]
 
 [dependencies]
 log = "0.4.21"
-nostr = "0.37.0"
-env_logger = "0.11.7"
+nostr = "0.39.0"
+pretty_env_logger = "0.5.0"
 rocket = { version = "0.5.1", features = ["json"] }
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
 base64 = "0.22.1"
@@ -50,25 +33,19 @@ uuid = { version = "1.8.0", features = ["v4", "serde"] }
 anyhow = "^1.0.82"
 sha2 = "0.10.8"
 sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
-config = { version = "0.14.0", features = ["yaml"] }
+config = { version = "0.15.7", features = ["yaml"] }
 chrono = { version = "0.4.38", features = ["serde"] }
-serde_with = { version = "3.8.1", features = ["hex"] }
-reqwest = { version = "0.12.8", features = ["stream"] }
+reqwest = { version = "0.12.8", features = ["stream", "http2"] }
 clap = { version = "4.5.18", features = ["derive"] }
 mime2ext = "0.1.53"
-infer = "0.16.0"
-http-range-header = { version = "0.4.2" }
+infer = "0.19.0"
 tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
-
+http-range-header = { version = "0.4.2" }
+base58 = "0.2.0"
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "29ab0547478256c574766b4acc6fcda8ebf4cae6", optional = true }
+ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "a63b88ef3c8f58c7c0ac57d361d06ff0bb3ed385", optional = true }
 candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
-sqlx-postgres = { version = "0.8.2", optional = true, features = ["chrono", "uuid"] }
-
-nostr-cursor = { git = "https://git.v0l.io/Kieran/nostr-backup-util.git", branch = "main", optional = true }
-regex = { version = "1.11.1", optional = true }
-walkdir = { version = "2.5.0", optional = true }
-indicatif = { version = "0.17.11", optional = true }
+fedimint-tonic-lnd = { version = "0.2.0", optional = true, default-features = false, features = ["invoicesrpc", "lightningrpc"] }

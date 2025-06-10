@@ -13,19 +13,40 @@ max_upload_bytes: 5e+9
 # Public facing url
 public_url: "http://localhost:8000"
 
-# Whitelisted pubkeys, leave out to disable
+# (Optional) Whitelisted pubkeys, leave out to disable
 # whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
 
-# Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
-vit_model:
-  model: "/home/kieran/Downloads/falcon_nsfw.safetensors"
-  config: "/home/kieran/Downloads/falcon_nsfw.json"
+# (Optional) Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
+# vit_model:
+#   model: "falcon_nsfw.safetensors"
+#   config: "falcon_nsfw.json"
 
-# Analytics support
+# (Optional) Analytics support
 # plausible_url: "https://plausible.com/"
 
-# Support legacy void
-# void_cat_database: "postgres://postgres:postgres@localhost:41911/void"
-
-# Legacy file path for void.cat uploads
+# (Optional) Legacy file path for void.cat uploads
 # void_cat_files: "/my/void.cat/data"
+
+# (Optional) Free quota in bytes for users without payments (default: 100MB) 
+free_quota_bytes: 104857600
+
+# (Optional) Payment system config
+payments:
+  # (Optional) Fiat currency used to track exchange rate along with invoices
+  # If [cost] is using a fiat currency, exchange rates will always be stored
+  # in that currency, so this config is not needed
+  fiat: "USD"
+  # LND node config
+  lnd:
+    endpoint: "https://127.0.0.1:10001"
+    tls: "/home/kieran/.polar/networks/3/volumes/lnd/alice/tls.cert"
+    macaroon: "/home/kieran/.polar/networks/3/volumes/lnd/alice/data/chain/bitcoin/regtest/admin.macaroon"
+  # Cost per unit (BTC/USD/EUR/AUD/CAD/JPY/GBP)
+  cost:
+    currency: "BTC"
+    amount: 0.00000100
+  # Unit metric used to calculate quote (GBSpace, GBEgress)
+  unit: "GBSpace"
+  # Billing interval (day / month / year)
+  interval:
+    month: 1
