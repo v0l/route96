@@ -6,6 +6,10 @@ export interface AdminSelf {
   is_admin: boolean;
   file_count: number;
   total_size: number;
+  paid_until?: number;
+  quota?: number;
+  free_quota?: number;
+  total_available_quota?: number;
 }
 
 export class Route96 {

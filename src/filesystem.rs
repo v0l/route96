@@ -1,6 +1,6 @@
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
-use crate::processing::can_compress;
+
 #[cfg(feature = "labels")]
 use crate::processing::labeling::label_frame;
 #[cfg(feature = "media-compression")]
@@ -10,6 +10,7 @@ use anyhow::Error;
 use anyhow::Result;
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::DemuxerInfo;
+use ffmpeg_rs_raw::StreamInfo;
 #[cfg(feature = "media-compression")]
 use rocket::form::validate::Contains;
 use serde::Serialize;
@@ -78,7 +79,7 @@ impl FileStore {
             return Ok(FileSystemResult::AlreadyExists(hash));
         }
 
-        let mut res = if compress && can_compress(mime_type) {
+        let mut res = if compress && crate::can_compress(mime_type) {
             #[cfg(feature = "media-compression")]
             {
                 let res = match self.compress_file(&temp_file, mime_type).await {
@@ -101,7 +102,7 @@ impl FileStore {
                 {
                     let probe = probe_file(&temp_file).ok();
                     let v_stream = probe.as_ref().and_then(|p| p.best_video());
-                    let mime = Self::hack_mime_type(mime_type, &probe, &temp_file);
+                    let mime = Self::hack_mime_type(mime_type, &probe, &v_stream, &temp_file);
                     (
                         v_stream.map(|v| v.width as u32),
                         v_stream.map(|v| v.height as u32),
@@ -152,18 +153,50 @@ impl FileStore {
 
     #[cfg(feature = "media-compression")]
     /// Try to replace the mime-type when unknown using ffmpeg probe result
-    fn hack_mime_type(mime_type: &str, p: &Option<DemuxerInfo>, out_path: &PathBuf) -> String {
+    fn hack_mime_type(
+        mime_type: &str,
+        p: &Option<DemuxerInfo>,
+        stream: &Option<&StreamInfo>,
+        out_path: &PathBuf,
+    ) -> String {
         if let Some(p) = p {
-            if p.format.contains("mp4") {
-                return "video/mp4".to_string();
+            let mime = if p.format.contains("mp4") {
+                Some("video/mp4")
             } else if p.format.contains("webp") {
-                return "image/webp".to_string();
+                Some("image/webp")
             } else if p.format.contains("jpeg") {
-                return "image/jpeg".to_string();
+                Some("image/jpeg")
             } else if p.format.contains("png") {
-                return "image/png".to_string();
+                Some("image/png")
             } else if p.format.contains("gif") {
-                return "image/gif".to_string();
+                Some("image/gif")
+            } else {
+                None
+            };
+            let codec = if let Some(s) = stream {
+                match s.codec {
+                    27 => Some("avc1".to_owned()),           //AV_CODEC_ID_H264
+                    173 => Some("hvc1".to_owned()),          //AV_CODEC_ID_HEVC
+                    86016 => Some("mp4a.40.33".to_string()), //AV_CODEC_ID_MP2
+                    86017 => Some("mp4a.40.34".to_string()), //AV_CODEC_ID_MP3
+                    86018 => Some("mp4a.40.2".to_string()),  //AV_CODEC_ID_AAC
+                    86019 => Some("ac-3".to_string()),       //AV_CODEC_ID_AC3
+                    86056 => Some("ec-3".to_string()),       //AV_CODEC_ID_EAC3
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(m) = mime {
+                return format!(
+                    "{}{}",
+                    m,
+                    if let Some(c) = codec {
+                        format!("; codecs=\"{}\"", c)
+                    } else {
+                        "".to_owned()
+                    }
+                );
             }
         }
 
@@ -180,7 +213,8 @@ impl FileStore {
         }
     }
 
-    async fn compress_file(&self, input: &PathBuf, mime_type: &str) -> Result<NewFileResult> {
+    #[cfg(feature = "media-compression")]
+    async fn compress_file(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
         #[cfg(feature = "labels")]
         let labels = if let Some(mp) = &self.settings.vit_model {

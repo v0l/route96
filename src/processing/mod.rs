@@ -136,16 +136,12 @@ pub struct NewFileProcessorResult {
     pub bitrate: u32,
 }
 
-pub fn can_compress(mime_type: &str) -> bool {
-    mime_type.starts_with("image/")
-}
-
 pub fn compress_file(
     path: &Path,
     mime_type: &str,
     out_dir: &Path,
 ) -> Result<NewFileProcessorResult, Error> {
-    if !can_compress(mime_type) {
+    if !crate::can_compress(mime_type) {
         bail!("MIME type not supported");
     }
 

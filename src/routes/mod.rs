@@ -9,8 +9,10 @@ pub use crate::routes::blossom::blossom_routes;
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
 use crate::void_file::VoidFile;
-use anyhow::Error;
-use http_range_header::{parse_range_header, EndPosition, StartPosition};
+use anyhow::{Error, Result};
+use http_range_header::{
+    parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
+};
 use log::{debug, warn};
 use nostr::Event;
 use rocket::fs::NamedFile;
@@ -119,17 +121,46 @@ struct RangeBody {
     range_end: u64,
     current_offset: u64,
     poll_complete: bool,
+    file_size: u64,
 }
 
+const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
 impl RangeBody {
-    pub fn new(file: File, range: Range<u64>) -> Self {
+    pub fn new(file: File, file_size: u64, range: Range<u64>) -> Self {
         Self {
             file,
+            file_size,
             range_start: range.start,
             range_end: range.end,
             current_offset: 0,
             poll_complete: false,
         }
+    }
+
+    pub fn get_range(file_size: u64, header: &SyntacticallyCorrectRange) -> Range<u64> {
+        let range_start = match header.start {
+            StartPosition::Index(i) => i,
+            StartPosition::FromLast(i) => file_size.saturating_sub(i),
+        };
+        let range_end = match header.end {
+            EndPosition::Index(i) => i,
+            EndPosition::LastByte => (file_size - 1).min(range_start + MAX_UNBOUNDED_RANGE),
+        };
+        range_start..range_end
+    }
+
+    pub fn get_headers(&self) -> Vec<Header<'static>> {
+        let r_len = (self.range_end - self.range_start) + 1;
+        vec![
+            Header::new("content-length", r_len.to_string()),
+            Header::new(
+                "content-range",
+                format!(
+                    "bytes {}-{}/{}",
+                    self.range_start, self.range_end, self.file_size
+                ),
+            ),
+        ]
     }
 }
 
@@ -140,7 +171,7 @@ impl AsyncRead for RangeBody {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let range_start = self.range_start + self.current_offset;
-        let range_len = self.range_end - range_start;
+        let range_len = self.range_end.saturating_sub(range_start) + 1;
         let bytes_to_read = buf.remaining().min(range_len as usize) as u64;
 
         if bytes_to_read == 0 {
@@ -188,58 +219,32 @@ impl<'r> Responder<'r, 'static> for FilePayload {
         response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
 
         // handle ranges
-        #[cfg(feature = "ranges")]
-        {
-            const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
-            // only use range response for files > 1MiB
-            if self.info.size < MAX_UNBOUNDED_RANGE {
-                response.set_sized_body(None, self.file);
-            } else {
-                response.set_header(Header::new("accept-ranges", "bytes"));
-                if let Some(r) = request.headers().get("range").next() {
-                    if let Ok(ranges) = parse_range_header(r) {
-                        if ranges.ranges.len() > 1 {
-                            warn!(
-                                "Multipart ranges are not supported, fallback to non-range request"
-                            );
-                            response.set_streamed_body(self.file);
-                        } else {
-                            let single_range = ranges.ranges.first().unwrap();
-                            let range_start = match single_range.start {
-                                StartPosition::Index(i) => i,
-                                StartPosition::FromLast(i) => self.info.size - i,
-                            };
-                            let range_end = match single_range.end {
-                                EndPosition::Index(i) => i,
-                                EndPosition::LastByte => {
-                                    (range_start + MAX_UNBOUNDED_RANGE).min(self.info.size)
-                                }
-                            };
-                            let r_len = range_end - range_start;
-                            let r_body = RangeBody::new(self.file, range_start..range_end);
-
-                            response.set_status(Status::PartialContent);
-                            response.set_header(Header::new("content-length", r_len.to_string()));
-                            response.set_header(Header::new(
-                                "content-range",
-                                format!(
-                                    "bytes {}-{}/{}",
-                                    range_start,
-                                    range_end - 1,
-                                    self.info.size
-                                ),
-                            ));
-                            response.set_streamed_body(Box::pin(r_body));
-                        }
-                    }
-                } else {
-                    response.set_sized_body(None, self.file);
-                }
-            }
-        }
-        #[cfg(not(feature = "ranges"))]
-        {
+        // only use range response for files > 1MiB
+        if self.info.size < MAX_UNBOUNDED_RANGE {
             response.set_sized_body(None, self.file);
+        } else {
+            response.set_header(Header::new("accept-ranges", "bytes"));
+            if let Some(r) = request.headers().get("range").next() {
+                if let Ok(ranges) = parse_range_header(r) {
+                    if ranges.ranges.len() > 1 {
+                        warn!("Multipart ranges are not supported, fallback to non-range request");
+                        response.set_streamed_body(self.file);
+                    } else {
+                        let single_range = ranges.ranges.first().unwrap();
+                        let range = RangeBody::get_range(self.info.size, single_range);
+                        let r_body = RangeBody::new(self.file, self.info.size, range.clone());
+
+                        response.set_status(Status::PartialContent);
+                        let headers = r_body.get_headers();
+                        for h in headers {
+                            response.set_header(h);
+                        }
+                        response.set_streamed_body(Box::pin(r_body));
+                    }
+                }
+            } else {
+                response.set_sized_body(None, self.file);
+            }
         }
 
         if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
@@ -485,4 +490,35 @@ pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
 pub struct VoidCatFile {
     pub status: Status,
     pub uuid: Header<'static>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ranges() -> Result<()> {
+        let size = 16482469;
+
+        let req = parse_range_header("bytes=0-1023")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, 1023);
+
+        let req = parse_range_header("bytes=16482467-")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 16482467);
+        assert_eq!(r.end, 16482468);
+
+        let req = parse_range_header("bytes=-10")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 16482459);
+        assert_eq!(r.end, 16482468);
+
+        let req = parse_range_header("bytes=-16482470")?;
+        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
+        assert_eq!(r.start, 0);
+        assert_eq!(r.end, MAX_UNBOUNDED_RANGE);
+        Ok(())
+    }
 }

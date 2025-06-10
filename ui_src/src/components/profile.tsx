@@ -14,7 +14,7 @@ export default function Profile({
   const profile = useUserProfile(link.id);
   const s = size ?? 40;
   return (
-    <div className="flex gap-2 items-center">
+    <a className="flex gap-2 items-center" href={`https://snort.social/${link.encode()}`} target="_blank">
       <img
         src={profile?.picture}
         width={s}
@@ -28,6 +28,6 @@ export default function Profile({
             hexToBech32("npub", link.id).slice(0, 12)}
         </div>
       )}
-    </div>
+    </a>
   );
 }
