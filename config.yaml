@@ -27,11 +27,10 @@ public_url: "http://localhost:8000"
 # (Optional) Legacy file path for void.cat uploads
 # void_cat_files: "/my/void.cat/data"
 
-# (Optional) Free quota in bytes for users without payments (default: 100MB) 
-free_quota_bytes: 104857600
-
 # (Optional) Payment system config
 payments:
+  # (Optional) Free quota in bytes for users without payments (default: 100MB) 
+  free_quota_bytes: 104857600
   # (Optional) Fiat currency used to track exchange rate along with invoices
   # If [cost] is using a fiat currency, exchange rates will always be stored
   # in that currency, so this config is not needed

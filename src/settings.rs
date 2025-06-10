@@ -38,10 +38,6 @@ pub struct Settings {
     #[cfg(feature = "payments")]
     /// Payment options for paid storage
     pub payments: Option<PaymentConfig>,
-
-    #[cfg(feature = "payments")]
-    /// Free quota in bytes for users without payments (default: 100MB)
-    pub free_quota_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +63,9 @@ pub struct PaymentConfig {
 
     /// Fiat base currency to store exchange rates along with invoice
     pub fiat: Option<Currency>,
+
+    /// Free quota in bytes for users without payments (default: 100MB)
+    pub free_quota_bytes: Option<u64>,
 }
 
 #[cfg(feature = "payments")]

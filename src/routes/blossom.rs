@@ -365,7 +365,9 @@ async fn process_upload(
     // check quota
     #[cfg(feature = "payments")]
     if let Some(upload_size) = size {
-        let free_quota = settings.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
+        let free_quota = settings.payments.as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
         
         match db.check_user_quota(&pubkey_vec, upload_size, free_quota).await {

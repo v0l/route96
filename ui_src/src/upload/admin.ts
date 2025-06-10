@@ -26,9 +26,9 @@ export class Route96 {
     return data;
   }
 
-  async listFiles(page = 0, count = 10) {
+  async listFiles(page = 0, count = 10, mime: string | undefined) {
     const rsp = await this.#req(
-      `admin/files?page=${page}&count=${count}`,
+      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}`,
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);

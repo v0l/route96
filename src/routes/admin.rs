@@ -84,7 +84,9 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>, settings: &State<
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                let free_quota = settings.free_quota_bytes.unwrap_or(104857600);
+                let free_quota = settings.payments.as_ref()
+                    .and_then(|p| p.free_quota_bytes)
+                    .unwrap_or(104857600);
                 let mut total_available = free_quota;
                 
                 // Add paid quota if still valid

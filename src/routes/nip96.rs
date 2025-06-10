@@ -211,7 +211,9 @@ async fn upload(
     // check quota
     #[cfg(feature = "payments")]
     {
-        let free_quota = settings.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
+        let free_quota = settings.payments.as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600); // Default to 100MB
         
         match db.check_user_quota(&pubkey_vec, form.size, free_quota).await {
             Ok(false) => return Nip96Response::error("Upload would exceed quota"),
