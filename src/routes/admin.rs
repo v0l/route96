@@ -8,7 +8,7 @@ use rocket::{routes, Responder, Route, State};
 use sqlx::{Error, QueryBuilder, Row};
 
 pub fn admin_routes() -> Vec<Route> {
-    routes![admin_list_files, admin_get_self, admin_list_reports]
+    routes![admin_list_files, admin_get_self, admin_list_reports, admin_acknowledge_report]
 }
 
 #[derive(Serialize, Default)]
@@ -188,6 +188,29 @@ async fn admin_list_reports(
             files: reports,
         }),
         Err(e) => AdminResponse::error(&format!("Could not list reports: {}", e)),
+    }
+}
+
+#[rocket::delete("/reports/<report_id>")]
+async fn admin_acknowledge_report(
+    auth: Nip98Auth,
+    report_id: u64,
+    db: &State<Database>,
+) -> AdminResponse<()> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    let user = match db.get_user(&pubkey_vec).await {
+        Ok(user) => user,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    match db.mark_report_reviewed(report_id).await {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Could not acknowledge report: {}", e)),
     }
 }
 
