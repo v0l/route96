@@ -207,6 +207,20 @@ async fn upload(
     }
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    // check quota
+    #[cfg(feature = "payments")]
+    {
+        let free_quota = settings.payments.as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600); // Default to 100MB
+        
+        match db.check_user_quota(&pubkey_vec, form.size, free_quota).await {
+            Ok(false) => return Nip96Response::error("Upload would exceed quota"),
+            Err(_) => return Nip96Response::error("Failed to check quota"),
+            Ok(true) => {} // Quota check passed
+        }
+    }
     let upload = match fs
         .put(file, content_type, !form.no_transform.unwrap_or(false))
         .await
@@ -232,7 +246,7 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
 
-    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
+    if let Err(e) = db.add_file(&upload, user_id).await {
         error!("{}", e.to_string());
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }

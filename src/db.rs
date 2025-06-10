@@ -61,6 +61,10 @@ pub struct User {
     pub pubkey: Vec<u8>,
     pub created: DateTime<Utc>,
     pub is_admin: bool,
+    #[cfg(feature = "payments")]
+    pub paid_until: Option<DateTime<Utc>>,
+    #[cfg(feature = "payments")]
+    pub paid_size: u64,
 }
 
 #[cfg(feature = "labels")]
@@ -88,6 +92,20 @@ impl FileLabel {
 pub struct UserStats {
     pub file_count: u64,
     pub total_size: u64,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Clone, FromRow, Serialize)]
+pub struct Payment {
+    pub payment_hash: Vec<u8>,
+    pub user_id: u64,
+    pub created: DateTime<Utc>,
+    pub amount: u64,
+    pub is_paid: bool,
+    pub days_value: u64,
+    pub size_value: u64,
+    pub settle_index: Option<u64>,
+    pub rate: Option<f32>,
 }
 
 #[derive(Clone)]
@@ -148,7 +166,7 @@ impl Database {
             .try_get(0)
     }
 
-    pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
+    pub async fn add_file(&self, file: &FileUpload, user_id: u64) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
         uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate) values(?,?,?,?,?,?,?,?,?,?,?)")
@@ -165,13 +183,10 @@ impl Database {
             .bind(file.bitrate);
         tx.execute(q).await?;
 
-        if let Some(user_id) = user_id {
-            let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
-                .bind(&file.id)
-                .bind(user_id);
-
-            tx.execute(q2).await?;
-        }
+        let q2 = sqlx::query("insert ignore into user_uploads(file,user_id) values(?,?)")
+            .bind(&file.id)
+            .bind(user_id);
+        tx.execute(q2).await?;
 
         #[cfg(feature = "labels")]
         for lbl in &file.labels {
@@ -271,5 +286,87 @@ impl Database {
         .try_get(0)?;
 
         Ok((results, count))
+    }
+}
+
+#[cfg(feature = "payments")]
+impl Database {
+    pub async fn insert_payment(&self, payment: &Payment) -> Result<(), Error> {
+        sqlx::query("insert into payments(payment_hash,user_id,amount,days_value,size_value,rate) values(?,?,?,?,?,?)")
+            .bind(&payment.payment_hash)
+            .bind(payment.user_id)
+            .bind(payment.amount)
+            .bind(payment.days_value)
+            .bind(payment.size_value)
+            .bind(payment.rate)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_payment(&self, payment_hash: &Vec<u8>) -> Result<Option<Payment>, Error> {
+        sqlx::query_as("select * from payments where payment_hash = ?")
+            .bind(payment_hash)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    pub async fn get_user_payments(&self, uid: u64) -> Result<Vec<Payment>, Error> {
+        sqlx::query_as("select * from payments where user_id = ?")
+            .bind(uid)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    pub async fn complete_payment(&self, payment: &Payment) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("update payments set is_paid = true, settle_index = ? where payment_hash = ?")
+            .bind(payment.settle_index)
+            .bind(&payment.payment_hash)
+            .execute(&mut *tx)
+            .await?;
+
+        // TODO: check space is not downgraded
+
+        sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, IFNULL(paid_until, current_timestamp)), paid_size = ? where id = ?")
+            .bind(payment.days_value)
+            .bind(payment.size_value)
+            .bind(payment.user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
+        Ok(())
+    }
+
+    /// Check if user has sufficient quota for an upload
+    pub async fn check_user_quota(&self, pubkey: &Vec<u8>, upload_size: u64, free_quota_bytes: u64) -> Result<bool, Error> {
+        // Get or create user
+        let user_id = self.upsert_user(pubkey).await?;
+        
+        // Get user's current storage usage
+        let user_stats = self.get_user_stats(user_id).await.unwrap_or(UserStats { 
+            file_count: 0, 
+            total_size: 0 
+        });
+
+        // Get user's paid quota
+        let user = self.get_user(pubkey).await?;
+        let (paid_size, paid_until) = (user.paid_size, user.paid_until);
+
+        // Calculate total available quota
+        let mut available_quota = free_quota_bytes;
+
+        // Add paid quota if still valid
+        if let Some(paid_until) = paid_until {
+            if paid_until > chrono::Utc::now() {
+                available_quota += paid_size;
+            }
+        }
+
+        // Check if upload would exceed quota
+        Ok(user_stats.total_size + upload_size <= available_quota)
     }
 }
