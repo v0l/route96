@@ -12,6 +12,14 @@ export interface AdminSelf {
   total_available_quota?: number;
 }
 
+export interface Report {
+  id: number;
+  file_id: string;
+  reporter_id: number;
+  event_json: string;
+  created: string;
+}
+
 export class Route96 {
   constructor(
     readonly url: string,
@@ -37,6 +45,25 @@ export class Route96 {
       ...data.data,
       files: data.data.files,
     };
+  }
+
+  async listReports(page = 0, count = 10) {
+    const rsp = await this.#req(
+      `admin/reports?page=${page}&count=${count}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponseReportList>(rsp);
+    return {
+      ...data,
+      ...data.data,
+      files: data.data.files,
+    };
+  }
+
+  async acknowledgeReport(reportId: number) {
+    const rsp = await this.#req(`admin/reports/${reportId}`, "DELETE");
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
   }
 
   async #handleResponse<T extends AdminResponseBase>(rsp: Response) {
@@ -93,4 +120,11 @@ export type AdminResponseFileList = AdminResponse<{
   page: number;
   count: number;
   files: Array<NostrEvent>;
+}>;
+
+export type AdminResponseReportList = AdminResponse<{
+  total: number;
+  page: number;
+  count: number;
+  files: Array<Report>;
 }>;

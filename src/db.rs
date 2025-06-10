@@ -418,4 +418,13 @@ impl Database {
             .fetch_all(&self.pool)
             .await
     }
+
+    /// Delete a report (used for acknowledging)
+    pub async fn delete_report(&self, report_id: u64) -> Result<(), Error> {
+        sqlx::query("delete from reports where id = ?")
+            .bind(report_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
