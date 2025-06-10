@@ -108,6 +108,16 @@ pub struct Payment {
     pub rate: Option<f32>,
 }
 
+#[derive(Clone, FromRow, Serialize)]
+pub struct Report {
+    pub id: u64,
+    #[serde(with = "hex")]
+    pub file_id: Vec<u8>,
+    pub reporter_id: u64,
+    pub event_json: String,
+    pub created: DateTime<Utc>,
+}
+
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
@@ -368,5 +378,44 @@ impl Database {
 
         // Check if upload would exceed quota
         Ok(user_stats.total_size + upload_size <= available_quota)
+    }
+
+    /// Add a new report to the database
+    pub async fn add_report(&self, file_id: &[u8], reporter_id: u64, event_json: &str) -> Result<(), Error> {
+        sqlx::query("insert into reports (file_id, reporter_id, event_json) values (?, ?, ?)")
+            .bind(file_id)
+            .bind(reporter_id)
+            .bind(event_json)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List reports with pagination for admin view
+    pub async fn list_reports(&self, offset: u32, limit: u32) -> Result<(Vec<Report>, i64), Error> {
+        let reports: Vec<Report> = sqlx::query_as(
+            "select id, file_id, reporter_id, event_json, created from reports order by created desc limit ? offset ?"
+        )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        
+        let count: i64 = sqlx::query("select count(id) from reports")
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)?;
+
+        Ok((reports, count))
+    }
+
+    /// Get reports for a specific file
+    pub async fn get_file_reports(&self, file_id: &[u8]) -> Result<Vec<Report>, Error> {
+        sqlx::query_as(
+            "select id, file_id, reporter_id, event_json, created from reports where file_id = ? order by created desc"
+        )
+            .bind(file_id)
+            .fetch_all(&self.pool)
+            .await
     }
 }
