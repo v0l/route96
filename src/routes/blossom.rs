@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, SingleLetterTag, TagKind};
+use nostr::{Alphabet, SingleLetterTag, TagKind, JsonUtil};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -63,13 +63,14 @@ pub fn blossom_routes() -> Vec<Route> {
         upload_head,
         upload_media,
         head_media,
-        mirror
+        mirror,
+        report_file
     ]
 }
 
 #[cfg(not(feature = "media-compression"))]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head, mirror]
+    routes![delete_blob, upload, list_files, upload_head, mirror, report_file]
 }
 
 /// Generic holder response, mostly for errors
@@ -427,5 +428,67 @@ where
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {
         BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))
+    }
+}
+
+#[rocket::put("/report", data = "<data>", format = "json")]
+async fn report_file(
+    auth: BlossomAuth,
+    db: &State<Database>,
+    settings: &State<Settings>,
+    data: Json<nostr::Event>,
+) -> BlossomResponse {
+    // Check if the request has the correct method tag
+    if !check_method(&auth.event, "report") {
+        return BlossomResponse::error("Invalid request method tag");
+    }
+
+    // Check whitelist
+    if let Some(e) = check_whitelist(&auth, settings) {
+        return e;
+    }
+
+    // Extract file SHA256 from the "x" tag in the report event
+    let file_sha256 = if let Some(x_tag) = data.tags.iter().find_map(|t| {
+        if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
+            t.content()
+        } else {
+            None
+        }
+    }) {
+        match hex::decode(x_tag) {
+            Ok(hash) => hash,
+            Err(_) => return BlossomResponse::error("Invalid file hash in x tag"),
+        }
+    } else {
+        return BlossomResponse::error("Missing file hash in x tag");
+    };
+
+    // Verify the reported file exists
+    match db.get_file(&file_sha256).await {
+        Ok(Some(_)) => {}, // File exists, continue
+        Ok(None) => return BlossomResponse::error("File not found"),
+        Err(e) => return BlossomResponse::error(format!("Failed to check file: {}", e)),
+    }
+
+    // Get or create the reporter user
+    let reporter_id = match db.upsert_user(&auth.event.pubkey.to_bytes().to_vec()).await {
+        Ok(user_id) => user_id,
+        Err(e) => return BlossomResponse::error(format!("Failed to get user: {}", e)),
+    };
+
+    // Store the report (the database will handle duplicate prevention via unique index)
+    match db.add_report(&file_sha256, reporter_id, &data.as_json()).await {
+        Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
+            status: Status::Ok,
+            message: Some("Report submitted successfully".to_string()),
+        }),
+        Err(e) => {
+            if e.to_string().contains("Duplicate entry") {
+                BlossomResponse::error("You have already reported this file")
+            } else {
+                BlossomResponse::error(format!("Failed to submit report: {}", e))
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, User};
+use crate::db::{Database, FileUpload, User, Report};
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
@@ -8,7 +8,7 @@ use rocket::{routes, Responder, Route, State};
 use sqlx::{Error, QueryBuilder, Row};
 
 pub fn admin_routes() -> Vec<Route> {
-    routes![admin_list_files, admin_get_self]
+    routes![admin_list_files, admin_get_self, admin_list_reports]
 }
 
 #[derive(Serialize, Default)]
@@ -158,6 +158,36 @@ async fn admin_list_files(
                 .collect(),
         }),
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
+    }
+}
+
+#[rocket::get("/reports?<page>&<count>")]
+async fn admin_list_reports(
+    auth: Nip98Auth,
+    page: u32,
+    count: u32,
+    db: &State<Database>,
+) -> AdminResponse<PagedResult<Report>> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let server_count = count.clamp(1, 5_000);
+
+    let user = match db.get_user(&pubkey_vec).await {
+        Ok(user) => user,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    match db.list_reports(page * server_count, server_count).await {
+        Ok((reports, total_count)) => AdminResponse::success(PagedResult {
+            count: reports.len() as u32,
+            page,
+            total: total_count as u32,
+            files: reports,
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list reports: {}", e)),
     }
 }
 
