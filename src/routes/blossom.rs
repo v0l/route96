@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, SingleLetterTag, TagKind, JsonUtil};
+use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -46,6 +46,7 @@ impl BlobDescriptor {
             mime_type: Some(value.mime_type.clone()),
             created: value.created.timestamp() as u64,
             nip94: Some(Nip94Event::from_upload(settings, value).tags),
+        }
     }
 }
 
@@ -70,7 +71,14 @@ pub fn blossom_routes() -> Vec<Route> {
 
 #[cfg(not(feature = "media-compression"))]
 pub fn blossom_routes() -> Vec<Route> {
-    routes![delete_blob, upload, list_files, upload_head, mirror, report_file]
+    routes![
+        delete_blob,
+        upload,
+        list_files,
+        upload_head,
+        mirror,
+        report_file
+    ]
 }
 
 /// Generic holder response, mostly for errors
@@ -358,12 +366,17 @@ async fn process_upload(
     // check quota
     #[cfg(feature = "payments")]
     if let Some(upload_size) = size {
-        let free_quota = settings.payments.as_ref()
+        let free_quota = settings
+            .payments
+            .as_ref()
             .and_then(|p| p.free_quota_bytes)
             .unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-        
-        match db.check_user_quota(&pubkey_vec, upload_size, free_quota).await {
+
+        match db
+            .check_user_quota(&pubkey_vec, upload_size, free_quota)
+            .await
+        {
             Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
             Err(_) => return BlossomResponse::error("Failed to check quota"),
             Ok(true) => {} // Quota check passed
@@ -466,7 +479,7 @@ async fn report_file(
 
     // Verify the reported file exists
     match db.get_file(&file_sha256).await {
-        Ok(Some(_)) => {}, // File exists, continue
+        Ok(Some(_)) => {} // File exists, continue
         Ok(None) => return BlossomResponse::error("File not found"),
         Err(e) => return BlossomResponse::error(format!("Failed to check file: {}", e)),
     }
@@ -478,7 +491,10 @@ async fn report_file(
     };
 
     // Store the report (the database will handle duplicate prevention via unique index)
-    match db.add_report(&file_sha256, reporter_id, &data.as_json()).await {
+    match db
+        .add_report(&file_sha256, reporter_id, &data.as_json())
+        .await
+    {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
             status: Status::Ok,
             message: Some("Report submitted successfully".to_string()),

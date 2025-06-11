@@ -8,12 +8,11 @@ pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
-use crate::void_file::VoidFile;
 use anyhow::{Error, Result};
 use http_range_header::{
     parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
 };
-use log::{debug, warn};
+use log::warn;
 use nostr::Event;
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Header, Status};
@@ -29,12 +28,13 @@ use std::task::{Context, Poll};
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
 
+mod admin;
 #[cfg(feature = "blossom")]
 mod blossom;
 #[cfg(feature = "nip96")]
 mod nip96;
-
-mod admin;
+#[cfg(feature = "payments")]
+pub mod payment;
 
 pub struct FilePayload {
     pub file: File,
@@ -440,56 +440,6 @@ pub async fn get_blob_thumb(
     } else {
         Err(Status::NotFound)
     }
-}
-
-/// Legacy URL redirect for void.cat uploads
-#[rocket::get("/d/<id>")]
-pub async fn void_cat_redirect(id: &str, settings: &State<Settings>) -> Option<NamedFile> {
-    let id = if id.contains(".") {
-        id.split('.').next().unwrap()
-    } else {
-        id
-    };
-    if let Some(base) = &settings.void_cat_files {
-        let uuid = if let Ok(b58) = nostr::bitcoin::base58::decode(id) {
-            uuid::Uuid::from_slice_le(b58.as_slice())
-        } else {
-            uuid::Uuid::parse_str(id)
-        };
-        if uuid.is_err() {
-            return None;
-        }
-        let f = base.join(VoidFile::map_to_path(&uuid.unwrap()));
-        debug!("Legacy file map: {} => {}", id, f.display());
-        if let Ok(f) = NamedFile::open(f).await {
-            Some(f)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
-#[rocket::head("/d/<id>")]
-pub async fn void_cat_redirect_head(id: &str) -> VoidCatFile {
-    let id = if id.contains(".") {
-        id.split('.').next().unwrap()
-    } else {
-        id
-    };
-    let uuid =
-        uuid::Uuid::from_slice_le(nostr::bitcoin::base58::decode(id).unwrap().as_slice()).unwrap();
-    VoidCatFile {
-        status: Status::Ok,
-        uuid: Header::new("X-UUID", uuid.to_string()),
-    }
-}
-
-#[derive(Responder)]
-pub struct VoidCatFile {
-    pub status: Status,
-    pub uuid: Header<'static>,
 }
 
 #[cfg(test)]

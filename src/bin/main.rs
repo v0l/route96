@@ -79,9 +79,7 @@ async fn main() -> Result<(), Error> {
             routes![
                 root,
                 get_blob,
-                head_blob,
-                routes::void_cat_redirect,
-                routes::void_cat_redirect_head
+                head_blob
             ],
         )
         .mount("/admin", routes::admin_routes());
