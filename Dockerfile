@@ -15,7 +15,8 @@ RUN apt update && \
     libwebp-dev \
     libvpx-dev \
     nasm \
-    libclang-dev && \
+    libclang-dev \
+    protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
 RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFmpeg.git && \
     cd FFmpeg && \
