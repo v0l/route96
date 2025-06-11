@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import Button from "../components/button";
 import FileList from "./files";
+import ReportList from "./reports";
+import PaymentFlow from "../components/payment";
 import { openFile } from "../upload";
 import { Blossom } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96 } from "../upload/admin";
+import { AdminSelf, Route96, Report } from "../upload/admin";
 import { FormatBytes } from "../const";
 
 export default function Upload() {
@@ -18,9 +20,13 @@ export default function Upload() {
   const [results, setResults] = useState<Array<object>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
+  const [reports, setReports] = useState<Report[]>();
+  const [reportPages, setReportPages] = useState<number>();
+  const [reportPage, setReportPage] = useState(0);
   const [listedPage, setListedPage] = useState(0);
   const [adminListedPage, setAdminListedPage] = useState(0);
   const [mimeFilter, setMimeFilter] = useState<string>();
+  const [showPaymentFlow, setShowPaymentFlow] = useState(false);
 
   const login = useLogin();
   const pub = usePublisher();
@@ -93,6 +99,43 @@ export default function Upload() {
     }
   }
 
+  async function listReports(n: number) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      const result = await route96.listReports(n, 10);
+      setReports(result.files);
+      setReportPages(Math.ceil(result.total / result.count));
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message.length > 0 ? e.message : "List reports failed");
+      } else if (typeof e === "string") {
+        setError(e);
+      } else {
+        setError("List reports failed");
+      }
+    }
+  }
+
+  async function acknowledgeReport(reportId: number) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.acknowledgeReport(reportId);
+      await listReports(reportPage); // Refresh the list
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message.length > 0 ? e.message : "Acknowledge report failed");
+      } else if (typeof e === "string") {
+        setError(e);
+      } else {
+        setError("Acknowledge report failed");
+      }
+    }
+  }
+
   async function deleteFile(id: string) {
     if (!pub) return;
     try {
@@ -111,12 +154,22 @@ export default function Upload() {
   }
 
   useEffect(() => {
-    listUploads(listedPage);
-  }, [listedPage]);
+    if (pub) {
+      listUploads(listedPage);
+    }
+  }, [listedPage, pub]);
 
   useEffect(() => {
-    listAllUploads(adminListedPage);
-  }, [adminListedPage, mimeFilter]);
+    if (pub) {
+      listAllUploads(adminListedPage);
+    }
+  }, [adminListedPage, mimeFilter, pub]);
+
+  useEffect(() => {
+    if (pub && self?.is_admin) {
+      listReports(reportPage);
+    }
+  }, [reportPage, pub, self?.is_admin]);
 
   useEffect(() => {
     if (pub && !self) {
@@ -191,6 +244,55 @@ export default function Upload() {
         </div>
       )}
 
+      {self && (
+        <div className="bg-neutral-700 p-4 rounded-lg">
+          <h3 className="text-lg font-bold mb-2">Storage Quota</h3>
+          <div className="space-y-2">
+            {self.free_quota && (
+              <div className="text-sm">
+                Free Quota: {FormatBytes(self.free_quota)}
+              </div>
+            )}
+            {self.quota && (
+              <div className="text-sm">
+                Paid Quota: {FormatBytes(self.quota)}
+              </div>
+            )}
+            {self.total_available_quota && (
+              <div className="text-sm font-medium">
+                Total Available: {FormatBytes(self.total_available_quota)}
+              </div>
+            )}
+            {self.total_available_quota && (
+              <div className="text-sm">
+                Remaining: {FormatBytes(Math.max(0, self.total_available_quota - self.total_size))}
+              </div>
+            )}
+            {self.paid_until && (
+              <div className="text-sm text-neutral-300">
+                Paid Until: {new Date(self.paid_until * 1000).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+          <Button 
+            onClick={() => setShowPaymentFlow(!showPaymentFlow)} 
+            className="mt-3 w-full"
+          >
+            {showPaymentFlow ? "Hide" : "Show"} Top Up Options
+          </Button>
+        </div>
+      )}
+
+      {showPaymentFlow && pub && (
+        <PaymentFlow 
+          route96={new Route96(url, pub)} 
+          onPaymentRequested={(pr) => {
+            console.log("Payment requested:", pr);
+            // You could add more logic here, like showing a QR code
+          }}
+        />
+      )}
+
       {listedFiles && (
         <FileList
           files={listedFiles.files}
@@ -209,6 +311,7 @@ export default function Upload() {
           <hr />
           <h3>Admin File List:</h3>
           <Button onClick={() => listAllUploads(0)}>List All Uploads</Button>
+          <Button onClick={() => listReports(0)}>List Reports</Button>
           <div>
             <select value={mimeFilter} onChange={e => setMimeFilter(e.target.value)}>
               <option value={""}>All</option>
@@ -232,6 +335,22 @@ export default function Upload() {
                 await listAllUploads(adminListedPage);
               }}
             />
+          )}
+          {reports && (
+            <>
+              <h3>Reports:</h3>
+              <ReportList
+                reports={reports}
+                pages={reportPages}
+                page={reportPage}
+                onPage={(x) => setReportPage(x)}
+                onAcknowledge={acknowledgeReport}
+                onDeleteFile={async (fileId) => {
+                  await deleteFile(fileId);
+                  await listReports(reportPage); // Refresh reports after deleting file
+                }}
+              />
+            </>
           )}
         </>
       )}
