@@ -205,11 +205,10 @@ async fn upload(
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
-    // check quota
+    // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
-    {
-        let free_quota = settings.payments.as_ref()
-            .and_then(|p| p.free_quota_bytes)
+    if let Some(payment_config) = &settings.payments {
+        let free_quota = payment_config.free_quota_bytes
             .unwrap_or(104857600); // Default to 100MB
         
         if upload_size > 0 {
@@ -255,29 +254,30 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
 
-    // Post-upload quota check if we didn't have size information before upload
+    // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if upload_size == 0 {
-        let free_quota = settings.payments.as_ref()
-            .and_then(|p| p.free_quota_bytes)
-            .unwrap_or(104857600); // Default to 100MB
-        
-        match db.check_user_quota(&pubkey_vec, upload.size, free_quota).await {
-            Ok(false) => {
-                // Clean up the uploaded file if quota exceeded
-                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
-                    log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+        if let Some(payment_config) = &settings.payments {
+            let free_quota = payment_config.free_quota_bytes
+                .unwrap_or(104857600); // Default to 100MB
+            
+            match db.check_user_quota(&pubkey_vec, upload.size, free_quota).await {
+                Ok(false) => {
+                    // Clean up the uploaded file if quota exceeded
+                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                        log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+                    }
+                    return Nip96Response::error("Upload would exceed quota");
                 }
-                return Nip96Response::error("Upload would exceed quota");
-            }
-            Err(_) => {
-                // Clean up on quota check error
-                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
-                    log::warn!("Failed to cleanup file after quota check error: {}", e);
+                Err(_) => {
+                    // Clean up on quota check error
+                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                        log::warn!("Failed to cleanup file after quota check error: {}", e);
+                    }
+                    return Nip96Response::error("Failed to check quota");
                 }
-                return Nip96Response::error("Failed to check quota");
+                Ok(true) => {} // Quota check passed
             }
-            Ok(true) => {} // Quota check passed
         }
     }
 

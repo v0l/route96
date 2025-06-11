@@ -364,13 +364,10 @@ async fn process_upload(
         return e;
     }
 
-    // check quota
+    // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
-    {
-        let free_quota = settings
-            .payments
-            .as_ref()
-            .and_then(|p| p.free_quota_bytes)
+    if let Some(payment_config) = &settings.payments {
+        let free_quota = payment_config.free_quota_bytes
             .unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
@@ -442,31 +439,30 @@ where
         }
     };
 
-    // Post-upload quota check if we didn't have size information before upload
+    // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if size == 0 {
-        let free_quota = settings
-            .payments
-            .as_ref()
-            .and_then(|p| p.free_quota_bytes)
-            .unwrap_or(104857600); // Default to 100MB
-        
-        match db.check_user_quota(pubkey, upload.size, free_quota).await {
-            Ok(false) => {
-                // Clean up the uploaded file if quota exceeded
-                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
-                    log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+        if let Some(payment_config) = &settings.payments {
+            let free_quota = payment_config.free_quota_bytes
+                .unwrap_or(104857600); // Default to 100MB
+            
+            match db.check_user_quota(pubkey, upload.size, free_quota).await {
+                Ok(false) => {
+                    // Clean up the uploaded file if quota exceeded
+                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                        log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+                    }
+                    return BlossomResponse::error("Upload would exceed quota");
                 }
-                return BlossomResponse::error("Upload would exceed quota");
-            }
-            Err(_) => {
-                // Clean up on quota check error
-                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
-                    log::warn!("Failed to cleanup file after quota check error: {}", e);
+                Err(_) => {
+                    // Clean up on quota check error
+                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                        log::warn!("Failed to cleanup file after quota check error: {}", e);
+                    }
+                    return BlossomResponse::error("Failed to check quota");
                 }
-                return BlossomResponse::error("Failed to check quota");
+                Ok(true) => {} // Quota check passed
             }
-            Ok(true) => {} // Quota check passed
         }
     }
     if let Err(e) = db.add_file(&upload, user_id).await {
