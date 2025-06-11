@@ -21,6 +21,24 @@ export interface Report {
   reviewed: boolean;
 }
 
+export interface PaymentInfo {
+  unit: string;
+  interval: string;
+  cost: {
+    currency: string;
+    amount: number;
+  };
+}
+
+export interface PaymentRequest {
+  units: number;
+  quantity: number;
+}
+
+export interface PaymentResponse {
+  pr: string;
+}
+
 export class Route96 {
   constructor(
     readonly url: string,
@@ -67,6 +85,36 @@ export class Route96 {
     return data;
   }
 
+  async getPaymentInfo() {
+    const rsp = await this.#req("payment", "GET");
+    if (rsp.ok) {
+      return (await rsp.json()) as PaymentInfo;
+    } else {
+      const text = await rsp.text();
+      try {
+        const obj = JSON.parse(text) as AdminResponseBase;
+        throw new Error(obj.message);
+      } catch {
+        throw new Error(`Payment info failed: ${text}`);
+      }
+    }
+  }
+
+  async requestPayment(request: PaymentRequest) {
+    const rsp = await this.#req("payment", "POST", JSON.stringify(request));
+    if (rsp.ok) {
+      return (await rsp.json()) as PaymentResponse;
+    } else {
+      const text = await rsp.text();
+      try {
+        const obj = JSON.parse(text) as AdminResponseBase;
+        throw new Error(obj.message);
+      } catch {
+        throw new Error(`Payment request failed: ${text}`);
+      }
+    }
+  }
+
   async #handleResponse<T extends AdminResponseBase>(rsp: Response) {
     if (rsp.ok) {
       return (await rsp.json()) as T;
@@ -96,13 +144,19 @@ export class Route96 {
     };
 
     const u = `${this.url}${path}`;
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      authorization: await auth(u, method),
+    };
+    
+    if (body && method !== "GET") {
+      headers["content-type"] = "application/json";
+    }
+
     return await fetch(u, {
       method,
       body,
-      headers: {
-        accept: "application/json",
-        authorization: await auth(u, method),
-      },
+      headers,
     });
   }
 }
