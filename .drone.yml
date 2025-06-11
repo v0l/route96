@@ -5,17 +5,24 @@ metadata:
   namespace: git
 concurrency:
   limit: 1
+volumes:
+  - name: cache
+    claim:
+      name: storage2
 steps:
   - name: build
     image: docker
     privileged: true
+    volumes:
+      - name: cache
+        path: /cache
     environment:
       TOKEN:
         from_secret: gitea
       TOKEN_DOCKER:
         from_secret: docker_hub
     commands:
-      - dockerd &
+      - dockerd --data-root /cache/dockerd &
       - docker login -u voidic -p $TOKEN_DOCKER
       - docker buildx build --push -t voidic/route96:latest .
       - kill $(cat /var/run/docker.pid)
@@ -30,17 +37,24 @@ trigger:
     - tag
 metadata:
   namespace: git
+volumes:
+  - name: cache
+    claim:
+      name: storage2
 steps:
   - name: build
     image: docker
     privileged: true
+    volumes:
+      - name: cache
+        path: /cache
     environment:
       TOKEN:
         from_secret: gitea
       TOKEN_DOCKER:
         from_secret: docker_hub
     commands:
-      - dockerd &
+      - dockerd --data-root /cache/dockerd &
       - docker login -u voidic -p $TOKEN_DOCKER
       - docker buildx build --push voidic/route96:$DRONE_TAG .
       - kill $(cat /var/run/docker.pid)
