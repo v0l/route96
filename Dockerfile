@@ -12,13 +12,14 @@ RUN apt update && \
     apt install -y \
     build-essential \
     libx264-dev \
+    libx265-dev \
     libwebp-dev \
     libvpx-dev \
     nasm \
     libclang-dev \
     protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
-RUN git clone --single-branch --branch master https://git.v0l.io/ffmpeg/FFmpeg.git && \
+RUN git clone --single-branch --branch release/7.1 https://git.v0l.io/ffmpeg/FFmpeg.git && \
     cd FFmpeg && \
     ./configure \
     --prefix=${FFMPEG_DIR} \
@@ -27,6 +28,7 @@ RUN git clone --single-branch --branch master https://git.v0l.io/ffmpeg/FFmpeg.g
     --disable-network \
     --enable-gpl \
     --enable-libx264 \
+    --enable-libx265 \
     --enable-libwebp \
     --enable-libvpx \
     --disable-static \
