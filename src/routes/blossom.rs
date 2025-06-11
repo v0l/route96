@@ -251,12 +251,13 @@ async fn mirror(
 
     process_stream(
         StreamReader::new(rsp.bytes_stream().map(|result| {
-            result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+            result.map_err(std::io::Error::other)
         })),
         &mime_type,
         &None,
         &pubkey,
         false,
+        0, // No size info for mirror
         fs,
         db,
         settings,
@@ -345,7 +346,7 @@ async fn process_upload(
             None
         }
     });
-    let size = auth.event.tags.iter().find_map(|t| {
+    let size_tag = auth.event.tags.iter().find_map(|t| {
         if t.kind() == TagKind::Size {
             t.content().and_then(|v| v.parse::<u64>().ok())
         } else {
@@ -353,15 +354,10 @@ async fn process_upload(
         }
     });
     
-    let size = match size {
-        Some(z) => {
-            if z > settings.max_upload_bytes {
-                return BlossomResponse::error("File too large");
-            }
-            z
-        }
-        None => return BlossomResponse::error("Size tag is required"),
-    };
+    let size = size_tag.or(auth.x_content_length).unwrap_or(0);
+    if size > 0 && size > settings.max_upload_bytes {
+        return BlossomResponse::error("File too large");
+    }
 
     // check whitelist
     if let Some(e) = check_whitelist(&auth, settings) {
@@ -378,13 +374,15 @@ async fn process_upload(
             .unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
-        match db
-            .check_user_quota(&pubkey_vec, size, free_quota)
-            .await
-        {
-            Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
-            Err(_) => return BlossomResponse::error("Failed to check quota"),
-            Ok(true) => {} // Quota check passed
+        if size > 0 {
+            match db
+                .check_user_quota(&pubkey_vec, size, free_quota)
+                .await
+            {
+                Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
+                Err(_) => return BlossomResponse::error("Failed to check quota"),
+                Ok(true) => {} // Quota check passed
+            }
         }
     }
 
@@ -396,6 +394,7 @@ async fn process_upload(
         &name,
         &auth.event.pubkey.to_bytes().to_vec(),
         compress,
+        size,
         fs,
         db,
         settings,
@@ -409,6 +408,7 @@ async fn process_stream<'p, S>(
     name: &Option<&str>,
     pubkey: &Vec<u8>,
     compress: bool,
+    size: u64,
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
@@ -441,6 +441,34 @@ where
             return BlossomResponse::error(format!("Failed to save file (db): {}", e));
         }
     };
+
+    // Post-upload quota check if we didn't have size information before upload
+    #[cfg(feature = "payments")]
+    if size == 0 {
+        let free_quota = settings
+            .payments
+            .as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600); // Default to 100MB
+        
+        match db.check_user_quota(pubkey, upload.size, free_quota).await {
+            Ok(false) => {
+                // Clean up the uploaded file if quota exceeded
+                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+                }
+                return BlossomResponse::error("Upload would exceed quota");
+            }
+            Err(_) => {
+                // Clean up on quota check error
+                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    log::warn!("Failed to cleanup file after quota check error: {}", e);
+                }
+                return BlossomResponse::error("Failed to check quota");
+            }
+            Ok(true) => {} // Quota check passed
+        }
+    }
     if let Err(e) = db.add_file(&upload, user_id).await {
         error!("{}", e);
         BlossomResponse::error(format!("Error saving file (db): {}", e))

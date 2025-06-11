@@ -86,7 +86,8 @@ export default function FileList({
               "rounded-l-md": x === start,
               "rounded-r-md": x + 1 === n,
               "bg-blue-600 text-white border-blue-600": page === x,
-              "bg-white text-gray-700 border-gray-300 hover:bg-gray-50": page !== x,
+              "bg-white text-gray-700 border-gray-300 hover:bg-gray-50":
+                page !== x,
             },
           )}
         >
@@ -124,7 +125,11 @@ export default function FileList({
                 </div>
                 <div className="text-gray-300 mb-2">{info.type}</div>
                 <div className="flex gap-2">
-                  <a href={info.url} className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs" target="_blank">
+                  <a
+                    href={info.url}
+                    className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs"
+                    target="_blank"
+                  >
                     View
                   </a>
                   {onDelete && (
@@ -141,7 +146,11 @@ export default function FileList({
                 </div>
                 {info.uploader &&
                   info.uploader.map((a, idx) => (
-                    <Profile key={idx} link={NostrLink.publicKey(a)} size={20} />
+                    <Profile
+                      key={idx}
+                      link={NostrLink.publicKey(a)}
+                      size={20}
+                    />
                   ))}
               </div>
               {renderInner(info)}
@@ -204,13 +213,21 @@ export default function FileList({
                   {info.uploader && (
                     <td className="px-4 py-3">
                       {info.uploader.map((a, idx) => (
-                        <Profile key={idx} link={NostrLink.publicKey(a)} size={20} />
+                        <Profile
+                          key={idx}
+                          link={NostrLink.publicKey(a)}
+                          size={20}
+                        />
                       ))}
                     </td>
                   )}
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
-                      <a href={info.url} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs" target="_blank">
+                      <a
+                        href={info.url}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs"
+                        target="_blank"
+                      >
                         View
                       </a>
                       {onDelete && (
@@ -242,8 +259,8 @@ export default function FileList({
           <button
             onClick={() => setViewType("grid")}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
-              viewType === "grid" 
-                ? "bg-blue-600 text-white" 
+              viewType === "grid"
+                ? "bg-blue-600 text-white"
                 : "bg-white text-gray-700 hover:bg-gray-50"
             }`}
           >
@@ -252,8 +269,8 @@ export default function FileList({
           <button
             onClick={() => setViewType("list")}
             className={`px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300 ${
-              viewType === "list" 
-                ? "bg-blue-600 text-white" 
+              viewType === "list"
+                ? "bg-blue-600 text-white"
                 : "bg-white text-gray-700 hover:bg-gray-50"
             }`}
           >
@@ -261,9 +278,9 @@ export default function FileList({
           </button>
         </div>
       </div>
-      
+
       {viewType === "grid" ? showGrid() : showList()}
-      
+
       {pages !== undefined && pages > 1 && (
         <div className="flex justify-center">
           <div className="flex rounded-lg border border-gray-300 overflow-hidden">

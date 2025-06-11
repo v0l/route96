@@ -30,7 +30,7 @@ pub enum PaymentUnit {
 impl PaymentUnit {
     /// Get the total size from a number of units
     pub fn to_size(&self, units: f32) -> u64 {
-        (1000f32 * 1000f32 * 1000f32 * units) as u64
+        (1024f32 * 1024f32 * 1024f32 * units) as u64
     }
 }
 

@@ -165,6 +165,13 @@ impl Database {
             .await
     }
 
+    pub async fn get_user_by_id(&self, user_id: u64) -> Result<User, Error> {
+        sqlx::query_as("select * from users where id = ?")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await
+    }
+
     pub async fn get_user_stats(&self, id: u64) -> Result<UserStats, Error> {
         sqlx::query_as(
             "select cast(count(user_uploads.file) as unsigned integer) as file_count, \
@@ -347,14 +354,49 @@ impl Database {
             .execute(&mut *tx)
             .await?;
 
-        // TODO: check space is not downgraded
-
-        sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, IFNULL(paid_until, current_timestamp)), paid_size = ? where id = ?")
-            .bind(payment.days_value)
-            .bind(payment.size_value)
-            .bind(payment.user_id)
-            .execute(&mut *tx)
-            .await?;
+        // Calculate time extension based on fractional quota value
+        // If user upgrades from 5GB to 10GB, their remaining time gets halved
+        // If user pays for 1GB on a 5GB plan, they get 1/5 of the normal time
+        let current_user = self.get_user_by_id(payment.user_id).await?;
+        
+        if let Some(paid_until) = current_user.paid_until {
+            if paid_until > chrono::Utc::now() {
+                // User has active subscription - calculate fractional time extension
+                let time_fraction = if current_user.paid_size > 0 {
+                    payment.size_value as f64 / current_user.paid_size as f64
+                } else {
+                    1.0 // If no existing quota, treat as 100%
+                };
+                
+                let adjusted_days = (payment.days_value as f64 * time_fraction) as u64;
+                
+                // Extend subscription time and upgrade quota if larger
+                let new_quota_size = std::cmp::max(current_user.paid_size, payment.size_value);
+                
+                sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, paid_until), paid_size = ? where id = ?")
+                    .bind(adjusted_days)
+                    .bind(new_quota_size)
+                    .bind(payment.user_id)
+                    .execute(&mut *tx)
+                    .await?;
+            } else {
+                // Expired subscription - set new quota and time
+                sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, current_timestamp), paid_size = ? where id = ?")
+                    .bind(payment.days_value)
+                    .bind(payment.size_value)
+                    .bind(payment.user_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        } else {
+            // No existing subscription - set new quota
+            sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, current_timestamp), paid_size = ? where id = ?")
+                .bind(payment.days_value)
+                .bind(payment.size_value)
+                .bind(payment.user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
 
         tx.commit().await?;
 

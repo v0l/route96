@@ -75,28 +75,45 @@ export default function ReportList({
       <table className="w-full border-collapse border border-neutral-500">
         <thead>
           <tr className="bg-neutral-700">
-            <th className="border border-neutral-500 py-2 px-4 text-left">Report ID</th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">File ID</th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">Reporter</th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">Reason</th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">Created</th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">Actions</th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              Report ID
+            </th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              File ID
+            </th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              Reporter
+            </th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              Reason
+            </th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              Created
+            </th>
+            <th className="border border-neutral-500 py-2 px-4 text-left">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
           {reports.map((report) => {
             const reporterPubkey = getReporterPubkey(report.event_json);
             const reason = getReportReason(report.event_json);
-            
+
             return (
               <tr key={report.id} className="hover:bg-neutral-700">
-                <td className="border border-neutral-500 py-2 px-4">{report.id}</td>
+                <td className="border border-neutral-500 py-2 px-4">
+                  {report.id}
+                </td>
                 <td className="border border-neutral-500 py-2 px-4 font-mono text-sm">
                   {report.file_id.substring(0, 12)}...
                 </td>
                 <td className="border border-neutral-500 py-2 px-4">
                   {reporterPubkey ? (
-                    <Profile link={NostrLink.publicKey(reporterPubkey)} size={20} />
+                    <Profile
+                      link={NostrLink.publicKey(reporterPubkey)}
+                      size={20}
+                    />
                   ) : (
                     "Unknown"
                   )}
@@ -128,7 +145,7 @@ export default function ReportList({
           })}
         </tbody>
       </table>
-      
+
       {pages !== undefined && (
         <>
           <div className="flex justify-center mt-4">

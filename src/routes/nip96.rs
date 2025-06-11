@@ -174,12 +174,8 @@ async fn upload(
     settings: &State<Settings>,
     form: Form<Nip96Form<'_>>,
 ) -> Nip96Response {
-    if let Some(size) = auth.content_length {
-        if size > settings.max_upload_bytes {
-            return Nip96Response::error("File too large");
-        }
-    }
-    if form.size > settings.max_upload_bytes {
+    let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
+    if upload_size > 0 && upload_size > settings.max_upload_bytes {
         return Nip96Response::error("File too large");
     }
     let file = match form.file.open().await {
@@ -193,7 +189,8 @@ async fn upload(
     }
 
     // account for upload speeds as slow as 1MB/s (8 Mbps)
-    let mbs = form.size / 1.megabytes().as_u64();
+    let size_for_timing = if upload_size > 0 { upload_size } else { form.size };
+    let mbs = size_for_timing / 1.megabytes().as_u64();
     let max_time = 60.max(mbs);
     if auth.event.created_at < Timestamp::now().sub(Duration::from_secs(max_time)) {
         return Nip96Response::error("Auth event timestamp out of range");
@@ -215,10 +212,12 @@ async fn upload(
             .and_then(|p| p.free_quota_bytes)
             .unwrap_or(104857600); // Default to 100MB
         
-        match db.check_user_quota(&pubkey_vec, form.size, free_quota).await {
-            Ok(false) => return Nip96Response::error("Upload would exceed quota"),
-            Err(_) => return Nip96Response::error("Failed to check quota"),
-            Ok(true) => {} // Quota check passed
+        if upload_size > 0 {
+            match db.check_user_quota(&pubkey_vec, upload_size, free_quota).await {
+                Ok(false) => return Nip96Response::error("Upload would exceed quota"),
+                Err(_) => return Nip96Response::error("Failed to check quota"),
+                Ok(true) => {} // Quota check passed
+            }
         }
     }
     let upload = match fs
@@ -227,6 +226,16 @@ async fn upload(
     {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut upload: FileUpload = (&blob).into();
+            
+            // Validate file size after upload if no pre-upload size was available
+            if upload_size == 0 && upload.size > settings.max_upload_bytes {
+                // Clean up the uploaded file
+                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    log::warn!("Failed to cleanup oversized file: {}", e);
+                }
+                return Nip96Response::error("File too large");
+            }
+            
             upload.name = form.caption.map(|cap| cap.to_string());
             upload.alt = form.alt.as_ref().map(|s| s.to_string());
             upload
@@ -236,7 +245,7 @@ async fn upload(
             _ => return Nip96Response::error("File not found"),
         },
         Err(e) => {
-            error!("{}", e.to_string());
+            error!("{}", e);
             return Nip96Response::error(&format!("Could not save file: {}", e));
         }
     };
@@ -246,8 +255,34 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
 
+    // Post-upload quota check if we didn't have size information before upload
+    #[cfg(feature = "payments")]
+    if upload_size == 0 {
+        let free_quota = settings.payments.as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600); // Default to 100MB
+        
+        match db.check_user_quota(&pubkey_vec, upload.size, free_quota).await {
+            Ok(false) => {
+                // Clean up the uploaded file if quota exceeded
+                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    log::warn!("Failed to cleanup quota-exceeding file: {}", e);
+                }
+                return Nip96Response::error("Upload would exceed quota");
+            }
+            Err(_) => {
+                // Clean up on quota check error
+                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    log::warn!("Failed to cleanup file after quota check error: {}", e);
+                }
+                return Nip96Response::error("Failed to check quota");
+            }
+            Ok(true) => {} // Quota check passed
+        }
+    }
+
     if let Err(e) = db.add_file(&upload, user_id).await {
-        error!("{}", e.to_string());
+        error!("{}", e);
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }
     Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(settings, &upload)))

@@ -1,13 +1,23 @@
 import { useState, useEffect } from "react";
 import Button from "./button";
-import { PaymentInfo, PaymentRequest, Route96 } from "../upload/admin";
+import {
+  PaymentInfo,
+  PaymentRequest,
+  Route96,
+  AdminSelf,
+} from "../upload/admin";
 
 interface PaymentFlowProps {
   route96: Route96;
   onPaymentRequested?: (paymentRequest: string) => void;
+  userInfo?: AdminSelf;
 }
 
-export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlowProps) {
+export default function PaymentFlow({
+  route96,
+  onPaymentRequested,
+  userInfo,
+}: PaymentFlowProps) {
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
   const [gigabytes, setGigabytes] = useState<number>(1);
   const [months, setMonths] = useState<number>(1);
@@ -20,6 +30,17 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
       loadPaymentInfo();
     }
   }, [paymentInfo]);
+
+  // Set default gigabytes to user's current quota
+  useEffect(() => {
+    if (userInfo?.quota && userInfo.quota > 0) {
+      // Convert from bytes to GB using 1024^3 (MiB)
+      const currentQuotaGB = Math.round(userInfo.quota / (1024 * 1024 * 1024));
+      if (currentQuotaGB > 0) {
+        setGigabytes(currentQuotaGB);
+      }
+    }
+  }, [userInfo]);
 
   async function loadPaymentInfo() {
     try {
@@ -36,10 +57,10 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
 
   async function requestPayment() {
     if (!paymentInfo) return;
-    
+
     setLoading(true);
     setError("");
-    
+
     try {
       const request: PaymentRequest = { units: gigabytes, quantity: months };
       const response = await route96.requestPayment(request);
@@ -68,8 +89,11 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
   const totalCostSats = Math.round(totalCostBTC * 100000000); // Convert BTC to sats
 
   function formatStorageUnit(unit: string): string {
-    if (unit.toLowerCase().includes('gbspace') || unit.toLowerCase().includes('gb')) {
-      return 'GB';
+    if (
+      unit.toLowerCase().includes("gbspace") ||
+      unit.toLowerCase().includes("gb")
+    ) {
+      return "GB";
     }
     return unit;
   }
@@ -77,17 +101,18 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
   return (
     <div className="card">
       <h3 className="text-lg font-bold mb-4">Top Up Account</h3>
-      
+
       <div className="space-y-4 mb-6">
         <div className="text-center">
           <div className="text-2xl font-bold text-gray-100 mb-2">
-            {gigabytes} {formatStorageUnit(paymentInfo.unit)} for {months} month{months > 1 ? 's' : ''}
+            {gigabytes} {formatStorageUnit(paymentInfo.unit)} for {months} month
+            {months > 1 ? "s" : ""}
           </div>
           <div className="text-lg text-blue-400 font-semibold">
             {totalCostSats.toLocaleString()} sats
           </div>
         </div>
-        
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-300">
@@ -102,7 +127,7 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
               className="input w-full text-center text-lg"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-300">
               Duration (months)
@@ -118,7 +143,6 @@ export default function PaymentFlow({ route96, onPaymentRequested }: PaymentFlow
           </div>
         </div>
       </div>
-
 
       <Button
         onClick={requestPayment}

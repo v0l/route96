@@ -26,42 +26,48 @@ export default function Admin() {
   const url =
     import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
 
-  const listAllUploads = useCallback(async (n: number) => {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const uploader = new Route96(url, pub);
-      const result = await uploader.listFiles(n, 50, mimeFilter);
-      setAdminListedFiles(result);
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "Upload failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("List files failed");
+  const listAllUploads = useCallback(
+    async (n: number) => {
+      if (!pub) return;
+      try {
+        setError(undefined);
+        const uploader = new Route96(url, pub);
+        const result = await uploader.listFiles(n, 50, mimeFilter);
+        setAdminListedFiles(result);
+      } catch (e) {
+        if (e instanceof Error) {
+          setError(e.message.length > 0 ? e.message : "Upload failed");
+        } else if (typeof e === "string") {
+          setError(e);
+        } else {
+          setError("List files failed");
+        }
       }
-    }
-  }, [pub, url, mimeFilter]);
+    },
+    [pub, url, mimeFilter],
+  );
 
-  const listReports = useCallback(async (n: number) => {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const route96 = new Route96(url, pub);
-      const result = await route96.listReports(n, 10);
-      setReports(result.files);
-      setReportPages(Math.ceil(result.total / result.count));
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "List reports failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("List reports failed");
+  const listReports = useCallback(
+    async (n: number) => {
+      if (!pub) return;
+      try {
+        setError(undefined);
+        const route96 = new Route96(url, pub);
+        const result = await route96.listReports(n, 10);
+        setReports(result.files);
+        setReportPages(Math.ceil(result.total / result.count));
+      } catch (e) {
+        if (e instanceof Error) {
+          setError(e.message.length > 0 ? e.message : "List reports failed");
+        } else if (typeof e === "string") {
+          setError(e);
+        } else {
+          setError("List reports failed");
+        }
       }
-    }
-  }, [pub, url]);
+    },
+    [pub, url],
+  );
 
   async function acknowledgeReport(reportId: number) {
     if (!pub) return;
@@ -72,7 +78,9 @@ export default function Admin() {
       await listReports(reportPage);
     } catch (e) {
       if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "Acknowledge report failed");
+        setError(
+          e.message.length > 0 ? e.message : "Acknowledge report failed",
+        );
       } else if (typeof e === "string") {
         setError(e);
       } else {
@@ -101,12 +109,15 @@ export default function Admin() {
   useEffect(() => {
     if (pub && !self) {
       const r96 = new Route96(url, pub);
-      r96.getSelf().then((v) => {
-        setSelf(v.data);
-        setLoading(false);
-      }).catch(() => {
-        setLoading(false);
-      });
+      r96
+        .getSelf()
+        .then((v) => {
+          setSelf(v.data);
+          setLoading(false);
+        })
+        .catch(() => {
+          setLoading(false);
+        });
     }
   }, [pub, self, url]);
 
@@ -134,7 +145,9 @@ export default function Admin() {
     return (
       <div className="card max-w-md mx-auto text-center">
         <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
-        <p className="text-gray-400">Please log in to access the admin panel.</p>
+        <p className="text-gray-400">
+          Please log in to access the admin panel.
+        </p>
       </div>
     );
   }
@@ -158,16 +171,16 @@ export default function Admin() {
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="card">
           <h2 className="text-xl font-semibold mb-6">File Management</h2>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Filter by MIME type
               </label>
-              <select 
+              <select
                 className="input w-full"
-                value={mimeFilter || ""} 
-                onChange={e => setMimeFilter(e.target.value || undefined)}
+                value={mimeFilter || ""}
+                onChange={(e) => setMimeFilter(e.target.value || undefined)}
               >
                 <option value="">All Files</option>
                 <option value="image/webp">WebP Images</option>
@@ -179,8 +192,8 @@ export default function Admin() {
                 <option value="video/mov">MOV Videos</option>
               </select>
             </div>
-            
-            <Button 
+
+            <Button
               onClick={() => listAllUploads(0)}
               className="btn-primary w-full"
             >
@@ -191,11 +204,8 @@ export default function Admin() {
 
         <div className="card">
           <h2 className="text-xl font-semibold mb-6">Reports Management</h2>
-          
-          <Button 
-            onClick={() => listReports(0)}
-            className="btn-primary w-full"
-          >
+
+          <Button onClick={() => listReports(0)} className="btn-primary w-full">
             Load Reports
           </Button>
         </div>

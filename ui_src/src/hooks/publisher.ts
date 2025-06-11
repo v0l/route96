@@ -4,7 +4,7 @@ import useLogin from "./login";
 
 export default function usePublisher() {
   const login = useLogin();
-  
+
   return useMemo(() => {
     switch (login?.type) {
       case "nip7":

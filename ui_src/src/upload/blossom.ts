@@ -18,7 +18,17 @@ export class Blossom {
     this.url = new URL(this.url).toString();
   }
 
-  async upload(file: File) {
+  async #handleError(rsp: Response) {
+    const reason = rsp.headers.get("X-Reason") || rsp.headers.get("x-reason");
+    if (reason) {
+      throw new Error(reason);
+    } else {
+      const text = await rsp.text();
+      throw new Error(text);
+    }
+  }
+
+  async upload(file: File): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
@@ -29,12 +39,12 @@ export class Blossom {
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
-      const text = await rsp.text();
-      throw new Error(text);
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
     }
   }
 
-  async media(file: File) {
+  async media(file: File): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
@@ -45,12 +55,12 @@ export class Blossom {
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
-      const text = await rsp.text();
-      throw new Error(text);
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
     }
   }
 
-  async mirror(url: string) {
+  async mirror(url: string): Promise<BlobDescriptor> {
     const rsp = await this.#req(
       "mirror",
       "PUT",
@@ -64,28 +74,28 @@ export class Blossom {
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
-      const text = await rsp.text();
-      throw new Error(text);
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
     }
   }
 
-  async list(pk: string) {
+  async list(pk: string): Promise<Array<BlobDescriptor>> {
     const rsp = await this.#req(`list/${pk}`, "GET", "list");
     if (rsp.ok) {
       return (await rsp.json()) as Array<BlobDescriptor>;
     } else {
-      const text = await rsp.text();
-      throw new Error(text);
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
     }
   }
 
-  async delete(id: string) {
+  async delete(id: string): Promise<void> {
     const tags = [["x", id]];
 
     const rsp = await this.#req(id, "DELETE", "delete", undefined, tags);
     if (!rsp.ok) {
-      const text = await rsp.text();
-      throw new Error(text);
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
     }
   }
 

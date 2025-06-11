@@ -150,7 +150,7 @@ export class Route96 {
       accept: "application/json",
       authorization: await auth(u, method),
     };
-    
+
     if (body && method !== "GET") {
       headers["content-type"] = "application/json";
     }
