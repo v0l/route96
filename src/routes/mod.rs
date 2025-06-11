@@ -423,7 +423,8 @@ pub async fn get_blob_thumb(
 
     if !thumb_file.exists() {
         let mut p = WebpProcessor::new();
-        if p.thumbnail(&file_path, &thumb_file).is_err() {
+        if let Err(e) = p.thumbnail(&file_path, &thumb_file) {
+            warn!("Failed to generate thumbnail: {}", e);
             return Err(Status::InternalServerError);
         }
     };

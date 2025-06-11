@@ -105,7 +105,12 @@ impl WebpProcessor {
             let mut decoder = Decoder::new();
             decoder.setup_decoder(image_stream, None)?;
 
-            while let Ok((mut pkt, _stream)) = input.get_packet() {
+            while let Ok((mut pkt, _)) = input.get_packet() {
+                // skip packets not in the image stream
+                if (*pkt).stream_index != image_stream.index as i32 {
+                    av_packet_free(&mut pkt);
+                    continue;
+                }
                 let mut frame_save: *mut AVFrame = ptr::null_mut();
                 for (mut frame, _stream) in decoder.decode_pkt(pkt)? {
                     if frame_save.is_null() {

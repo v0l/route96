@@ -44,7 +44,7 @@ http-range-header = { version = "0.4.2" }
 base58 = "0.2.0"
 
 libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "928ab9664ff47c1b0bd8313ebc73d13b1ab43fc5", optional = true }
+ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "aa1ce3edcad0fcd286d39b3e0c2fdc610c3988e7", optional = true }
 candle-core = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://git.v0l.io/huggingface/candle.git", tag = "0.8.1", optional = true }
