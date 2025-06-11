@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Button from "../components/button";
 import FileList from "./files";
-import ReportList from "./reports";
 import PaymentFlow from "../components/payment";
 import { openFile } from "../upload";
 import { Blossom } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96, Report } from "../upload/admin";
+import { AdminSelf, Route96 } from "../upload/admin";
 import { FormatBytes } from "../const";
 
 export default function Upload() {
@@ -19,13 +18,7 @@ export default function Upload() {
   const [error, setError] = useState<string>();
   const [results, setResults] = useState<Array<object>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
-  const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
-  const [reports, setReports] = useState<Report[]>();
-  const [reportPages, setReportPages] = useState<number>();
-  const [reportPage, setReportPage] = useState(0);
   const [listedPage, setListedPage] = useState(0);
-  const [adminListedPage, setAdminListedPage] = useState(0);
-  const [mimeFilter, setMimeFilter] = useState<string>();
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
 
   const login = useLogin();
@@ -62,7 +55,7 @@ export default function Upload() {
     }
   }
 
-  async function listUploads(n: number) {
+  const listUploads = useCallback(async (n: number) => {
     if (!pub) return;
     try {
       setError(undefined);
@@ -79,62 +72,8 @@ export default function Upload() {
         setError("List files failed");
       }
     }
-  }
+  }, [pub, url]);
 
-  async function listAllUploads(n: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const uploader = new Route96(url, pub);
-      const result = await uploader.listFiles(n, 50, mimeFilter);
-      setAdminListedFiles(result);
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "Upload failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("List files failed");
-      }
-    }
-  }
-
-  async function listReports(n: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const route96 = new Route96(url, pub);
-      const result = await route96.listReports(n, 10);
-      setReports(result.files);
-      setReportPages(Math.ceil(result.total / result.count));
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "List reports failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("List reports failed");
-      }
-    }
-  }
-
-  async function acknowledgeReport(reportId: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const route96 = new Route96(url, pub);
-      await route96.acknowledgeReport(reportId);
-      await listReports(reportPage); // Refresh the list
-    } catch (e) {
-      if (e instanceof Error) {
-        setError(e.message.length > 0 ? e.message : "Acknowledge report failed");
-      } else if (typeof e === "string") {
-        setError(e);
-      } else {
-        setError("Acknowledge report failed");
-      }
-    }
-  }
 
   async function deleteFile(id: string) {
     if (!pub) return;
@@ -154,210 +93,217 @@ export default function Upload() {
   }
 
   useEffect(() => {
-    if (pub) {
+    if (pub && !listedFiles) {
       listUploads(listedPage);
     }
-  }, [listedPage, pub]);
+  }, [listedPage, pub, listUploads, listedFiles]);
 
-  useEffect(() => {
-    if (pub) {
-      listAllUploads(adminListedPage);
-    }
-  }, [adminListedPage, mimeFilter, pub]);
-
-  useEffect(() => {
-    if (pub && self?.is_admin) {
-      listReports(reportPage);
-    }
-  }, [reportPage, pub, self?.is_admin]);
 
   useEffect(() => {
     if (pub && !self) {
       const r96 = new Route96(url, pub);
       r96.getSelf().then((v) => setSelf(v.data));
     }
-  }, [pub, self]);
+  }, [pub, self, url]);
+
+  if (!login) {
+    return (
+      <div className="card max-w-2xl mx-auto text-center">
+        <h2 className="text-2xl font-semibold mb-4 text-gray-100">Welcome to {window.location.hostname}</h2>
+        <p className="text-gray-400 mb-6">Please log in to start uploading files to your storage.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2 bg-neutral-800 p-8 rounded-xl w-full">
-      <h1 className="text-lg font-bold">
-        Welcome to {window.location.hostname}
-      </h1>
-      <div className="text-neutral-400 uppercase text-xs font-medium">
-        Upload Method
-      </div>
-      <div className="flex gap-4 items-center">
-        <div
-          className="flex gap-2 cursor-pointer"
-          onClick={() => setType("blossom")}
-        >
-          Blossom
-          <input type="radio" checked={type === "blossom"} />
-        </div>
-        <div
-          className="flex gap-2 cursor-pointer"
-          onClick={() => setType("nip96")}
-        >
-          NIP-96
-          <input type="radio" checked={type === "nip96"} />
-        </div>
+    <div className="max-w-4xl mx-auto space-y-8">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold text-gray-100 mb-2">
+          Welcome to {window.location.hostname}
+        </h1>
+        <p className="text-lg text-gray-400">Upload and manage your files securely</p>
       </div>
 
-      <div
-        className="flex gap-2 cursor-pointer"
-        onClick={() => setNoCompress((s) => !s)}
-      >
-        Disable Compression
-        <input type="checkbox" checked={noCompress} />
-      </div>
-
-      {toUpload && <FileList files={toUpload ? [toUpload] : []} />}
-      <div className="flex gap-4">
-        <Button
-          className="flex-1"
-          onClick={async () => {
-            const f = await openFile();
-            setToUpload(f);
-          }}
-        >
-          Choose Files
-        </Button>
-        <Button
-          className="flex-1"
-          onClick={doUpload}
-          disabled={login === undefined}
-        >
-          Upload
-        </Button>
-      </div>
-      <hr />
-      {!listedFiles && (
-        <Button disabled={login === undefined} onClick={() => listUploads(0)}>
-          List Uploads
-        </Button>
-      )}
-
-      {self && (
-        <div className="flex justify-between font-medium">
-          <div>Uploads: {self.file_count.toLocaleString()}</div>
-          <div>Total Size: {FormatBytes(self.total_size)}</div>
+      {error && (
+        <div className="bg-red-900/20 border border-red-800 text-red-400 px-4 py-3 rounded-lg">
+          {error}
         </div>
       )}
 
-      {self && (
-        <div className="bg-neutral-700 p-4 rounded-lg">
-          <h3 className="text-lg font-bold mb-2">Storage Quota</h3>
-          <div className="space-y-2">
-            {self.free_quota && (
-              <div className="text-sm">
-                Free Quota: {FormatBytes(self.free_quota)}
-              </div>
-            )}
-            {self.quota && (
-              <div className="text-sm">
-                Paid Quota: {FormatBytes(self.quota)}
-              </div>
-            )}
-            {self.total_available_quota && (
-              <div className="text-sm font-medium">
-                Total Available: {FormatBytes(self.total_available_quota)}
-              </div>
-            )}
-            {self.total_available_quota && (
-              <div className="text-sm">
-                Remaining: {FormatBytes(Math.max(0, self.total_available_quota - self.total_size))}
-              </div>
-            )}
-            {self.paid_until && (
-              <div className="text-sm text-neutral-300">
-                Paid Until: {new Date(self.paid_until * 1000).toLocaleDateString()}
-              </div>
-            )}
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-6">Upload Settings</h2>
+        
+        <div className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-3">
+              Upload Method
+            </label>
+            <div className="flex gap-6">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  checked={type === "blossom"}
+                  onChange={() => setType("blossom")}
+                  className="mr-2"
+                />
+                <span className="text-sm font-medium text-gray-300">Blossom</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  checked={type === "nip96"}
+                  onChange={() => setType("nip96")}
+                  className="mr-2"
+                />
+                <span className="text-sm font-medium text-gray-300">NIP-96</span>
+              </label>
+            </div>
           </div>
-          <Button 
-            onClick={() => setShowPaymentFlow(!showPaymentFlow)} 
-            className="mt-3 w-full"
-          >
-            {showPaymentFlow ? "Hide" : "Show"} Top Up Options
-          </Button>
+
+          <div>
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={noCompress}
+                onChange={(e) => setNoCompress(e.target.checked)}
+                className="mr-2"
+              />
+              <span className="text-sm font-medium text-gray-300">Disable Compression</span>
+            </label>
+          </div>
+
+          {toUpload && (
+            <div className="border-2 border-dashed border-gray-600 rounded-lg p-4">
+              <FileList files={[toUpload]} />
+            </div>
+          )}
+
+          <div className="flex gap-4">
+            <Button
+              onClick={async () => {
+                const f = await openFile();
+                setToUpload(f);
+              }}
+              className="btn-secondary flex-1"
+            >
+              Choose File
+            </Button>
+            <Button
+              onClick={doUpload}
+              disabled={!toUpload}
+              className="btn-primary flex-1"
+            >
+              Upload
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {self && (
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="card">
+            <h3 className="text-lg font-semibold mb-4">Storage Usage</h3>
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Files:</span>
+                <span className="font-medium">{self.file_count.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Total Size:</span>
+                <span className="font-medium">{FormatBytes(self.total_size)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="text-lg font-semibold mb-4">Storage Quota</h3>
+            <div className="space-y-2">
+              {self.free_quota && (
+                <div className="flex justify-between text-sm">
+                  <span>Free Quota:</span>
+                  <span className="font-medium">{FormatBytes(self.free_quota)}</span>
+                </div>
+              )}
+              {self.quota && (
+                <div className="flex justify-between text-sm">
+                  <span>Paid Quota:</span>
+                  <span className="font-medium">{FormatBytes(self.quota)}</span>
+                </div>
+              )}
+              {self.total_available_quota && (
+                <div className="flex justify-between text-sm font-medium">
+                  <span>Total Available:</span>
+                  <span>{FormatBytes(self.total_available_quota)}</span>
+                </div>
+              )}
+              {self.total_available_quota && (
+                <div className="flex justify-between text-sm">
+                  <span>Remaining:</span>
+                  <span className="font-medium text-green-400">
+                    {FormatBytes(Math.max(0, self.total_available_quota - self.total_size))}
+                  </span>
+                </div>
+              )}
+              {self.paid_until && (
+                <div className="flex justify-between text-sm text-gray-400">
+                  <span>Paid Until:</span>
+                  <span>{new Date(self.paid_until * 1000).toLocaleDateString()}</span>
+                </div>
+              )}
+            </div>
+            <Button 
+              onClick={() => setShowPaymentFlow(!showPaymentFlow)} 
+              className="btn-primary w-full mt-4"
+            >
+              {showPaymentFlow ? "Hide" : "Show"} Payment Options
+            </Button>
+          </div>
         </div>
       )}
 
       {showPaymentFlow && pub && (
-        <PaymentFlow 
-          route96={new Route96(url, pub)} 
-          onPaymentRequested={(pr) => {
-            console.log("Payment requested:", pr);
-            // You could add more logic here, like showing a QR code
-          }}
-        />
+        <div className="card">
+          <PaymentFlow 
+            route96={new Route96(url, pub)} 
+            onPaymentRequested={(pr) => {
+              console.log("Payment requested:", pr);
+            }}
+          />
+        </div>
       )}
 
-      {listedFiles && (
-        <FileList
-          files={listedFiles.files}
-          pages={Math.ceil(listedFiles.total / listedFiles.count)}
-          page={listedFiles.page}
-          onPage={(x) => setListedPage(x)}
-          onDelete={async (x) => {
-            await deleteFile(x);
-            await listUploads(listedPage);
-          }}
-        />
-      )}
+      <div className="card">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold">Your Files</h2>
+          {!listedFiles && (
+            <Button onClick={() => listUploads(0)} className="btn-primary">
+              Load Files
+            </Button>
+          )}
+        </div>
+        
+        {listedFiles && (
+          <FileList
+            files={listedFiles.files}
+            pages={Math.ceil(listedFiles.total / listedFiles.count)}
+            page={listedFiles.page}
+            onPage={(x) => setListedPage(x)}
+            onDelete={async (x) => {
+              await deleteFile(x);
+              await listUploads(listedPage);
+            }}
+          />
+        )}
+      </div>
 
-      {self?.is_admin && (
-        <>
-          <hr />
-          <h3>Admin File List:</h3>
-          <Button onClick={() => listAllUploads(0)}>List All Uploads</Button>
-          <Button onClick={() => listReports(0)}>List Reports</Button>
-          <div>
-            <select value={mimeFilter} onChange={e => setMimeFilter(e.target.value)}>
-              <option value={""}>All</option>
-              <option>image/webp</option>
-              <option>image/jpeg</option>
-              <option>image/jpg</option>
-              <option>image/png</option>
-              <option>image/gif</option>
-              <option>video/mp4</option>
-              <option>video/mov</option>
-            </select>
-          </div>
-          {adminListedFiles && (
-            <FileList
-              files={adminListedFiles.files}
-              pages={Math.ceil(adminListedFiles.total / adminListedFiles.count)}
-              page={adminListedFiles.page}
-              onPage={(x) => setAdminListedPage(x)}
-              onDelete={async (x) => {
-                await deleteFile(x);
-                await listAllUploads(adminListedPage);
-              }}
-            />
-          )}
-          {reports && (
-            <>
-              <h3>Reports:</h3>
-              <ReportList
-                reports={reports}
-                pages={reportPages}
-                page={reportPage}
-                onPage={(x) => setReportPage(x)}
-                onAcknowledge={acknowledgeReport}
-                onDeleteFile={async (fileId) => {
-                  await deleteFile(fileId);
-                  await listReports(reportPage); // Refresh reports after deleting file
-                }}
-              />
-            </>
-          )}
-        </>
+      {results.length > 0 && (
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Upload Results</h3>
+          <pre className="text-xs bg-gray-100 p-4 rounded overflow-auto">
+            {JSON.stringify(results, undefined, 2)}
+          </pre>
+        </div>
       )}
-      {error && <b className="text-red-500">{error}</b>}
-      <pre className="text-xs font-monospace overflow-wrap">
-        {JSON.stringify(results, undefined, 2)}
-      </pre>
     </div>
   );
 }

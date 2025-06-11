@@ -23,7 +23,9 @@ export interface Report {
 
 export interface PaymentInfo {
   unit: string;
-  interval: string;
+  interval: {
+    [key: string]: number;
+  };
   cost: {
     currency: string;
     amount: number;

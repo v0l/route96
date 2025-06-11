@@ -22,12 +22,12 @@ export default function Button({
   }
   return (
     <button
-      className={`py-2 px-4 rounded-md border-0 text-sm font-semibold bg-neutral-700 hover:bg-neutral-600 ${className} ${props.disabled || loading ? "opacity-50" : ""}`}
+      className={`${className} ${props.disabled || loading ? "opacity-50 cursor-not-allowed" : ""}`}
       onClick={doClick}
       {...props}
       disabled={loading || (props.disabled ?? false)}
     >
-      {children}
+      {loading ? "..." : children}
     </button>
   );
 }

@@ -139,14 +139,23 @@ impl Database {
             .bind(pubkey)
             .fetch_optional(&self.pool)
             .await?;
-        match res {
+        let user_id = match res {
             None => sqlx::query("select id from users where pubkey = ?")
                 .bind(pubkey)
                 .fetch_one(&self.pool)
                 .await?
-                .try_get(0),
-            Some(res) => res.try_get(0),
+                .try_get(0)?,
+            Some(res) => res.try_get(0)?,
+        };
+        
+        // Make the first user (ID 1) an admin
+        if user_id == 1 {
+            sqlx::query("update users set is_admin = 1 where id = 1")
+                .execute(&self.pool)
+                .await?;
         }
+        
+        Ok(user_id)
     }
 
     pub async fn get_user(&self, pubkey: &Vec<u8>) -> Result<User, Error> {

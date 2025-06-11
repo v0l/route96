@@ -24,7 +24,7 @@ pub struct BlobDescriptor {
     pub size: u64,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
-    pub created: u64,
+    pub uploaded: u64,
     #[serde(rename = "nip94", skip_serializing_if = "Option::is_none")]
     pub nip94: Option<Vec<Vec<String>>>,
 }
@@ -44,7 +44,7 @@ impl BlobDescriptor {
             sha256: id_hex,
             size: value.size,
             mime_type: Some(value.mime_type.clone()),
-            created: value.created.timestamp() as u64,
+            uploaded: value.created.timestamp() as u64,
             nip94: Some(Nip94Event::from_upload(settings, value).tags),
         }
     }
@@ -352,11 +352,16 @@ async fn process_upload(
             None
         }
     });
-    if let Some(z) = size {
-        if z > settings.max_upload_bytes {
-            return BlossomResponse::error("File too large");
+    
+    let size = match size {
+        Some(z) => {
+            if z > settings.max_upload_bytes {
+                return BlossomResponse::error("File too large");
+            }
+            z
         }
-    }
+        None => return BlossomResponse::error("Size tag is required"),
+    };
 
     // check whitelist
     if let Some(e) = check_whitelist(&auth, settings) {
@@ -365,7 +370,7 @@ async fn process_upload(
 
     // check quota
     #[cfg(feature = "payments")]
-    if let Some(upload_size) = size {
+    {
         let free_quota = settings
             .payments
             .as_ref()
@@ -374,7 +379,7 @@ async fn process_upload(
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
         match db
-            .check_user_quota(&pubkey_vec, upload_size, free_quota)
+            .check_user_quota(&pubkey_vec, size, free_quota)
             .await
         {
             Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
@@ -425,7 +430,7 @@ where
             _ => return BlossomResponse::error("File not found"),
         },
         Err(e) => {
-            error!("{}", e.to_string());
+            error!("{}", e);
             return BlossomResponse::error(format!("Error saving file (disk): {}", e));
         }
     };
@@ -437,7 +442,7 @@ where
         }
     };
     if let Err(e) = db.add_file(&upload, user_id).await {
-        error!("{}", e.to_string());
+        error!("{}", e);
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {
         BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))

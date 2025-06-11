@@ -13,6 +13,11 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
     this.notifyChange();
   }
 
+  logout() {
+    this.#session = undefined;
+    this.notifyChange();
+  }
+
   takeSnapshot(): LoginSession | undefined {
     return this.#session ? { ...this.#session } : undefined;
   }
