@@ -122,16 +122,16 @@ export default function Admin() {
   }, [pub, self, url]);
 
   useEffect(() => {
-    if (pub && self?.is_admin && !adminListedFiles) {
+    if (pub && self?.is_admin) {
       listAllUploads(adminListedPage);
     }
-  }, [adminListedPage, pub, self?.is_admin, listAllUploads, adminListedFiles]);
+  }, [adminListedPage, pub, self?.is_admin, listAllUploads]);
 
   useEffect(() => {
-    if (pub && self?.is_admin && !reports) {
+    if (pub && self?.is_admin) {
       listReports(reportPage);
     }
-  }, [reportPage, pub, self?.is_admin, listReports, reports]);
+  }, [reportPage, pub, self?.is_admin, listReports]);
 
   if (loading) {
     return (
