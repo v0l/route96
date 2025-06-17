@@ -1,6 +1,7 @@
 import { base64 } from "@scure/base";
 import { throwIfOffline } from "@snort/shared";
 import { EventKind, EventPublisher, NostrEvent } from "@snort/system";
+import { UploadProgressCallback, uploadWithProgress } from "./progress";
 
 export class Nip96 {
   #info?: Nip96Info;
@@ -28,14 +29,14 @@ export class Nip96 {
     return data;
   }
 
-  async upload(file: File) {
+  async upload(file: File, onProgress?: UploadProgressCallback) {
     const fd = new FormData();
     fd.append("size", file.size.toString());
     fd.append("caption", file.name);
     fd.append("content_type", file.type);
     fd.append("file", file);
 
-    const rsp = await this.#req("", "POST", fd);
+    const rsp = await this.#req("", "POST", fd, onProgress);
     const data = await this.#handleResponse<Nip96Result>(rsp);
     if (data.status !== "success") {
       throw new Error(data.message);
@@ -57,7 +58,7 @@ export class Nip96 {
     }
   }
 
-  async #req(path: string, method: "GET" | "POST" | "DELETE", body?: BodyInit) {
+  async #req(path: string, method: "GET" | "POST" | "DELETE", body?: BodyInit, onProgress?: UploadProgressCallback) {
     throwIfOffline();
     const auth = async (url: string, method: string) => {
       const auth = await this.publisher.generic((eb) => {
@@ -77,13 +78,22 @@ export class Nip96 {
       u = `${this.url}${u.slice(1)}`;
     }
     u += path;
+
+    const requestHeaders = {
+      accept: "application/json",
+      authorization: await auth(u, method),
+    };
+
+    // Use progress-enabled upload for POST requests with FormData
+    if (method === "POST" && body && onProgress) {
+      return await uploadWithProgress(u, method, body, requestHeaders, onProgress);
+    }
+
+    // Fall back to regular fetch for other requests
     return await fetch(u, {
       method,
       body,
-      headers: {
-        accept: "application/json",
-        authorization: await auth(u, method),
-      },
+      headers: requestHeaders,
     });
   }
 }

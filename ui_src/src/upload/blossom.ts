@@ -1,6 +1,7 @@
 import { base64, bytesToString } from "@scure/base";
 import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
+import { UploadProgressCallback, uploadWithProgress } from "./progress";
 
 export interface BlobDescriptor {
   url?: string;
@@ -28,14 +29,14 @@ export class Blossom {
     }
   }
 
-  async upload(file: File): Promise<BlobDescriptor> {
+  async upload(file: File, onProgress?: UploadProgressCallback): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("upload", "PUT", "upload", file, tags);
+    const rsp = await this.#req("upload", "PUT", "upload", file, tags, undefined, onProgress);
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -44,14 +45,14 @@ export class Blossom {
     }
   }
 
-  async media(file: File): Promise<BlobDescriptor> {
+  async media(file: File, onProgress?: UploadProgressCallback): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("media", "PUT", "media", file, tags);
+    const rsp = await this.#req("media", "PUT", "media", file, tags, undefined, onProgress);
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -106,6 +107,7 @@ export class Blossom {
     body?: BodyInit,
     tags?: Array<Array<string>>,
     headers?: Record<string, string>,
+    onProgress?: UploadProgressCallback,
   ) {
     throwIfOffline();
 
@@ -126,14 +128,22 @@ export class Blossom {
       )}`;
     };
 
+    const requestHeaders = {
+      ...headers,
+      accept: "application/json",
+      authorization: await auth(url, method),
+    };
+
+    // Use progress-enabled upload for PUT requests with body
+    if (method === "PUT" && body && onProgress) {
+      return await uploadWithProgress(url, method, body, requestHeaders, onProgress);
+    }
+
+    // Fall back to regular fetch for other requests
     return await fetch(url, {
       method,
       body,
-      headers: {
-        ...headers,
-        accept: "application/json",
-        authorization: await auth(url, method),
-      },
+      headers: requestHeaders,
     });
   }
 }
