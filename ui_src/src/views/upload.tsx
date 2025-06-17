@@ -3,8 +3,8 @@ import Button from "../components/button";
 import FileList from "./files";
 import PaymentFlow from "../components/payment";
 import ProgressBar from "../components/progress-bar";
-import { openFile } from "../upload";
-import { Blossom } from "../upload/blossom";
+import { openFiles } from "../upload";
+import { Blossom, BlobDescriptor } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
@@ -13,12 +13,10 @@ import { FormatBytes } from "../const";
 import { UploadProgress } from "../upload/progress";
 
 export default function Upload() {
-  const [type, setType] = useState<"blossom" | "nip96">("blossom");
   const [noCompress, setNoCompress] = useState(false);
-  const [toUpload, setToUpload] = useState<File>();
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
-  const [results, setResults] = useState<Array<object>>([]);
+  const [results, setResults] = useState<Array<BlobDescriptor>>([]);
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [listedPage, setListedPage] = useState(0);
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
@@ -30,9 +28,15 @@ export default function Upload() {
 
   const url =
     import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
-  async function doUpload() {
+  
+  // Check if file should have compression enabled by default
+  const shouldCompress = (file: File) => {
+    return file.type.startsWith('video/') || file.type.startsWith('image/');
+  };
+
+  async function doUpload(file: File) {
     if (!pub) return;
-    if (!toUpload) return;
+    if (!file) return;
     if (isUploading) return; // Prevent multiple uploads
 
     try {
@@ -44,19 +48,13 @@ export default function Upload() {
         setUploadProgress(progress);
       };
 
-      if (type === "blossom") {
-        const uploader = new Blossom(url, pub);
-        const result = noCompress
-          ? await uploader.upload(toUpload, onProgress)
-          : await uploader.media(toUpload, onProgress);
-        setResults((s) => [...s, result]);
-      }
-      if (type === "nip96") {
-        const uploader = new Nip96(url, pub);
-        await uploader.loadInfo();
-        const result = await uploader.upload(toUpload, onProgress);
-        setResults((s) => [...s, result]);
-      }
+      const uploader = new Blossom(url, pub);
+      // Use compression by default for video and image files, unless explicitly disabled
+      const useCompression = shouldCompress(file) && !noCompress;
+      const result = useCompression
+        ? await uploader.media(file, onProgress)
+        : await uploader.upload(file, onProgress);
+      setResults((s) => [...s, result]);
     } catch (e) {
       if (e instanceof Error) {
         setError(e.message || "Upload failed - no error details provided");
@@ -68,6 +66,27 @@ export default function Upload() {
     } finally {
       setIsUploading(false);
       setUploadProgress(undefined);
+    }
+  }
+
+  async function handleFileSelection() {
+    if (isUploading) return;
+    
+    try {
+      const files = await openFiles();
+      if (!files || files.length === 0) return;
+      
+      // Start uploading each file immediately
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        await doUpload(file);
+      }
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message || "File selection failed");
+      } else {
+        setError("File selection failed");
+      }
     }
   }
 
@@ -147,39 +166,9 @@ export default function Upload() {
       )}
 
       <div className="card">
-        <h2 className="text-xl font-semibold mb-6">Upload Settings</h2>
+        <h2 className="text-xl font-semibold mb-6">Upload Files</h2>
 
         <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-3">
-              Upload Method
-            </label>
-            <div className="flex gap-6">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  checked={type === "blossom"}
-                  onChange={() => setType("blossom")}
-                  className="mr-2"
-                />
-                <span className="text-sm font-medium text-gray-300">
-                  Blossom
-                </span>
-              </label>
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="radio"
-                  checked={type === "nip96"}
-                  onChange={() => setType("nip96")}
-                  className="mr-2"
-                />
-                <span className="text-sm font-medium text-gray-300">
-                  NIP-96
-                </span>
-              </label>
-            </div>
-          </div>
-
           <div>
             <label className="flex items-center cursor-pointer">
               <input
@@ -189,42 +178,25 @@ export default function Upload() {
                 className="mr-2"
               />
               <span className="text-sm font-medium text-gray-300">
-                Disable Compression
+                Disable Compression (for images and videos)
               </span>
             </label>
           </div>
-
-          {toUpload && (
-            <div className="border-2 border-dashed border-gray-600 rounded-lg p-4">
-              <FileList files={[toUpload]} />
-            </div>
-          )}
 
           {/* Upload Progress */}
           {isUploading && uploadProgress && (
             <ProgressBar 
               progress={uploadProgress} 
-              fileName={toUpload?.name}
             />
           )}
 
           <div className="flex gap-4">
             <Button
-              onClick={async () => {
-                const f = await openFile();
-                setToUpload(f);
-              }}
-              className="btn-secondary flex-1"
+              onClick={handleFileSelection}
+              className="btn-primary flex-1"
               disabled={isUploading}
             >
-              Choose File
-            </Button>
-            <Button
-              onClick={doUpload}
-              disabled={!toUpload || isUploading}
-              className="btn-primary flex-1"
-            >
-              {isUploading ? "Uploading..." : "Upload"}
+              {isUploading ? "Uploading..." : "Select Files to Upload"}
             </Button>
           </div>
         </div>
@@ -232,22 +204,31 @@ export default function Upload() {
 
       {self && (
         <div className="card max-w-2xl mx-auto">
-          <h3 className="text-lg font-semibold mb-4">Storage Quota</h3>
+          <h3 className="text-lg font-semibold mb-4">Storage Usage</h3>
           <div className="space-y-4">
+            {/* File Count */}
+            <div className="flex justify-between text-sm">
+              <span>Files:</span>
+              <span className="font-medium">
+                {self.file_count.toLocaleString()}
+              </span>
+            </div>
+
+            {/* Total Usage */}
+            <div className="flex justify-between text-sm">
+              <span>Total Size:</span>
+              <span className="font-medium">
+                {FormatBytes(self.total_size)}
+              </span>
+            </div>
+
+            {/* Only show quota information if available */}
             {self.total_available_quota && self.total_available_quota > 0 && (
               <>
-                {/* File Count */}
-                <div className="flex justify-between text-sm">
-                  <span>Files:</span>
-                  <span className="font-medium">
-                    {self.file_count.toLocaleString()}
-                  </span>
-                </div>
-
                 {/* Progress Bar */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>Used:</span>
+                    <span>Quota Used:</span>
                     <span className="font-medium">
                       {FormatBytes(self.total_size)} of{" "}
                       {FormatBytes(self.total_available_quota)}
@@ -295,16 +276,8 @@ export default function Upload() {
                   </div>
                 </div>
 
-                {/* Quota Breakdown */}
+                {/* Quota Breakdown - excluding free quota */}
                 <div className="space-y-2 pt-2 border-t border-gray-700">
-                  {self.free_quota && self.free_quota > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span>Free Quota:</span>
-                      <span className="font-medium">
-                        {FormatBytes(self.free_quota)}
-                      </span>
-                    </div>
-                  )}
                   {(self.quota ?? 0) > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>Paid Quota:</span>
@@ -341,16 +314,6 @@ export default function Upload() {
                   )}
                 </div>
               </>
-            )}
-
-            {(!self.total_available_quota ||
-              self.total_available_quota === 0) && (
-              <div className="text-center py-4 text-gray-400">
-                <p>No quota information available</p>
-                <p className="text-sm">
-                  Contact administrator for storage access
-                </p>
-              </div>
             )}
           </div>
           <Button
@@ -402,7 +365,7 @@ export default function Upload() {
         <div className="card">
           <h3 className="text-lg font-semibold mb-4">Upload Results</h3>
           <div className="space-y-4">
-            {results.map((result: any, index) => (
+            {results.map((result, index) => (
               <div
                 key={index}
                 className="bg-gray-800 border border-gray-700 rounded-lg p-4"
@@ -432,62 +395,22 @@ export default function Upload() {
                       {FormatBytes(result.size || 0)}
                     </p>
                   </div>
-                  {result.nip94?.find((tag: any[]) => tag[0] === "dim") && (
-                    <div>
-                      <p className="text-sm text-gray-400">Dimensions</p>
-                      <p className="font-medium">
-                        {
-                          result.nip94.find(
-                            (tag: any[]) => tag[0] === "dim",
-                          )?.[1]
-                        }
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <div>
-                    <p className="text-sm text-gray-400 mb-1">File URL</p>
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs bg-gray-900 text-green-400 px-2 py-1 rounded flex-1 overflow-hidden">
-                        {result.url}
-                      </code>
-                      <button
-                        onClick={() =>
-                          navigator.clipboard.writeText(result.url)
-                        }
-                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition-colors"
-                        title="Copy URL"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-
-                  {result.nip94?.find((tag: any[]) => tag[0] === "thumb") && (
+                  {result.url && (
                     <div>
-                      <p className="text-sm text-gray-400 mb-1">
-                        Thumbnail URL
-                      </p>
+                      <p className="text-sm text-gray-400 mb-1">File URL</p>
                       <div className="flex items-center gap-2">
-                        <code className="text-xs bg-gray-900 text-blue-400 px-2 py-1 rounded flex-1 overflow-hidden">
-                          {
-                            result.nip94.find(
-                              (tag: any[]) => tag[0] === "thumb",
-                            )?.[1]
-                          }
+                        <code className="text-xs bg-gray-900 text-green-400 px-2 py-1 rounded flex-1 overflow-hidden">
+                          {result.url}
                         </code>
                         <button
                           onClick={() =>
-                            navigator.clipboard.writeText(
-                              result.nip94.find(
-                                (tag: any[]) => tag[0] === "thumb",
-                              )?.[1],
-                            )
+                            navigator.clipboard.writeText(result.url!)
                           }
                           className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition-colors"
-                          title="Copy Thumbnail URL"
+                          title="Copy URL"
                         >
                           Copy
                         </button>

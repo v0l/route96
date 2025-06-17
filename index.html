@@ -66,13 +66,7 @@
                 const file = input.files[0];
                 console.debug(file);
 
-                const r_nip96 = document.querySelector("#method-nip96").checked;
-                const r_blossom = document.querySelector("#method-blossom").checked;
-                if (r_nip96) {
-                    await uploadFilesNip96(file)
-                } else if (r_blossom) {
-                    await uploadBlossom(file);
-                }
+                await uploadBlossom(file);
             } catch (ex) {
                 if (ex instanceof Error) {
                     alert(ex.message);
@@ -148,14 +142,7 @@
 </h1>
 <div class="flex flex-col gap-2">
     <div>
-        <label>
-            NIP-96
-            <input type="radio" name="method" id="method-nip96"/>
-        </label>
-        <label>
-            Blossom
-            <input type="radio" name="method" id="method-blossom"/>
-        </label>
+        <p>Using Blossom upload protocol</p>
     </div>
     <div style="color: #ff8383;">
         You must have a nostr extension for this to work
@@ -164,7 +151,7 @@
     <div>
         <input type="checkbox" id="no_transform">
         <label for="no_transform">
-            Disable compression (images)
+            Disable compression (videos and images)
         </label>
     </div>
     <div>
