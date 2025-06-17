@@ -465,7 +465,7 @@ where
             }
         }
     }
-    if let Err(e) = db.add_file(&upload, user_id).await {
+    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
         error!("{}", e);
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {
