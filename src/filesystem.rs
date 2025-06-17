@@ -10,6 +10,7 @@ use anyhow::Error;
 use anyhow::Result;
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::DemuxerInfo;
+#[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::StreamInfo;
 #[cfg(feature = "media-compression")]
 use rocket::form::validate::Contains;
