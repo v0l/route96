@@ -234,8 +234,9 @@ impl Database {
     ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
         let mut q = QueryBuilder::new("select u.* from uploads u ");
         if let Some(m) = mime_type {
-            q.push("where u.mime_type like ");
+            q.push("where INSTR(");
             q.push_bind(m);
+            q.push(",u.mime_type) = 0");
         }
         q.push(" order by u.created desc limit ");
         q.push_bind(limit);
