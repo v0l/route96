@@ -1,5 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, User, Report};
+use crate::db::{Database, FileUpload, Report, User};
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
@@ -8,7 +8,12 @@ use rocket::{routes, Responder, Route, State};
 use sqlx::{Error, QueryBuilder, Row};
 
 pub fn admin_routes() -> Vec<Route> {
-    routes![admin_list_files, admin_get_self, admin_list_reports, admin_acknowledge_report]
+    routes![
+        admin_list_files,
+        admin_get_self,
+        admin_list_reports,
+        admin_acknowledge_report
+    ]
 }
 
 #[derive(Serialize, Default)]
@@ -71,7 +76,11 @@ pub struct AdminNip94File {
 }
 
 #[rocket::get("/self")]
-async fn admin_get_self(auth: Nip98Auth, db: &State<Database>, settings: &State<Settings>) -> AdminResponse<SelfUser> {
+async fn admin_get_self(
+    auth: Nip98Auth,
+    db: &State<Database>,
+    settings: &State<Settings>,
+) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     match db.get_user(&pubkey_vec).await {
         Ok(user) => {
@@ -84,18 +93,20 @@ async fn admin_get_self(auth: Nip98Auth, db: &State<Database>, settings: &State<
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                let free_quota = settings.payments.as_ref()
+                let free_quota = settings
+                    .payments
+                    .as_ref()
                     .and_then(|p| p.free_quota_bytes)
                     .unwrap_or(104857600);
                 let mut total_available = free_quota;
-                
+
                 // Add paid quota if still valid
                 if let Some(paid_until) = &user.paid_until {
                     if *paid_until > chrono::Utc::now() {
                         total_available += user.paid_size;
                     }
                 }
-                
+
                 (free_quota, total_available)
             };
 
@@ -223,7 +234,7 @@ impl Database {
     ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
         let mut q = QueryBuilder::new("select u.* from uploads u ");
         if let Some(m) = mime_type {
-            q.push("where u.mime_type = ");
+            q.push("where u.mime_type like ");
             q.push_bind(m);
         }
         q.push(" order by u.created desc limit ");
