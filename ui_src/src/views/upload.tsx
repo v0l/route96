@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import Button from "../components/button";
 import FileList from "./files";
 import PaymentFlow from "../components/payment";
+import ProgressBar from "../components/progress-bar";
 import { openFile } from "../upload";
 import { Blossom } from "../upload/blossom";
 import useLogin from "../hooks/login";
@@ -9,6 +10,7 @@ import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
 import { AdminSelf, Route96 } from "../upload/admin";
 import { FormatBytes } from "../const";
+import { UploadProgress } from "../upload/progress";
 
 export default function Upload() {
   const [type, setType] = useState<"blossom" | "nip96">("blossom");
@@ -20,6 +22,8 @@ export default function Upload() {
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [listedPage, setListedPage] = useState(0);
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress>();
 
   const login = useLogin();
   const pub = usePublisher();
@@ -29,19 +33,28 @@ export default function Upload() {
   async function doUpload() {
     if (!pub) return;
     if (!toUpload) return;
+    if (isUploading) return; // Prevent multiple uploads
+
     try {
       setError(undefined);
+      setIsUploading(true);
+      setUploadProgress(undefined);
+
+      const onProgress = (progress: UploadProgress) => {
+        setUploadProgress(progress);
+      };
+
       if (type === "blossom") {
         const uploader = new Blossom(url, pub);
         const result = noCompress
-          ? await uploader.upload(toUpload)
-          : await uploader.media(toUpload);
+          ? await uploader.upload(toUpload, onProgress)
+          : await uploader.media(toUpload, onProgress);
         setResults((s) => [...s, result]);
       }
       if (type === "nip96") {
         const uploader = new Nip96(url, pub);
         await uploader.loadInfo();
-        const result = await uploader.upload(toUpload);
+        const result = await uploader.upload(toUpload, onProgress);
         setResults((s) => [...s, result]);
       }
     } catch (e) {
@@ -52,6 +65,9 @@ export default function Upload() {
       } else {
         setError("Upload failed");
       }
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(undefined);
     }
   }
 
@@ -184,6 +200,14 @@ export default function Upload() {
             </div>
           )}
 
+          {/* Upload Progress */}
+          {isUploading && uploadProgress && (
+            <ProgressBar 
+              progress={uploadProgress} 
+              fileName={toUpload?.name}
+            />
+          )}
+
           <div className="flex gap-4">
             <Button
               onClick={async () => {
@@ -191,15 +215,16 @@ export default function Upload() {
                 setToUpload(f);
               }}
               className="btn-secondary flex-1"
+              disabled={isUploading}
             >
               Choose File
             </Button>
             <Button
               onClick={doUpload}
-              disabled={!toUpload}
+              disabled={!toUpload || isUploading}
               className="btn-primary flex-1"
             >
-              Upload
+              {isUploading ? "Uploading..." : "Upload"}
             </Button>
           </div>
         </div>
