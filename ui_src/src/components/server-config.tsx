@@ -7,13 +7,20 @@ interface ServerConfigProps {
 
 const STORAGE_KEY = "blossom-servers";
 
+// Default servers from BUD-03 specification
+// https://github.com/hzrd149/blossom/blob/master/buds/03.md
+const DEFAULT_SERVERS = [
+  "https://cdn.satellite.earth",
+  "https://cdn.self.hosted"
+];
+
 export default function ServerConfig({ onServersChange }: ServerConfigProps) {
   const [servers, setServers] = useState<string[]>([]);
   const [newServer, setNewServer] = useState("");
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    // Load servers from localStorage
+    // Load servers from localStorage or use defaults
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -21,10 +28,19 @@ export default function ServerConfig({ onServersChange }: ServerConfigProps) {
         if (Array.isArray(parsedServers)) {
           setServers(parsedServers);
           onServersChange(parsedServers);
+          return;
         }
       }
+      
+      // If no stored servers, use defaults from BUD-03
+      setServers(DEFAULT_SERVERS);
+      onServersChange(DEFAULT_SERVERS);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_SERVERS));
     } catch (e) {
       console.error("Failed to load servers from localStorage:", e);
+      // Fallback to defaults
+      setServers(DEFAULT_SERVERS);
+      onServersChange(DEFAULT_SERVERS);
     }
   }, [onServersChange]);
 
@@ -80,7 +96,9 @@ export default function ServerConfig({ onServersChange }: ServerConfigProps) {
     <div className="card">
       <h3 className="text-lg font-semibold mb-4">Blossom Servers</h3>
       <p className="text-gray-400 mb-4">
-        Configure your blossom servers to get mirror suggestions across them.
+        Configure your blossom servers to get mirror suggestions across them. 
+        Defaults loaded from <a href="https://github.com/hzrd149/blossom/blob/master/buds/03.md" 
+        target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">BUD-03</a>.
       </p>
 
       {error && (

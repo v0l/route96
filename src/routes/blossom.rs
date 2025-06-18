@@ -57,7 +57,7 @@ struct MirrorRequest {
 
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
-    let mut routes = routes![
+    routes![
         delete_blob,
         upload,
         list_files,
@@ -65,32 +65,20 @@ pub fn blossom_routes() -> Vec<Route> {
         upload_media,
         head_media,
         mirror,
-    ];
-    
-    #[cfg(feature = "payments")]
-    {
-        routes.extend(routes![report_file]);
-    }
-    
-    routes
+        report_file
+    ]
 }
 
 #[cfg(not(feature = "media-compression"))]
 pub fn blossom_routes() -> Vec<Route> {
-    let mut routes = routes![
+    routes![
         delete_blob,
         upload,
         list_files,
         upload_head,
         mirror,
-    ];
-    
-    #[cfg(feature = "payments")]
-    {
-        routes.extend(routes![report_file]);
-    }
-    
-    routes
+        report_file
+    ]
 }
 
 /// Generic holder response, mostly for errors
@@ -485,7 +473,6 @@ where
     }
 }
 
-#[cfg(feature = "payments")]
 #[rocket::put("/report", data = "<data>", format = "json")]
 async fn report_file(
     auth: BlossomAuth,

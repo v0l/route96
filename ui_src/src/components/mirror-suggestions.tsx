@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BlobDescriptor, Blossom } from "../upload/blossom";
+import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import Button from "./button";
 import usePublisher from "../hooks/publisher";
@@ -103,7 +103,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     
     try {
       const blossom = new Blossom(targetServer, pub);
-      await blossom.mirror(suggestion.sha256, suggestion.url);
+      await blossom.mirror(suggestion.url);
       
       // Update suggestions by removing this server from missing_from
       setSuggestions(prev => 
