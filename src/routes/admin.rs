@@ -12,7 +12,7 @@ pub fn admin_routes() -> Vec<Route> {
         admin_list_files,
         admin_get_self,
         admin_list_reports,
-        admin_acknowledge_report
+        admin_acknowledge_report,
     ]
 }
 

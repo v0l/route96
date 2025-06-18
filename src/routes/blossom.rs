@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
+use nostr::{Alphabet, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct BlobDescriptor {
     pub url: String,
