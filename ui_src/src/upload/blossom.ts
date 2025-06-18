@@ -65,7 +65,7 @@ export class Blossom {
     const rsp = await this.#req(
       "mirror",
       "PUT",
-      "mirror",
+      "upload",
       JSON.stringify({ url }),
       undefined,
       {

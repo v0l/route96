@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, SingleLetterTag, TagKind};
+use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -15,6 +15,7 @@ use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
+use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
@@ -225,15 +226,25 @@ async fn mirror(
     settings: &State<Settings>,
     req: Json<MirrorRequest>,
 ) -> BlossomResponse {
-    if !check_method(&auth.event, "mirror") {
+    if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
     if let Some(e) = check_whitelist(&auth, settings) {
         return e;
     }
 
+    let url = match Url::parse(&req.url) {
+        Ok(u) => u,
+        Err(e) => return BlossomResponse::error(format!("Invalid URL: {}", e)),
+    };
+
+    let hash = url
+        .path_segments()
+        .and_then(|mut c| c.next_back())
+        .and_then(|s| s.split(".").next());
+
     // download file
-    let rsp = match reqwest::get(&req.url).await {
+    let rsp = match reqwest::get(url.clone()).await {
         Err(e) => {
             error!("Error downloading file: {}", e);
             return BlossomResponse::error("Failed to mirror file");
@@ -250,9 +261,10 @@ async fn mirror(
     let pubkey = auth.event.pubkey.to_bytes().to_vec();
 
     process_stream(
-        StreamReader::new(rsp.bytes_stream().map(|result| {
-            result.map_err(std::io::Error::other)
-        })),
+        StreamReader::new(
+            rsp.bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other)),
+        ),
         &mime_type,
         &None,
         &pubkey,
@@ -261,6 +273,7 @@ async fn mirror(
         fs,
         db,
         settings,
+        hash.and_then(|h| hex::decode(h).ok()),
     )
     .await
 }
@@ -353,7 +366,7 @@ async fn process_upload(
             None
         }
     });
-    
+
     let size = size_tag.or(auth.x_content_length).unwrap_or(0);
     if size > 0 && size > settings.max_upload_bytes {
         return BlossomResponse::error("File too large");
@@ -367,15 +380,11 @@ async fn process_upload(
     // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
     if let Some(payment_config) = &settings.payments {
-        let free_quota = payment_config.free_quota_bytes
-            .unwrap_or(104857600); // Default to 100MB
+        let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
         if size > 0 {
-            match db
-                .check_user_quota(&pubkey_vec, size, free_quota)
-                .await
-            {
+            match db.check_user_quota(&pubkey_vec, size, free_quota).await {
                 Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
                 Err(_) => return BlossomResponse::error("Failed to check quota"),
                 Ok(true) => {} // Quota check passed
@@ -395,6 +404,7 @@ async fn process_upload(
         fs,
         db,
         settings,
+        None,
     )
     .await
 }
@@ -409,6 +419,7 @@ async fn process_stream<'p, S>(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    expect_hash: Option<Vec<u8>>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
@@ -417,6 +428,15 @@ where
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
 
+            // check expected hash (mirroring)
+            if let Some(h) = expect_hash {
+                if h != ret.id {
+                    if let Err(e) = tokio::fs::remove_file(fs.get(&ret.id)).await {
+                        log::warn!("Failed to cleanup file: {}", e);
+                    }
+                    return BlossomResponse::error("Mirror request failed, server responses with invalid file content (hash mismatch)");
+                }
+            }
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
 
@@ -443,9 +463,8 @@ where
     #[cfg(feature = "payments")]
     if size == 0 {
         if let Some(payment_config) = &settings.payments {
-            let free_quota = payment_config.free_quota_bytes
-                .unwrap_or(104857600); // Default to 100MB
-            
+            let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
+
             match db.check_user_quota(pubkey, upload.size, free_quota).await {
                 Ok(false) => {
                     // Clean up the uploaded file if quota exceeded

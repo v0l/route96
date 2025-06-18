@@ -43,3 +43,6 @@ export function FormatBytes(b: number, f?: number) {
   if (b >= kiB) return (b / kiB).toFixed(f) + " KiB";
   return b.toFixed(f) + " B";
 }
+
+export const ServerUrl =
+    import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;

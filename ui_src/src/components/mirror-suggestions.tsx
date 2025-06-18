@@ -35,19 +35,20 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
 
   async function fetchSuggestions() {
     if (!pub || !login?.pubkey) return;
-    
+    if (loading) return;
+
     try {
       setLoading(true);
       setError(undefined);
-      
+
       const fileMap: Map<string, FileMirrorSuggestion> = new Map();
-      
+
       // Fetch files from each server
       for (const serverUrl of servers) {
         try {
           const blossom = new Blossom(serverUrl, pub);
           const files = await blossom.list(login.pubkey);
-          
+
           for (const file of files) {
             const suggestion = fileMap.get(file.sha256);
             if (suggestion) {
@@ -68,7 +69,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
           // Continue with other servers instead of failing completely
         }
       }
-      
+
       // Determine missing servers for each file
       for (const suggestion of fileMap.values()) {
         for (const serverUrl of servers) {
@@ -77,12 +78,12 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
           }
         }
       }
-      
+
       // Filter to only files that are missing from at least one server and available on at least one
       const filteredSuggestions = Array.from(fileMap.values()).filter(
         s => s.missing_from.length > 0 && s.available_on.length > 0
       );
-      
+
       setSuggestions(filteredSuggestions);
     } catch (e) {
       if (e instanceof Error) {
@@ -97,23 +98,23 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
 
   async function mirrorFile(suggestion: FileMirrorSuggestion, targetServer: string) {
     if (!pub) return;
-    
+
     const mirrorKey = `${suggestion.sha256}-${targetServer}`;
     setMirroring(prev => new Set(prev.add(mirrorKey)));
-    
+
     try {
       const blossom = new Blossom(targetServer, pub);
       await blossom.mirror(suggestion.url);
-      
+
       // Update suggestions by removing this server from missing_from
-      setSuggestions(prev => 
-        prev.map(s => 
-          s.sha256 === suggestion.sha256 
+      setSuggestions(prev =>
+        prev.map(s =>
+          s.sha256 === suggestion.sha256
             ? {
-                ...s,
-                available_on: [...s.available_on, targetServer],
-                missing_from: s.missing_from.filter(server => server !== targetServer)
-              }
+              ...s,
+              available_on: [...s.available_on, targetServer],
+              missing_from: s.missing_from.filter(server => server !== targetServer)
+            }
             : s
         ).filter(s => s.missing_from.length > 0) // Remove suggestions with no missing servers
       );
@@ -174,14 +175,14 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
       <p className="text-gray-400 mb-6">
         The following files are missing from some of your servers and can be mirrored:
       </p>
-      
+
       <div className="space-y-4">
         {suggestions.map((suggestion) => (
           <div key={suggestion.sha256} className="bg-gray-800 border border-gray-700 rounded-lg p-4">
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1">
                 <p className="text-sm font-medium text-gray-300 mb-1">
-                  File: {suggestion.sha256.substring(0, 16)}...
+                  File: {suggestion.sha256}
                 </p>
                 <p className="text-xs text-gray-400">
                   Size: {FormatBytes(suggestion.size)}
@@ -189,7 +190,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
                 </p>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <div>
                 <p className="text-xs text-green-400 mb-1">Available on:</p>
@@ -201,14 +202,14 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
                   ))}
                 </div>
               </div>
-              
+
               <div>
                 <p className="text-xs text-red-400 mb-1">Missing from:</p>
                 <div className="flex flex-wrap gap-2">
                   {suggestion.missing_from.map((server) => {
                     const mirrorKey = `${suggestion.sha256}-${server}`;
                     const isMirroring = mirroring.has(mirrorKey);
-                    
+
                     return (
                       <div key={server} className="flex items-center gap-2">
                         <span className="text-xs bg-red-900/30 text-red-300 px-2 py-1 rounded">

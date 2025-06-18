@@ -11,7 +11,7 @@ import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96, Nip96FileList } from "../upload/nip96";
 import { AdminSelf, Route96 } from "../upload/admin";
-import { FormatBytes } from "../const";
+import { FormatBytes, ServerUrl } from "../const";
 import { UploadProgress } from "../upload/progress";
 
 export default function Upload() {
@@ -25,14 +25,11 @@ export default function Upload() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>();
 
-  const { servers: blossomServers } = useBlossomServers();
+  const blossomServers = useBlossomServers();
 
   const login = useLogin();
   const pub = usePublisher();
 
-  const url =
-    import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
-  
   // Check if file should have compression enabled by default
   const shouldCompress = (file: File) => {
     return file.type.startsWith('video/') || file.type.startsWith('image/');
@@ -52,7 +49,7 @@ export default function Upload() {
         setUploadProgress(progress);
       };
 
-      const uploader = new Blossom(url, pub);
+      const uploader = new Blossom(ServerUrl, pub);
       // Use compression by default for video and image files, unless explicitly disabled
       const useCompression = shouldCompress(file) && !noCompress;
       const result = useCompression
@@ -75,11 +72,11 @@ export default function Upload() {
 
   async function handleFileSelection() {
     if (isUploading) return;
-    
+
     try {
       const files = await openFiles();
       if (!files || files.length === 0) return;
-      
+
       // Start uploading each file immediately
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -99,7 +96,7 @@ export default function Upload() {
       if (!pub) return;
       try {
         setError(undefined);
-        const uploader = new Nip96(url, pub);
+        const uploader = new Nip96(ServerUrl, pub);
         await uploader.loadInfo();
         const result = await uploader.listFiles(n, 50);
         setListedFiles(result);
@@ -115,14 +112,14 @@ export default function Upload() {
         }
       }
     },
-    [pub, url],
+    [pub],
   );
 
   async function deleteFile(id: string) {
     if (!pub) return;
     try {
       setError(undefined);
-      const uploader = new Blossom(url, pub);
+      const uploader = new Blossom(ServerUrl, pub);
       await uploader.delete(id);
     } catch (e) {
       if (e instanceof Error) {
@@ -143,10 +140,10 @@ export default function Upload() {
 
   useEffect(() => {
     if (pub && !self) {
-      const r96 = new Route96(url, pub);
+      const r96 = new Route96(ServerUrl, pub);
       r96.getSelf().then((v) => setSelf(v.data));
     }
-  }, [pub, self, url]);
+  }, [pub, self]);
 
   if (!login) {
     return (
@@ -189,8 +186,8 @@ export default function Upload() {
 
           {/* Upload Progress */}
           {isUploading && uploadProgress && (
-            <ProgressBar 
-              progress={uploadProgress} 
+            <ProgressBar
+              progress={uploadProgress}
             />
           )}
 
@@ -240,13 +237,12 @@ export default function Upload() {
                   </div>
                   <div className="w-full bg-gray-700 rounded-full h-2.5">
                     <div
-                      className={`h-2.5 rounded-full transition-all duration-300 ${
-                        self.total_size / self.total_available_quota > 0.8
+                      className={`h-2.5 rounded-full transition-all duration-300 ${self.total_size / self.total_available_quota > 0.8
                           ? "bg-red-500"
                           : self.total_size / self.total_available_quota > 0.6
                             ? "bg-yellow-500"
                             : "bg-green-500"
-                      }`}
+                        }`}
                       style={{
                         width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
                       }}
@@ -261,13 +257,12 @@ export default function Upload() {
                       % used
                     </span>
                     <span
-                      className={`${
-                        self.total_size / self.total_available_quota > 0.8
+                      className={`${self.total_size / self.total_available_quota > 0.8
                           ? "text-red-400"
                           : self.total_size / self.total_available_quota > 0.6
                             ? "text-yellow-400"
                             : "text-green-400"
-                      }`}
+                        }`}
                     >
                       {FormatBytes(
                         Math.max(
@@ -332,7 +327,7 @@ export default function Upload() {
       {showPaymentFlow && pub && (
         <div className="card">
           <PaymentFlow
-            route96={new Route96(url, pub)}
+            route96={new Route96(ServerUrl, pub)}
             onPaymentRequested={(pr) => {
               console.log("Payment requested:", pr);
             }}
@@ -342,9 +337,9 @@ export default function Upload() {
       )}
 
       {/* Mirror Suggestions */}
-      {blossomServers.length > 1 && (
-        <MirrorSuggestions 
-          servers={blossomServers} 
+      {blossomServers && blossomServers.length > 1 && (
+        <MirrorSuggestions
+          servers={blossomServers}
         />
       )}
 
