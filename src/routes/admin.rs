@@ -8,12 +8,20 @@ use rocket::{routes, Responder, Route, State};
 use sqlx::{Error, QueryBuilder, Row};
 
 pub fn admin_routes() -> Vec<Route> {
-    routes![
+    let mut routes = routes![
         admin_list_files,
         admin_get_self,
-        admin_list_reports,
-        admin_acknowledge_report
-    ]
+    ];
+    
+    #[cfg(feature = "payments")]
+    {
+        routes.extend(routes![
+            admin_list_reports,
+            admin_acknowledge_report
+        ]);
+    }
+    
+    routes
 }
 
 #[derive(Serialize, Default)]
@@ -172,6 +180,7 @@ async fn admin_list_files(
     }
 }
 
+#[cfg(feature = "payments")]
 #[rocket::get("/reports?<page>&<count>")]
 async fn admin_list_reports(
     auth: Nip98Auth,
@@ -202,6 +211,7 @@ async fn admin_list_reports(
     }
 }
 
+#[cfg(feature = "payments")]
 #[rocket::delete("/reports/<report_id>")]
 async fn admin_acknowledge_report(
     auth: Nip98Auth,
