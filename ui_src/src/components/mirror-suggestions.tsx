@@ -1,38 +1,89 @@
 import { useState, useEffect } from "react";
-import { FileMirrorSuggestion, Blossom } from "../upload/blossom";
+import { BlobDescriptor, Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import Button from "./button";
 import usePublisher from "../hooks/publisher";
+import useLogin from "../hooks/login";
+
+interface FileMirrorSuggestion {
+  sha256: string;
+  url: string;
+  size: number;
+  mime_type?: string;
+  available_on: string[];
+  missing_from: string[];
+}
 
 interface MirrorSuggestionsProps {
   servers: string[];
-  currentServer: string;
 }
 
-export default function MirrorSuggestions({ servers, currentServer }: MirrorSuggestionsProps) {
+export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const [suggestions, setSuggestions] = useState<FileMirrorSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [mirroring, setMirroring] = useState<Set<string>>(new Set());
 
   const pub = usePublisher();
+  const login = useLogin();
 
   useEffect(() => {
-    if (servers.length > 1 && pub) {
+    if (servers.length > 1 && pub && login?.pubkey) {
       fetchSuggestions();
     }
-  }, [servers, pub]);
+  }, [servers, pub, login?.pubkey]);
 
   async function fetchSuggestions() {
-    if (!pub) return;
+    if (!pub || !login?.pubkey) return;
     
     try {
       setLoading(true);
       setError(undefined);
       
-      const blossom = new Blossom(currentServer, pub);
-      const result = await blossom.getMirrorSuggestions(servers);
-      setSuggestions(result.suggestions);
+      const fileMap: Map<string, FileMirrorSuggestion> = new Map();
+      
+      // Fetch files from each server
+      for (const serverUrl of servers) {
+        try {
+          const blossom = new Blossom(serverUrl, pub);
+          const files = await blossom.list(login.pubkey);
+          
+          for (const file of files) {
+            const suggestion = fileMap.get(file.sha256);
+            if (suggestion) {
+              suggestion.available_on.push(serverUrl);
+            } else {
+              fileMap.set(file.sha256, {
+                sha256: file.sha256,
+                url: file.url || "",
+                size: file.size,
+                mime_type: file.type,
+                available_on: [serverUrl],
+                missing_from: [],
+              });
+            }
+          }
+        } catch (e) {
+          console.error(`Failed to fetch files from ${serverUrl}:`, e);
+          // Continue with other servers instead of failing completely
+        }
+      }
+      
+      // Determine missing servers for each file
+      for (const suggestion of fileMap.values()) {
+        for (const serverUrl of servers) {
+          if (!suggestion.available_on.includes(serverUrl)) {
+            suggestion.missing_from.push(serverUrl);
+          }
+        }
+      }
+      
+      // Filter to only files that are missing from at least one server and available on at least one
+      const filteredSuggestions = Array.from(fileMap.values()).filter(
+        s => s.missing_from.length > 0 && s.available_on.length > 0
+      );
+      
+      setSuggestions(filteredSuggestions);
     } catch (e) {
       if (e instanceof Error) {
         setError(e.message);
@@ -52,7 +103,7 @@ export default function MirrorSuggestions({ servers, currentServer }: MirrorSugg
     
     try {
       const blossom = new Blossom(targetServer, pub);
-      await blossom.mirror(suggestion.url);
+      await blossom.mirror(suggestion.sha256, suggestion.url);
       
       // Update suggestions by removing this server from missing_from
       setSuggestions(prev => 

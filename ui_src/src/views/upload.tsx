@@ -359,7 +359,6 @@ export default function Upload() {
       {blossomServers.length > 1 && (
         <MirrorSuggestions 
           servers={blossomServers} 
-          currentServer={url}
         />
       )}
 
