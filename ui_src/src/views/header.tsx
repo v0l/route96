@@ -43,7 +43,7 @@ export default function Header() {
 
   return (
     <header className="border-b border-gray-700 bg-gray-800 w-full">
-      <div className="px-4 sm:px-6 lg:px-8 flex justify-between items-center py-4">
+      <div className="px-4 flex justify-between items-center py-4">
         <div className="flex items-center space-x-8">
           <Link to="/">
             <div className="text-2xl font-bold text-gray-100 hover:text-blue-400 transition-colors">

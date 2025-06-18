@@ -15,7 +15,7 @@ import { FormatBytes, ServerUrl } from "../const";
 import { UploadProgress } from "../upload/progress";
 
 export default function Upload() {
-  const [noCompress, setNoCompress] = useState(false);
+  const [stripMetadata, setStripMetadata] = useState(true);
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
   const [results, setResults] = useState<Array<BlobDescriptor>>([]);
@@ -50,8 +50,8 @@ export default function Upload() {
       };
 
       const uploader = new Blossom(ServerUrl, pub);
-      // Use compression by default for video and image files, unless explicitly disabled
-      const useCompression = shouldCompress(file) && !noCompress;
+      // Use compression for video and image files when metadata stripping is enabled
+      const useCompression = shouldCompress(file) && stripMetadata;
       const result = useCompression
         ? await uploader.media(file, onProgress)
         : await uploader.upload(file, onProgress);
@@ -159,294 +159,303 @@ export default function Upload() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="w-full px-4">
       {error && (
-        <div className="bg-red-900/20 border border-red-800 text-red-400 px-4 py-3 rounded-lg">
+        <div className="bg-red-900/20 border border-red-800 text-red-400 px-4 py-3 rounded-lg mb-6">
           {error}
         </div>
       )}
 
-      <div className="card">
-        <h2 className="text-xl font-semibold mb-6">Upload Files</h2>
+      <div className="flex flex-wrap gap-6">
+        {/* Upload Widget */}
+        <div className="card flex-1 min-w-80">
+          <h2 className="text-xl font-semibold mb-6">Upload Files</h2>
 
-        <div className="space-y-6">
-          <div>
-            <label className="flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={noCompress}
-                onChange={(e) => setNoCompress(e.target.checked)}
-                className="mr-2"
+          <div className="space-y-6">
+            <div>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stripMetadata}
+                  onChange={(e) => setStripMetadata(e.target.checked)}
+                  className="mr-2"
+                />
+                <span className="text-sm font-medium text-gray-300">
+                  Strip metadata (for images)
+                </span>
+              </label>
+            </div>
+
+            {/* Upload Progress */}
+            {isUploading && uploadProgress && (
+              <ProgressBar
+                progress={uploadProgress}
               />
-              <span className="text-sm font-medium text-gray-300">
-                Disable Compression (for images and videos)
-              </span>
-            </label>
-          </div>
+            )}
 
-          {/* Upload Progress */}
-          {isUploading && uploadProgress && (
-            <ProgressBar
-              progress={uploadProgress}
-            />
-          )}
-
-          <div className="flex gap-4">
-            <Button
-              onClick={handleFileSelection}
-              className="btn-primary flex-1"
-              disabled={isUploading}
-            >
-              {isUploading ? "Uploading..." : "Select Files to Upload"}
-            </Button>
+            <div className="flex gap-4">
+              <Button
+                onClick={handleFileSelection}
+                className="btn-primary flex-1"
+                disabled={isUploading}
+              >
+                {isUploading ? "Uploading..." : "Select Files to Upload"}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {self && (
-        <div className="card max-w-2xl mx-auto">
-          <h3 className="text-lg font-semibold mb-4">Storage Usage</h3>
-          <div className="space-y-4">
-            {/* File Count */}
-            <div className="flex justify-between text-sm">
-              <span>Files:</span>
-              <span className="font-medium">
-                {self.file_count.toLocaleString()}
-              </span>
-            </div>
+        {/* Storage Usage Widget */}
+        {self && (
+          <div className="card flex-1 min-w-80">
+            <h3 className="text-lg font-semibold mb-4">Storage Usage</h3>
+            <div className="space-y-4">
+              {/* File Count */}
+              <div className="flex justify-between text-sm">
+                <span>Files:</span>
+                <span className="font-medium">
+                  {self.file_count.toLocaleString()}
+                </span>
+              </div>
 
-            {/* Total Usage */}
-            <div className="flex justify-between text-sm">
-              <span>Total Size:</span>
-              <span className="font-medium">
-                {FormatBytes(self.total_size)}
-              </span>
-            </div>
+              {/* Total Usage */}
+              <div className="flex justify-between text-sm">
+                <span>Total Size:</span>
+                <span className="font-medium">
+                  {FormatBytes(self.total_size)}
+                </span>
+              </div>
 
-            {/* Only show quota information if available */}
-            {self.total_available_quota && self.total_available_quota > 0 && (
-              <>
-                {/* Progress Bar */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Quota Used:</span>
-                    <span className="font-medium">
-                      {FormatBytes(self.total_size)} of{" "}
-                      {FormatBytes(self.total_available_quota)}
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-700 rounded-full h-2.5">
-                    <div
-                      className={`h-2.5 rounded-full transition-all duration-300 ${self.total_size / self.total_available_quota > 0.8
-                          ? "bg-red-500"
-                          : self.total_size / self.total_available_quota > 0.6
-                            ? "bg-yellow-500"
-                            : "bg-green-500"
-                        }`}
-                      style={{
-                        width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
-                      }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-400">
-                    <span>
-                      {(
-                        (self.total_size / self.total_available_quota) *
-                        100
-                      ).toFixed(1)}
-                      % used
-                    </span>
-                    <span
-                      className={`${self.total_size / self.total_available_quota > 0.8
-                          ? "text-red-400"
-                          : self.total_size / self.total_available_quota > 0.6
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }`}
-                    >
-                      {FormatBytes(
-                        Math.max(
-                          0,
-                          self.total_available_quota - self.total_size,
-                        ),
-                      )}{" "}
-                      remaining
-                    </span>
-                  </div>
-                </div>
-
-                {/* Quota Breakdown - excluding free quota */}
-                <div className="space-y-2 pt-2 border-t border-gray-700">
-                  {(self.quota ?? 0) > 0 && (
+              {/* Only show quota information if available */}
+              {self.total_available_quota && self.total_available_quota > 0 && (
+                <>
+                  {/* Progress Bar */}
+                  <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span>Paid Quota:</span>
+                      <span>Quota Used:</span>
                       <span className="font-medium">
-                        {FormatBytes(self.quota!)}
+                        {FormatBytes(self.total_size)} of{" "}
+                        {FormatBytes(self.total_available_quota)}
                       </span>
                     </div>
-                  )}
-                  {(self.paid_until ?? 0) > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span>Expires:</span>
-                      <div className="text-right">
-                        <div className="font-medium">
-                          {new Date(
-                            self.paid_until! * 1000,
-                          ).toLocaleDateString()}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {(() => {
-                            const now = Date.now() / 1000;
-                            const daysLeft = Math.max(
-                              0,
-                              Math.ceil(
-                                (self.paid_until! - now) / (24 * 60 * 60),
-                              ),
-                            );
-                            return daysLeft > 0
-                              ? `${daysLeft} days left`
-                              : "Expired";
-                          })()}
+                    <div className="w-full bg-gray-700 rounded-full h-2.5">
+                      <div
+                        className={`h-2.5 rounded-full transition-all duration-300 ${self.total_size / self.total_available_quota > 0.8
+                            ? "bg-red-500"
+                            : self.total_size / self.total_available_quota > 0.6
+                              ? "bg-yellow-500"
+                              : "bg-green-500"
+                          }`}
+                        style={{
+                          width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span>
+                        {(
+                          (self.total_size / self.total_available_quota) *
+                          100
+                        ).toFixed(1)}
+                        % used
+                      </span>
+                      <span
+                        className={`${self.total_size / self.total_available_quota > 0.8
+                            ? "text-red-400"
+                            : self.total_size / self.total_available_quota > 0.6
+                              ? "text-yellow-400"
+                              : "text-green-400"
+                          }`}
+                      >
+                        {FormatBytes(
+                          Math.max(
+                            0,
+                            self.total_available_quota - self.total_size,
+                          ),
+                        )}{" "}
+                        remaining
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quota Breakdown - excluding free quota */}
+                  <div className="space-y-2 pt-2 border-t border-gray-700">
+                    {(self.quota ?? 0) > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span>Paid Quota:</span>
+                        <span className="font-medium">
+                          {FormatBytes(self.quota!)}
+                        </span>
+                      </div>
+                    )}
+                    {(self.paid_until ?? 0) > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span>Expires:</span>
+                        <div className="text-right">
+                          <div className="font-medium">
+                            {new Date(
+                              self.paid_until! * 1000,
+                            ).toLocaleDateString()}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {(() => {
+                              const now = Date.now() / 1000;
+                              const daysLeft = Math.max(
+                                0,
+                                Math.ceil(
+                                  (self.paid_until! - now) / (24 * 60 * 60),
+                                ),
+                              );
+                              return daysLeft > 0
+                                ? `${daysLeft} days left`
+                                : "Expired";
+                            })()}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            <Button
+              onClick={() => setShowPaymentFlow(!showPaymentFlow)}
+              className="btn-primary w-full mt-4"
+            >
+              {showPaymentFlow ? "Hide" : "Show"} Payment Options
+            </Button>
+          </div>
+        )}
+
+        {/* Payment Flow Widget */}
+        {showPaymentFlow && pub && (
+          <div className="card flex-1 min-w-80">
+            <PaymentFlow
+              route96={new Route96(ServerUrl, pub)}
+              onPaymentRequested={(pr) => {
+                console.log("Payment requested:", pr);
+              }}
+              userInfo={self}
+            />
+          </div>
+        )}
+
+        {/* Mirror Suggestions Widget */}
+        {blossomServers && blossomServers.length > 1 && (
+          <div className="w-full">
+            <MirrorSuggestions
+              servers={blossomServers}
+            />
+          </div>
+        )}
+
+        {/* Files Widget */}
+        <div className="card w-full">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Your Files</h2>
+            {!listedFiles && (
+              <Button onClick={() => listUploads(0)} className="btn-primary">
+                Load Files
+              </Button>
             )}
           </div>
-          <Button
-            onClick={() => setShowPaymentFlow(!showPaymentFlow)}
-            className="btn-primary w-full mt-4"
-          >
-            {showPaymentFlow ? "Hide" : "Show"} Payment Options
-          </Button>
-        </div>
-      )}
 
-      {showPaymentFlow && pub && (
-        <div className="card">
-          <PaymentFlow
-            route96={new Route96(ServerUrl, pub)}
-            onPaymentRequested={(pr) => {
-              console.log("Payment requested:", pr);
-            }}
-            userInfo={self}
-          />
-        </div>
-      )}
-
-      {/* Mirror Suggestions */}
-      {blossomServers && blossomServers.length > 1 && (
-        <MirrorSuggestions
-          servers={blossomServers}
-        />
-      )}
-
-      <div className="card">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold">Your Files</h2>
-          {!listedFiles && (
-            <Button onClick={() => listUploads(0)} className="btn-primary">
-              Load Files
-            </Button>
+          {listedFiles && (
+            <FileList
+              files={listedFiles.files}
+              pages={Math.ceil(listedFiles.total / listedFiles.count)}
+              page={listedFiles.page}
+              onPage={(x) => setListedPage(x)}
+              onDelete={async (x) => {
+                await deleteFile(x);
+                await listUploads(listedPage);
+              }}
+            />
           )}
         </div>
 
-        {listedFiles && (
-          <FileList
-            files={listedFiles.files}
-            pages={Math.ceil(listedFiles.total / listedFiles.count)}
-            page={listedFiles.page}
-            onPage={(x) => setListedPage(x)}
-            onDelete={async (x) => {
-              await deleteFile(x);
-              await listUploads(listedPage);
-            }}
-          />
+        {/* Upload Results Widget */}
+        {results.length > 0 && (
+          <div className="card w-full">
+            <h3 className="text-lg font-semibold mb-4">Upload Results</h3>
+            <div className="space-y-4">
+              {results.map((result, index) => (
+                <div
+                  key={index}
+                  className="bg-gray-800 border border-gray-700 rounded-lg p-4"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-green-400 mb-1">
+                        ✅ Upload Successful
+                      </h4>
+                      <p className="text-sm text-gray-400">
+                        {new Date(
+                          (result.uploaded || Date.now() / 1000) * 1000,
+                        ).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
+                        {result.type || "Unknown type"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <p className="text-sm text-gray-400">File Size</p>
+                      <p className="font-medium">
+                        {FormatBytes(result.size || 0)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {result.url && (
+                      <div>
+                        <p className="text-sm text-gray-400 mb-1">File URL</p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs bg-gray-900 text-green-400 px-2 py-1 rounded flex-1 overflow-hidden">
+                            {result.url}
+                          </code>
+                          <button
+                            onClick={() =>
+                              navigator.clipboard.writeText(result.url!)
+                            }
+                            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition-colors"
+                            title="Copy URL"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="text-sm text-gray-400 mb-1">
+                        File Hash (SHA256)
+                      </p>
+                      <code className="text-xs bg-gray-900 text-gray-400 px-2 py-1 rounded block overflow-hidden">
+                        {result.sha256}
+                      </code>
+                    </div>
+                  </div>
+
+                  <details className="mt-4">
+                    <summary className="text-sm text-gray-400 cursor-pointer hover:text-gray-300">
+                      Show raw JSON data
+                    </summary>
+                    <pre className="text-xs bg-gray-900 text-gray-300 p-3 rounded mt-2 overflow-auto">
+                      {JSON.stringify(result, undefined, 2)}
+                    </pre>
+                  </details>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
-
-      {results.length > 0 && (
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Upload Results</h3>
-          <div className="space-y-4">
-            {results.map((result, index) => (
-              <div
-                key={index}
-                className="bg-gray-800 border border-gray-700 rounded-lg p-4"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <h4 className="font-medium text-green-400 mb-1">
-                      ✅ Upload Successful
-                    </h4>
-                    <p className="text-sm text-gray-400">
-                      {new Date(
-                        (result.uploaded || Date.now() / 1000) * 1000,
-                      ).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
-                      {result.type || "Unknown type"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-sm text-gray-400">File Size</p>
-                    <p className="font-medium">
-                      {FormatBytes(result.size || 0)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {result.url && (
-                    <div>
-                      <p className="text-sm text-gray-400 mb-1">File URL</p>
-                      <div className="flex items-center gap-2">
-                        <code className="text-xs bg-gray-900 text-green-400 px-2 py-1 rounded flex-1 overflow-hidden">
-                          {result.url}
-                        </code>
-                        <button
-                          onClick={() =>
-                            navigator.clipboard.writeText(result.url!)
-                          }
-                          className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition-colors"
-                          title="Copy URL"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="text-sm text-gray-400 mb-1">
-                      File Hash (SHA256)
-                    </p>
-                    <code className="text-xs bg-gray-900 text-gray-400 px-2 py-1 rounded block overflow-hidden">
-                      {result.sha256}
-                    </code>
-                  </div>
-                </div>
-
-                <details className="mt-4">
-                  <summary className="text-sm text-gray-400 cursor-pointer hover:text-gray-300">
-                    Show raw JSON data
-                  </summary>
-                  <pre className="text-xs bg-gray-900 text-gray-300 p-3 rounded mt-2 overflow-auto">
-                    {JSON.stringify(result, undefined, 2)}
-                  </pre>
-                </details>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
