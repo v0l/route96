@@ -29,7 +29,6 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const [suggestions, setSuggestions] = useState<FileMirrorSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const [mirroring, setMirroring] = useState<Set<string>>(new Set());
   const [mirrorAllProgress, setMirrorAllProgress] = useState<MirrorProgress | null>(null);
 
   const pub = usePublisher();
