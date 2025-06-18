@@ -1,22 +1,26 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import useLogin from "./login";
 
-export function useBlossomServers(): string[] {
+const DefaultMediaServers = ["https://cdn.satellite.earth/", "https://cdn.self.hosted/"];
+
+export function useBlossomServers() {
   const login = useLogin();
-  const [servers, setServers] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (!login?.pubkey) {
-      setServers([]);
-      return;
-    }
+  return useMemo(() => {
+    // For now, just return default servers
+    // TODO: Implement proper nostr event kind 10063 querying when system supports it
+    const servers = DefaultMediaServers;
 
-    // TODO: Actually implement nostr event kind 10063 querying
-    // For now, return empty array - user can manually add servers
-    // The API for @snort/system needs to be clarified for proper implementation
-    setServers([]);
-    
+    return {
+      servers,
+      addServer: async (serverUrl: string) => {
+        // TODO: Implement adding server to event kind 10063
+        console.log("Adding server not implemented yet:", serverUrl);
+      },
+      removeServer: async (serverUrl: string) => {
+        // TODO: Implement removing server from event kind 10063
+        console.log("Removing server not implemented yet:", serverUrl);
+      },
+    };
   }, [login?.pubkey]);
-
-  return servers;
 }

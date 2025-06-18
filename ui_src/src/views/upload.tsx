@@ -4,7 +4,7 @@ import FileList from "./files";
 import PaymentFlow from "../components/payment";
 import ProgressBar from "../components/progress-bar";
 import MirrorSuggestions from "../components/mirror-suggestions";
-import ServerConfig from "../components/server-config";
+import { useBlossomServers } from "../hooks/use-blossom-servers";
 import { openFiles } from "../upload";
 import { Blossom, BlobDescriptor } from "../upload/blossom";
 import useLogin from "../hooks/login";
@@ -24,8 +24,8 @@ export default function Upload() {
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>();
-  const [blossomServers, setBlossomServers] = useState<string[]>([]);
-  const [showServerConfig, setShowServerConfig] = useState(false);
+
+  const { servers: blossomServers } = useBlossomServers();
 
   const login = useLogin();
   const pub = usePublisher();
@@ -340,20 +340,6 @@ export default function Upload() {
           />
         </div>
       )}
-
-      {/* Server Configuration */}
-      <div className="space-y-4">
-        <Button
-          onClick={() => setShowServerConfig(!showServerConfig)}
-          className="btn-secondary"
-        >
-          {showServerConfig ? "Hide" : "Configure"} Blossom Servers
-        </Button>
-        
-        {showServerConfig && (
-          <ServerConfig onServersChange={setBlossomServers} />
-        )}
-      </div>
 
       {/* Mirror Suggestions */}
       {blossomServers.length > 1 && (
