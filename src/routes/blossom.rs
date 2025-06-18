@@ -5,7 +5,7 @@ use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
-use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
+use nostr::{Alphabet, SingleLetterTag, TagKind};
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -13,10 +13,11 @@ use rocket::response::Responder;
 use rocket::serde::json::Json;
 use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct BlobDescriptor {
     pub url: String,
@@ -55,6 +56,29 @@ struct MirrorRequest {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MirrorSuggestionsRequest {
+    pub servers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct FileMirrorSuggestion {
+    pub sha256: String,
+    pub url: String,
+    pub size: u64,
+    pub mime_type: Option<String>,
+    pub available_on: Vec<String>,
+    pub missing_from: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MirrorSuggestionsResponse {
+    pub suggestions: Vec<FileMirrorSuggestion>,
+}
+
 #[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Vec<Route> {
     let mut routes = routes![
@@ -65,6 +89,7 @@ pub fn blossom_routes() -> Vec<Route> {
         upload_media,
         head_media,
         mirror,
+        mirror_suggestions,
     ];
     
     #[cfg(feature = "payments")]
@@ -83,6 +108,7 @@ pub fn blossom_routes() -> Vec<Route> {
         list_files,
         upload_head,
         mirror,
+        mirror_suggestions,
     ];
     
     #[cfg(feature = "payments")]
@@ -118,6 +144,9 @@ enum BlossomResponse {
 
     #[response(status = 200)]
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
+
+    #[response(status = 200)]
+    MirrorSuggestions(Json<MirrorSuggestionsResponse>),
 }
 
 impl BlossomResponse {
@@ -275,6 +304,77 @@ async fn mirror(
         settings,
     )
     .await
+}
+
+#[rocket::post("/mirror-suggestions", data = "<req>", format = "json")]
+async fn mirror_suggestions(
+    auth: BlossomAuth,
+    req: Json<MirrorSuggestionsRequest>,
+) -> BlossomResponse {
+    if !check_method(&auth.event, "mirror-suggestions") {
+        return BlossomResponse::error("Invalid request method tag");
+    }
+
+    let pubkey_hex = auth.event.pubkey.to_hex();
+    let mut file_map: HashMap<String, FileMirrorSuggestion> = HashMap::new();
+
+    // Fetch files from each server
+    for server_url in &req.servers {
+        if let Ok(_server_url_parsed) = url::Url::parse(server_url) {
+            let list_url = format!("{}/list/{}", server_url, pubkey_hex);
+            
+            match reqwest::get(&list_url).await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        match response.json::<Vec<BlobDescriptor>>().await {
+                            Ok(files) => {
+                                for file in files {
+                                    file_map
+                                        .entry(file.sha256.clone())
+                                        .and_modify(|suggestion| {
+                                            suggestion.available_on.push(server_url.clone());
+                                        })
+                                        .or_insert_with(|| FileMirrorSuggestion {
+                                            sha256: file.sha256.clone(),
+                                            url: file.url.clone(),
+                                            size: file.size,
+                                            mime_type: file.mime_type.clone(),
+                                            available_on: vec![server_url.clone()],
+                                            missing_from: Vec::new(),
+                                        });
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to parse file list from {}: {}", server_url, e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to fetch file list from {}: {}", server_url, e);
+                }
+            }
+        }
+    }
+
+    // Determine missing servers for each file
+    for suggestion in file_map.values_mut() {
+        for server_url in &req.servers {
+            if !suggestion.available_on.contains(server_url) {
+                suggestion.missing_from.push(server_url.clone());
+            }
+        }
+    }
+
+    // Filter to only files that are missing from at least one server and available on at least one
+    let filtered_suggestions: Vec<FileMirrorSuggestion> = file_map
+        .into_values()
+        .filter(|s| !s.missing_from.is_empty() && !s.available_on.is_empty())
+        .collect();
+
+    BlossomResponse::MirrorSuggestions(Json(MirrorSuggestionsResponse {
+        suggestions: filtered_suggestions,
+    }))
 }
 
 #[cfg(feature = "media-compression")]

@@ -11,6 +11,19 @@ export interface BlobDescriptor {
   uploaded?: number;
 }
 
+export interface FileMirrorSuggestion {
+  sha256: string;
+  url: string;
+  size: number;
+  mime_type?: string;
+  available_on: string[];
+  missing_from: string[];
+}
+
+export interface MirrorSuggestionsResponse {
+  suggestions: FileMirrorSuggestion[];
+}
+
 export class Blossom {
   constructor(
     readonly url: string,
@@ -95,6 +108,25 @@ export class Blossom {
 
     const rsp = await this.#req(id, "DELETE", "delete", undefined, tags);
     if (!rsp.ok) {
+      await this.#handleError(rsp);
+      throw new Error("Should not reach here");
+    }
+  }
+
+  async getMirrorSuggestions(servers: string[]): Promise<MirrorSuggestionsResponse> {
+    const rsp = await this.#req(
+      "mirror-suggestions",
+      "POST",
+      "mirror-suggestions",
+      JSON.stringify({ servers }),
+      undefined,
+      {
+        "content-type": "application/json",
+      },
+    );
+    if (rsp.ok) {
+      return (await rsp.json()) as MirrorSuggestionsResponse;
+    } else {
       await this.#handleError(rsp);
       throw new Error("Should not reach here");
     }
