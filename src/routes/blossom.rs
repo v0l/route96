@@ -244,14 +244,16 @@ async fn mirror(
         .and_then(|mut c| c.next_back())
         .and_then(|s| s.split(".").next());
 
-    let client = Client::builder()
-        .user_agent(format!("route96 ({})", settings.public_url))
-        .build()
-        .unwrap();
+    let client = Client::builder().build().unwrap();
 
+    let req = client
+        .get(url.clone())
+        .header("user-agent", format!("route96 ({})", settings.public_url));
     info!("Requesting mirror: {}", url);
+    info!("{:?}", req);
+
     // download file
-    let rsp = match client.get(url.clone()).send().await {
+    let rsp = match req.send().await {
         Err(e) => {
             error!("Error downloading file: {}", e);
             return BlossomResponse::error("Failed to mirror file");
