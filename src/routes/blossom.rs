@@ -3,7 +3,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
-use log::error;
+use log::{error, info};
 use nostr::prelude::hex;
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use reqwest::Client;
@@ -249,10 +249,21 @@ async fn mirror(
         .build()
         .unwrap();
 
+    info!("Requesting mirror: {}", url);
     // download file
     let rsp = match client.get(url.clone()).send().await {
         Err(e) => {
             error!("Error downloading file: {}", e);
+            return BlossomResponse::error("Failed to mirror file");
+        }
+        Ok(rsp) if !rsp.status().is_success() => {
+            let status = rsp.status();
+            let body = rsp.bytes().await.unwrap_or(Default::default());
+            error!(
+                "Error downloading file, status is not OK({}): {}",
+                status,
+                String::from_utf8_lossy(&body)
+            );
             return BlossomResponse::error("Failed to mirror file");
         }
         Ok(rsp) => rsp,
