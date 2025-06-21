@@ -6,6 +6,7 @@ use crate::settings::Settings;
 use log::error;
 use nostr::prelude::hex;
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
+use reqwest::Client;
 use rocket::data::ByteUnit;
 use rocket::futures::StreamExt;
 use rocket::http::{Header, Status};
@@ -243,8 +244,13 @@ async fn mirror(
         .and_then(|mut c| c.next_back())
         .and_then(|s| s.split(".").next());
 
+    let client = Client::builder()
+        .user_agent(format!("route96 ({})", settings.public_url))
+        .build()
+        .unwrap();
+
     // download file
-    let rsp = match reqwest::get(url.clone()).await {
+    let rsp = match client.get(url.clone()).send().await {
         Err(e) => {
             error!("Error downloading file: {}", e);
             return BlossomResponse::error("Failed to mirror file");
