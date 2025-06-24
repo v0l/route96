@@ -4,6 +4,7 @@ import FileList from "./files";
 import PaymentFlow from "../components/payment";
 import ProgressBar from "../components/progress-bar";
 import MirrorSuggestions from "../components/mirror-suggestions";
+import ManualMirror from "../components/manual-mirror";
 import { useBlossomServers } from "../hooks/use-blossom-servers";
 import { openFiles } from "../upload";
 import { Blossom, BlobDescriptor } from "../upload/blossom";
@@ -344,6 +345,15 @@ export default function Upload() {
         {blossomServers && blossomServers.length > 1 && (
           <div className="w-full">
             <MirrorSuggestions
+              servers={blossomServers}
+            />
+          </div>
+        )}
+
+        {/* Manual Mirror Widget */}
+        {blossomServers && blossomServers.length > 0 && (
+          <div className="w-full">
+            <ManualMirror
               servers={blossomServers}
             />
           </div>
