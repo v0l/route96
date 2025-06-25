@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import Button from "./button";
@@ -34,13 +34,10 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const pub = usePublisher();
   const login = useLogin();
 
-  useEffect(() => {
-    if (servers.length > 1 && pub && login?.pubkey) {
-      fetchSuggestions();
-    }
-  }, [servers, pub, login?.pubkey]);
+  // Memoize the servers array to prevent unnecessary re-renders when array contents are the same
+  const memoizedServers = useMemo(() => servers, [servers]);
 
-  async function fetchSuggestions() {
+  const fetchSuggestions = useCallback(async () => {
     if (!pub || !login?.pubkey) return;
 
     try {
@@ -48,7 +45,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
       setError(undefined);
 
       // Capture the servers list at the start to avoid race conditions
-      const serverList = [...servers];
+      const serverList = [...memoizedServers];
 
       if (serverList.length <= 1) {
         setLoading(false);
@@ -108,7 +105,13 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [memoizedServers, pub, login?.pubkey]);
+
+  useEffect(() => {
+    if (memoizedServers.length > 1 && pub && login?.pubkey) {
+      fetchSuggestions();
+    }
+  }, [memoizedServers, pub, login?.pubkey, fetchSuggestions]);
 
   async function mirrorAll() {
     if (!pub || suggestions.length === 0) return;
@@ -185,7 +188,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const totalSize = suggestions.reduce((total, suggestion) => total + suggestion.size, 0);
 
   // Calculate coverage per server
-  const serverCoverage = servers.map(serverUrl => {
+  const serverCoverage = memoizedServers.map(serverUrl => {
     const filesOnServer = suggestions.filter(s => s.available_on.includes(serverUrl)).length;
     const totalFilesAcrossAllServers = new Set(suggestions.map(s => s.sha256)).size;
     const coveragePercentage = totalFilesAcrossAllServers > 0 ?
@@ -200,7 +203,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     };
   });
 
-  if (servers.length <= 1) {
+  if (memoizedServers.length <= 1) {
     return null; // No suggestions needed for single server
   }
 
