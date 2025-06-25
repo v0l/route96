@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import useLogin from "./login";
 import { useRequestBuilder } from "@snort/system-react";
 import { EventKind, RequestBuilder } from "@snort/system";
@@ -21,5 +22,8 @@ export function useBlossomServers() {
     req
       .flatMap((e) => e.tags.filter(t => t[0] === "server")
         .map((t) => t[1]));
-  return dedupe(removeUndefined([...DefaultMediaServers, ...(servers ?? [])].map(sanitizeRelayUrl)));
+  
+  return useMemo(() => {
+    return dedupe(removeUndefined([...DefaultMediaServers, ...(servers ?? [])].map(sanitizeRelayUrl)));
+  }, [servers]);
 }
