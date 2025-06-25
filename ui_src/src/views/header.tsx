@@ -42,11 +42,11 @@ export default function Header() {
   }, [pub, self, url]);
 
   return (
-    <header className="border-b border-gray-700 bg-gray-800 w-full">
+    <header className="border-b border-neutral-600 bg-neutral-800 w-full">
       <div className="px-4 flex justify-between items-center py-4">
         <div className="flex items-center space-x-8">
           <Link to="/">
-            <div className="text-2xl font-bold text-gray-100 hover:text-blue-400 transition-colors">
+            <div className="text-2xl font-bold text-neutral-100 hover:text-neutral-300 transition-colors">
               route96
             </div>
           </Link>
@@ -56,8 +56,8 @@ export default function Header() {
               to="/"
               className={`text-sm font-medium transition-colors ${
                 location.pathname === "/"
-                  ? "text-blue-400 border-b-2 border-blue-400 pb-1"
-                  : "text-gray-300 hover:text-gray-100"
+                  ? "text-neutral-300 border-b-2 border-neutral-300 pb-1"
+                  : "text-neutral-400 hover:text-neutral-100"
               }`}
             >
               Upload
@@ -68,8 +68,8 @@ export default function Header() {
                 to="/admin"
                 className={`text-sm font-medium transition-colors ${
                   location.pathname === "/admin"
-                    ? "text-blue-400 border-b-2 border-blue-400 pb-1"
-                    : "text-gray-300 hover:text-gray-100"
+                    ? "text-neutral-300 border-b-2 border-neutral-300 pb-1"
+                    : "text-neutral-400 hover:text-neutral-100"
                 }`}
               >
                 Admin
@@ -84,13 +84,14 @@ export default function Header() {
               <Profile link={NostrLink.publicKey(login.pubkey)} />
               <Button
                 onClick={() => Login.logout()}
-                className="btn-secondary text-sm"
+                variant="secondary"
+                size="sm"
               >
                 Logout
               </Button>
             </div>
           ) : (
-            <Button onClick={tryLogin} className="btn-primary">
+            <Button onClick={tryLogin}>
               Login
             </Button>
           )}

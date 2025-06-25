@@ -6,7 +6,7 @@ import Admin from "./views/admin";
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-background text-foreground dark">
         <div className="max-lg:px-6">
           <Header />
           <main className="py-8">

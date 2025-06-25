@@ -136,18 +136,20 @@ export default function Admin() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="text-lg text-gray-400">Loading...</div>
+        <div className="text-lg text-neutral-400">Loading...</div>
       </div>
     );
   }
 
   if (!login) {
     return (
-      <div className="card max-w-md mx-auto text-center">
-        <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
-        <p className="text-gray-400">
-          Please log in to access the admin panel.
-        </p>
+      <div className="max-w-md mx-auto bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+        <div className="text-center p-6">
+          <h2 className="text-xl font-semibold mb-4 text-neutral-100">Authentication Required</h2>
+          <p className="text-neutral-300">
+            Please log in to access the admin panel.
+          </p>
+        </div>
       </div>
     );
   }
@@ -157,90 +159,96 @@ export default function Admin() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 px-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-100">Admin Panel</h1>
+        <h1 className="text-3xl font-bold text-neutral-100">Admin Panel</h1>
       </div>
 
       {error && (
-        <div className="bg-red-900/20 border border-red-800 text-red-400 px-4 py-3 rounded-lg">
+        <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
           {error}
         </div>
       )}
 
       <div className="grid gap-8 lg:grid-cols-2">
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-6">File Management</h2>
+        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-neutral-100">File Management</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-neutral-300">
+                  Filter by MIME type
+                </label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-neutral-600 bg-neutral-700 px-3 py-1 text-sm text-neutral-100 shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={mimeFilter || ""}
+                  onChange={(e) => setMimeFilter(e.target.value || undefined)}
+                >
+                  <option value="">All Files</option>
+                  <option value="image/webp">WebP Images</option>
+                  <option value="image/jpeg">JPEG Images</option>
+                  <option value="image/jpg">JPG Images</option>
+                  <option value="image/png">PNG Images</option>
+                  <option value="image/gif">GIF Images</option>
+                  <option value="video/mp4">MP4 Videos</option>
+                  <option value="video/mov">MOV Videos</option>
+                </select>
+              </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Filter by MIME type
-              </label>
-              <select
-                className="input w-full"
-                value={mimeFilter || ""}
-                onChange={(e) => setMimeFilter(e.target.value || undefined)}
+              <Button
+                onClick={() => listAllUploads(0)}
+                className="w-full"
               >
-                <option value="">All Files</option>
-                <option value="image/webp">WebP Images</option>
-                <option value="image/jpeg">JPEG Images</option>
-                <option value="image/jpg">JPG Images</option>
-                <option value="image/png">PNG Images</option>
-                <option value="image/gif">GIF Images</option>
-                <option value="video/mp4">MP4 Videos</option>
-                <option value="video/mov">MOV Videos</option>
-              </select>
+                Load All Files
+              </Button>
             </div>
-
-            <Button
-              onClick={() => listAllUploads(0)}
-              className="btn-primary w-full"
-            >
-              Load All Files
-            </Button>
           </div>
         </div>
 
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-6">Reports Management</h2>
-
-          <Button onClick={() => listReports(0)} className="btn-primary w-full">
-            Load Reports
-          </Button>
+        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-neutral-100">Reports Management</h3>
+            <Button onClick={() => listReports(0)} className="w-full">
+              Load Reports
+            </Button>
+          </div>
         </div>
       </div>
 
       {adminListedFiles && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-6">All Files</h2>
-          <FileList
-            files={adminListedFiles.files}
-            pages={Math.ceil(adminListedFiles.total / adminListedFiles.count)}
-            page={adminListedFiles.page}
-            onPage={(x) => setAdminListedPage(x)}
-            onDelete={async (x) => {
-              await deleteFile(x);
-              await listAllUploads(adminListedPage);
-            }}
-          />
+        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-neutral-100">All Files</h3>
+            <FileList
+              files={adminListedFiles.files}
+              pages={Math.ceil(adminListedFiles.total / adminListedFiles.count)}
+              page={adminListedFiles.page}
+              onPage={(x) => setAdminListedPage(x)}
+              onDelete={async (x) => {
+                await deleteFile(x);
+                await listAllUploads(adminListedPage);
+              }}
+            />
+          </div>
         </div>
       )}
 
       {reports && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-6">Reports</h2>
-          <ReportList
-            reports={reports}
-            pages={reportPages}
-            page={reportPage}
-            onPage={(x) => setReportPage(x)}
-            onAcknowledge={acknowledgeReport}
-            onDeleteFile={async (fileId) => {
-              await deleteFile(fileId);
-              await listReports(reportPage);
-            }}
-          />
+        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-neutral-100">Reports</h3>
+            <ReportList
+              reports={reports}
+              pages={reportPages}
+              page={reportPage}
+              onPage={(x) => setReportPage(x)}
+              onAcknowledge={acknowledgeReport}
+              onDeleteFile={async (fileId) => {
+                await deleteFile(fileId);
+                await listReports(reportPage);
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

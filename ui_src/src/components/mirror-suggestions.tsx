@@ -209,165 +209,176 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
 
   if (loading) {
     return (
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Mirror Suggestions</h3>
-        <p className="text-gray-400">Loading mirror suggestions...</p>
+      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
+          <p className="text-neutral-400">Loading mirror suggestions...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Mirror Suggestions</h3>
-        <div className="bg-red-900/20 border border-red-800 text-red-400 px-4 py-3 rounded-lg mb-4">
-          {error}
+      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
+          <div className="space-y-4">
+            <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
+              {error}
+            </div>
+            <Button onClick={fetchSuggestions} variant="secondary">
+              Retry
+            </Button>
+          </div>
         </div>
-        <Button onClick={fetchSuggestions} className="btn-secondary">
-          Retry
-        </Button>
       </div>
     );
   }
 
   if (suggestions.length === 0) {
     return (
-      <div className="card">
-        <h3 className="text-lg font-semibold mb-4">Mirror Suggestions</h3>
-        <p className="text-gray-400">All your files are synchronized across all servers.</p>
+      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
+          <p className="text-neutral-400">All your files are synchronized across all servers.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <h3 className="text-lg font-semibold mb-4">Mirror Coverage</h3>
+    <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+      <div className="p-6">
+        <h3 className="text-lg font-semibold mb-6 text-neutral-100">Mirror Coverage</h3>
+        <div className="space-y-6">
 
-      {/* Coverage Summary */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-bold text-blue-400">{totalFiles}</div>
-            <div className="text-xs text-gray-400">Files to Mirror</div>
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-orange-400">{totalMirrorOperations}</div>
-            <div className="text-xs text-gray-400">Operations Needed</div>
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-green-400">{FormatBytes(totalSize)}</div>
-            <div className="text-xs text-gray-400">Total Size</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Server Coverage */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6">
-        <h4 className="text-sm font-semibold text-gray-300 mb-3">Coverage by Server</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {serverCoverage.map((server) => (
-            <div key={server.url} className="bg-gray-750 border border-gray-600 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-300 truncate">
-                  {server.hostname}
-                </span>
-                <span
-                  className={`text-sm font-semibold ${server.coveragePercentage === 100
-                      ? "text-green-400"
-                      : server.coveragePercentage >= 80
-                        ? "text-yellow-400"
-                        : "text-red-400"
-                    }`}
-                >
-                  {server.coveragePercentage}%
-                </span>
-              </div>
-              <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-                <div
-                  className={`h-2 rounded-full transition-all duration-300 ${server.coveragePercentage === 100
-                      ? "bg-green-500"
-                      : server.coveragePercentage >= 80
-                        ? "bg-yellow-500"
-                        : "bg-red-500"
-                    }`}
-                  style={{
-                    width: `${server.coveragePercentage}%`,
-                  }}
-                ></div>
-              </div>
-              <div className="text-xs text-gray-400 text-center">
-                {server.filesCount} / {server.totalFiles} files
+          {/* Coverage Summary */}
+          <div className="bg-neutral-700 border border-neutral-600 rounded-lg">
+            <div className="p-6">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold text-neutral-100">{totalFiles}</div>
+                  <div className="text-xs text-neutral-400">Files to Mirror</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-orange-400">{totalMirrorOperations}</div>
+                  <div className="text-xs text-neutral-400">Operations Needed</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-green-400">{FormatBytes(totalSize)}</div>
+                  <div className="text-xs text-neutral-400">Total Size</div>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Mirror All Section */}
-      {!mirrorAllProgress ? (
-        <div className="text-center">
-          <p className="text-gray-400 mb-4">
-            {totalFiles} files need to be synchronized across your servers
-          </p>
-          <Button
-            onClick={mirrorAll}
-            className="btn-primary"
-            disabled={totalMirrorOperations === 0}
-          >
-            Mirror Everything
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Progress Bar */}
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-400">Progress</span>
-              <span className="text-gray-400">
-                {mirrorAllProgress.completed + mirrorAllProgress.failed} / {mirrorAllProgress.total}
-              </span>
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <div
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: `${((mirrorAllProgress.completed + mirrorAllProgress.failed) / mirrorAllProgress.total) * 100}%`
-                }}
-              />
-            </div>
           </div>
 
-          {/* Status Summary */}
-          <div className="grid grid-cols-3 gap-4 text-center text-sm">
-            <div>
-              <div className="text-green-400 font-semibold">{mirrorAllProgress.completed}</div>
-              <div className="text-gray-400">Completed</div>
+          {/* Server Coverage */}
+          <div className="bg-neutral-700 border border-neutral-600 rounded-lg">
+            <div className="p-4 pb-3">
+              <h4 className="text-sm font-semibold text-neutral-200">Coverage by Server</h4>
             </div>
-            <div>
-              <div className="text-red-400 font-semibold">{mirrorAllProgress.failed}</div>
-              <div className="text-gray-400">Failed</div>
-            </div>
-            <div>
-              <div className="text-gray-400 font-semibold">
-                {mirrorAllProgress.total - mirrorAllProgress.completed - mirrorAllProgress.failed}
-              </div>
-              <div className="text-gray-400">Remaining</div>
-            </div>
-          </div>
-
-          {/* Errors */}
-          {mirrorAllProgress.errors.length > 0 && (
-            <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
-              <h4 className="text-red-400 font-semibold mb-2">Errors ({mirrorAllProgress.errors.length})</h4>
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {mirrorAllProgress.errors.map((error, index) => (
-                  <div key={index} className="text-red-300 text-xs">{error}</div>
+            <div className="p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {serverCoverage.map((server) => (
+                  <div key={server.url} className="bg-neutral-800 border border-neutral-600 rounded-lg">
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium truncate text-neutral-200">
+                          {server.hostname}
+                        </span>
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            server.coveragePercentage === 100
+                              ? "bg-green-900 text-green-200"
+                              : server.coveragePercentage >= 80
+                                ? "bg-yellow-900 text-yellow-200"
+                                : "bg-red-900 text-red-200"
+                          }`}
+                        >
+                          {server.coveragePercentage}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-neutral-600 rounded-full h-2 mb-2">
+                        <div 
+                          className="bg-neutral-300 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${server.coveragePercentage}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-neutral-400 text-center">
+                        {server.filesCount} / {server.totalFiles} files
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Mirror All Section */}
+          {!mirrorAllProgress ? (
+            <div className="text-center space-y-4">
+              <p className="text-neutral-400">
+                {totalFiles} files need to be synchronized across your servers
+              </p>
+              <Button
+                onClick={mirrorAll}
+                disabled={totalMirrorOperations === 0}
+              >
+                Mirror Everything
+              </Button>
+            </div>
+          ) : (
+          <div className="space-y-4">
+            {/* Progress Bar */}
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-neutral-400">Progress</span>
+                <span className="text-neutral-400">
+                  {mirrorAllProgress.completed + mirrorAllProgress.failed} / {mirrorAllProgress.total}
+                </span>
+              </div>
+              <div className="w-full bg-neutral-700 rounded-full h-2">
+                <div 
+                  className="bg-neutral-300 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${((mirrorAllProgress.completed + mirrorAllProgress.failed) / mirrorAllProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Status Summary */}
+            <div className="grid grid-cols-3 gap-4 text-center text-sm">
+              <div>
+                <div className="text-green-400 font-semibold">{mirrorAllProgress.completed}</div>
+                <div className="text-neutral-500">Completed</div>
+              </div>
+              <div>
+                <div className="text-red-400 font-semibold">{mirrorAllProgress.failed}</div>
+                <div className="text-neutral-500">Failed</div>
+              </div>
+              <div>
+                <div className="text-neutral-500 font-semibold">
+                  {mirrorAllProgress.total - mirrorAllProgress.completed - mirrorAllProgress.failed}
+                </div>
+                <div className="text-neutral-500">Remaining</div>
+              </div>
+            </div>
+
+            {/* Errors */}
+            {mirrorAllProgress.errors.length > 0 && (
+              <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
+                <h4 className="font-semibold mb-2">Errors ({mirrorAllProgress.errors.length})</h4>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {mirrorAllProgress.errors.map((error, index) => (
+                    <div key={index} className="text-xs">{error}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
