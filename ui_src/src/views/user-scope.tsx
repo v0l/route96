@@ -14,6 +14,7 @@ export default function UserScope() {
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [filesPage, setFilesPage] = useState(0);
+  const [purging, setPurging] = useState(false);
 
   const login = useLogin();
   const pub = usePublisher();
@@ -53,6 +54,44 @@ export default function UserScope() {
         });
     }
   }, [pub, self?.is_admin, pubkey, filesPage, url]);
+
+  async function handlePurgeUser() {
+    if (!pub || !pubkey) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ALL files for this user?\n\nThis action cannot be undone and will permanently delete:\n- ${userInfo?.file_count || 0} files\n- ${FormatBytes(userInfo?.total_size || 0, 2)} of storage\n\nType "DELETE" to confirm.`
+    );
+    
+    if (!confirmed) return;
+    
+    const confirmText = window.prompt(
+      'Please type "DELETE" to confirm this destructive action:'
+    );
+    
+    if (confirmText !== "DELETE") {
+      alert("Confirmation text did not match. Operation cancelled.");
+      return;
+    }
+
+    setPurging(true);
+    setError(undefined);
+    
+    try {
+      const r96 = new Route96(url, pub);
+      await r96.purgeUser(pubkey);
+      
+      // Refresh user info to show updated counts
+      const response = await r96.getUserInfo(pubkey, filesPage, 50);
+      setUserInfo(response.data);
+      
+      alert("User account purged successfully. All files have been deleted.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to purge user account";
+      setError(message);
+    } finally {
+      setPurging(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -160,6 +199,28 @@ export default function UserScope() {
                 <div className="text-yellow-400 font-semibold">Administrator</div>
               </div>
             )}
+          </div>
+          
+          {/* Danger Zone */}
+          <div className="mt-6 pt-6 border-t border-neutral-600">
+            <h4 className="text-lg font-semibold mb-4 text-red-400">Danger Zone</h4>
+            <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h5 className="text-sm font-medium text-red-300">Purge User Account</h5>
+                  <p className="text-sm text-red-400/80 mt-1">
+                    Permanently delete all {userInfo.file_count} files for this user ({FormatBytes(userInfo.total_size, 2)})
+                  </p>
+                </div>
+                <button
+                  onClick={handlePurgeUser}
+                  disabled={purging || userInfo.file_count === 0}
+                  className="bg-red-600 hover:bg-red-500 disabled:bg-red-800 disabled:text-red-400 text-white px-4 py-2 rounded font-medium text-sm transition-colors"
+                >
+                  {purging ? "Purging..." : "Purge Account"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

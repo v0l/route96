@@ -316,6 +316,68 @@ impl Database {
 
         Ok((results, count))
     }
+
+    pub async fn get_user_file_ids(&self, pubkey: &Vec<u8>) -> Result<Vec<Vec<u8>>, Error> {
+        let results: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select uploads.id from uploads, users, user_uploads \
+            where users.pubkey = ? \
+            and users.id = user_uploads.user_id \
+            and user_uploads.file = uploads.id",
+        )
+        .bind(pubkey)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(results.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Add a new report to the database
+    pub async fn add_report(&self, file_id: &[u8], reporter_id: u64, event_json: &str) -> Result<(), Error> {
+        sqlx::query("insert into reports (file_id, reporter_id, event_json) values (?, ?, ?)")
+            .bind(file_id)
+            .bind(reporter_id)
+            .bind(event_json)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List reports with pagination for admin view
+    pub async fn list_reports(&self, offset: u32, limit: u32) -> Result<(Vec<Report>, i64), Error> {
+        let reports: Vec<Report> = sqlx::query_as(
+            "select id, file_id, reporter_id, event_json, created, reviewed from reports where reviewed = false order by created desc limit ? offset ?"
+        )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        
+        let count: i64 = sqlx::query("select count(id) from reports where reviewed = false")
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)?;
+
+        Ok((reports, count))
+    }
+
+    /// Get reports for a specific file
+    pub async fn get_file_reports(&self, file_id: &[u8]) -> Result<Vec<Report>, Error> {
+        sqlx::query_as(
+            "select id, file_id, reporter_id, event_json, created, reviewed from reports where file_id = ? order by created desc"
+        )
+            .bind(file_id)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Mark a report as reviewed (used for acknowledging)
+    pub async fn mark_report_reviewed(&self, report_id: u64) -> Result<(), Error> {
+        sqlx::query("update reports set reviewed = true where id = ?")
+            .bind(report_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(feature = "payments")]
@@ -432,53 +494,5 @@ impl Database {
 
         // Check if upload would exceed quota
         Ok(user_stats.total_size + upload_size <= available_quota)
-    }
-
-    /// Add a new report to the database
-    pub async fn add_report(&self, file_id: &[u8], reporter_id: u64, event_json: &str) -> Result<(), Error> {
-        sqlx::query("insert into reports (file_id, reporter_id, event_json) values (?, ?, ?)")
-            .bind(file_id)
-            .bind(reporter_id)
-            .bind(event_json)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
-    /// List reports with pagination for admin view
-    pub async fn list_reports(&self, offset: u32, limit: u32) -> Result<(Vec<Report>, i64), Error> {
-        let reports: Vec<Report> = sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created, reviewed from reports where reviewed = false order by created desc limit ? offset ?"
-        )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await?;
-        
-        let count: i64 = sqlx::query("select count(id) from reports where reviewed = false")
-            .fetch_one(&self.pool)
-            .await?
-            .try_get(0)?;
-
-        Ok((reports, count))
-    }
-
-    /// Get reports for a specific file
-    pub async fn get_file_reports(&self, file_id: &[u8]) -> Result<Vec<Report>, Error> {
-        sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created, reviewed from reports where file_id = ? order by created desc"
-        )
-            .bind(file_id)
-            .fetch_all(&self.pool)
-            .await
-    }
-
-    /// Mark a report as reviewed (used for acknowledging)
-    pub async fn mark_report_reviewed(&self, report_id: u64) -> Result<(), Error> {
-        sqlx::query("update reports set reviewed = true where id = ?")
-            .bind(report_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
     }
 }

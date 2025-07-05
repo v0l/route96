@@ -115,6 +115,12 @@ export class Route96 {
     return data;
   }
 
+  async purgeUser(pubkey: string) {
+    const rsp = await this.#req(`admin/user/${pubkey}/purge`, "DELETE");
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
   async getPaymentInfo() {
     const rsp = await this.#req("payment", "GET");
     if (rsp.ok) {
