@@ -1,5 +1,6 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
+use crate::filesystem::FileStore;
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
@@ -14,6 +15,7 @@ pub fn admin_routes() -> Vec<Route> {
         admin_list_reports,
         admin_acknowledge_report,
         admin_get_user_info,
+        admin_purge_user,
     ]
 }
 
@@ -349,6 +351,72 @@ async fn admin_get_user_info(
         payments,
         files: files_result,
     })
+}
+
+#[rocket::delete("/user/<user_pubkey>/purge")]
+async fn admin_purge_user(
+    auth: Nip98Auth,
+    user_pubkey: &str,
+    db: &State<Database>,
+    fs: &State<crate::filesystem::FileStore>,
+) -> AdminResponse<()> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    
+    // Check if the requesting user is an admin
+    let admin_user = match db.get_user(&pubkey_vec).await {
+        Ok(user) => user,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+
+    if !admin_user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    // Parse target user pubkey
+    let target_pubkey = match hex::decode(user_pubkey) {
+        Ok(pk) => pk,
+        Err(_) => return AdminResponse::error("Invalid pubkey format"),
+    };
+
+    // Get all file IDs for the target user
+    let file_ids = match db.get_user_file_ids(&target_pubkey).await {
+        Ok(ids) => ids,
+        Err(e) => return AdminResponse::error(&format!("Failed to get user files: {}", e)),
+    };
+
+    let mut deleted_count = 0;
+    let mut failed_count = 0;
+
+    // Delete each file
+    for file_id in file_ids {
+        // Delete file ownership records
+        if let Err(e) = db.delete_all_file_owner(&file_id).await {
+            log::warn!("Failed to delete file ownership for file {}: {}", hex::encode(&file_id), e);
+            failed_count += 1;
+            continue;
+        }
+
+        // Delete file record from database
+        if let Err(e) = db.delete_file(&file_id).await {
+            log::warn!("Failed to delete file record for file {}: {}", hex::encode(&file_id), e);
+            failed_count += 1;
+            continue;
+        }
+
+        // Delete physical file
+        if let Err(e) = tokio::fs::remove_file(fs.get(&file_id)).await {
+            log::warn!("Failed to delete physical file {}: {}", hex::encode(&file_id), e);
+            // Don't increment failed_count here as the DB record is already deleted
+        }
+
+        deleted_count += 1;
+    }
+
+    if failed_count > 0 {
+        AdminResponse::error(&format!("Partially completed: {} files deleted, {} failed", deleted_count, failed_count))
+    } else {
+        AdminResponse::success(())
+    }
 }
 
 impl Database {
