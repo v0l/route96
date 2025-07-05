@@ -13,6 +13,7 @@ pub fn admin_routes() -> Vec<Route> {
         admin_get_self,
         admin_list_reports,
         admin_acknowledge_report,
+        admin_get_user_info,
     ]
 }
 
@@ -73,6 +74,26 @@ pub struct AdminNip94File {
     #[serde(flatten)]
     pub inner: Nip94Event,
     pub uploader: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct AdminUserInfo {
+    pub pubkey: String,
+    pub is_admin: bool,
+    pub file_count: u64,
+    pub total_size: u64,
+    pub created: String,
+    #[cfg(feature = "payments")]
+    pub paid_until: u64,
+    #[cfg(feature = "payments")]
+    pub quota: u64,
+    #[cfg(feature = "payments")]
+    pub free_quota: u64,
+    #[cfg(feature = "payments")]
+    pub total_available_quota: u64,
+    #[cfg(feature = "payments")]
+    pub payments: Vec<crate::db::Payment>,
+    pub files: PagedResult<AdminNip94File>,
 }
 
 #[rocket::get("/self")]
@@ -223,6 +244,111 @@ async fn admin_acknowledge_report(
         Ok(()) => AdminResponse::success(()),
         Err(e) => AdminResponse::error(&format!("Could not acknowledge report: {}", e)),
     }
+}
+
+#[rocket::get("/user/<user_pubkey>?<page>&<count>")]
+async fn admin_get_user_info(
+    auth: Nip98Auth,
+    user_pubkey: &str,
+    page: Option<u32>,
+    count: Option<u32>,
+    db: &State<Database>,
+    settings: &State<Settings>,
+) -> AdminResponse<AdminUserInfo> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    
+    // Check if the requesting user is an admin
+    let admin_user = match db.get_user(&pubkey_vec).await {
+        Ok(user) => user,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+
+    if !admin_user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    // Parse target user pubkey
+    let target_pubkey = match hex::decode(user_pubkey) {
+        Ok(pk) => pk,
+        Err(_) => return AdminResponse::error("Invalid pubkey format"),
+    };
+
+    // Get target user
+    let target_user = match db.get_user(&target_pubkey).await {
+        Ok(user) => user,
+        Err(_) => return AdminResponse::error("Target user not found"),
+    };
+
+    // Get user stats
+    let user_stats = match db.get_user_stats(target_user.id).await {
+        Ok(stats) => stats,
+        Err(e) => return AdminResponse::error(&format!("Failed to load user stats: {}", e)),
+    };
+
+    // Get user files with pagination
+    let page = page.unwrap_or(0);
+    let count = count.unwrap_or(50).clamp(1, 100);
+    let (files, total_files) = match db.list_files(&target_pubkey, page * count, count).await {
+        Ok((files, total)) => (files, total),
+        Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
+    };
+
+    let files_result = PagedResult {
+        count: files.len() as u32,
+        page,
+        total: total_files as u32,
+        files: files
+            .into_iter()
+            .map(|f| AdminNip94File {
+                inner: Nip94Event::from_upload(settings, &f),
+                uploader: vec![hex::encode(&target_pubkey)],
+            })
+            .collect(),
+    };
+
+    #[cfg(feature = "payments")]
+    let (free_quota, total_available_quota, payments) = {
+        let free_quota = settings
+            .payments
+            .as_ref()
+            .and_then(|p| p.free_quota_bytes)
+            .unwrap_or(104857600);
+        let mut total_available = free_quota;
+
+        // Add paid quota if still valid
+        if let Some(paid_until) = &target_user.paid_until {
+            if *paid_until > chrono::Utc::now() {
+                total_available += target_user.paid_size;
+            }
+        }
+
+        let payments = db.get_user_payments(target_user.id).await.unwrap_or_default();
+
+        (free_quota, total_available, payments)
+    };
+
+    AdminResponse::success(AdminUserInfo {
+        pubkey: hex::encode(&target_pubkey),
+        is_admin: target_user.is_admin,
+        file_count: user_stats.file_count,
+        total_size: user_stats.total_size,
+        created: target_user.created.to_rfc3339(),
+        #[cfg(feature = "payments")]
+        paid_until: if let Some(u) = &target_user.paid_until {
+            u.timestamp() as u64
+        } else {
+            0
+        },
+        #[cfg(feature = "payments")]
+        quota: target_user.paid_size,
+        #[cfg(feature = "payments")]
+        free_quota,
+        #[cfg(feature = "payments")]
+        total_available_quota,
+        #[cfg(feature = "payments")]
+        payments,
+        files: files_result,
+    })
 }
 
 impl Database {

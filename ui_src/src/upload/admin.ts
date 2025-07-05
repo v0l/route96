@@ -12,6 +12,25 @@ export interface AdminSelf {
   total_available_quota?: number;
 }
 
+export interface AdminUserInfo {
+  pubkey: string;
+  is_admin: boolean;
+  file_count: number;
+  total_size: number;
+  created: string;
+  paid_until?: number;
+  quota?: number;
+  free_quota?: number;
+  total_available_quota?: number;
+  payments?: any[];
+  files: {
+    total: number;
+    page: number;
+    count: number;
+    files: Array<NostrEvent>;
+  };
+}
+
 export interface Report {
   id: number;
   file_id: string;
@@ -84,6 +103,15 @@ export class Route96 {
   async acknowledgeReport(reportId: number) {
     const rsp = await this.#req(`admin/reports/${reportId}`, "DELETE");
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async getUserInfo(pubkey: string, page = 0, count = 50) {
+    const rsp = await this.#req(
+      `admin/user/${pubkey}?page=${page}&count=${count}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponse<AdminUserInfo>>(rsp);
     return data;
   }
 
