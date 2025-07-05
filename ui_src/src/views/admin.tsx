@@ -228,6 +228,7 @@ export default function Admin() {
                 await deleteFile(x);
                 await listAllUploads(adminListedPage);
               }}
+              adminMode={true}
             />
           </div>
         </div>

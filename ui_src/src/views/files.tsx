@@ -19,12 +19,14 @@ export default function FileList({
   page,
   onPage,
   onDelete,
+  adminMode,
 }: {
   files: Array<File | NostrEvent | FileInfo>;
   pages?: number;
   page?: number;
   onPage?: (n: number) => void;
   onDelete?: (id: string) => void;
+  adminMode?: boolean;
 }) {
   const [viewType, setViewType] = useState<"grid" | "list">("grid");
   const [gridCols, setGridCols] = useState(() => {
@@ -253,6 +255,7 @@ export default function FileList({
                       key={idx}
                       link={NostrLink.publicKey(a)}
                       size={20}
+                      adminMode={adminMode}
                     />
                   ))}
               </div>
@@ -320,6 +323,7 @@ export default function FileList({
                           key={idx}
                           link={NostrLink.publicKey(a)}
                           size={20}
+                          adminMode={adminMode}
                         />
                       ))}
                     </td>
