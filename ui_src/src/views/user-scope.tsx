@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Navigate } from "react-router-dom";
+import { useParams, Navigate, Link } from "react-router-dom";
 import { hexToBech32 } from "@snort/shared";
 import { FormatBytes } from "../const";
 import FileList from "./files";
@@ -127,12 +127,12 @@ export default function UserScope() {
       <div className="space-y-8 px-4">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-neutral-100">User Scope</h1>
-          <a
-            href="/admin"
+          <Link
+            to="/admin"
             className="text-blue-400 hover:text-blue-300 underline"
           >
             ← Back to Admin
-          </a>
+          </Link>
         </div>
         <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
           {error}

@@ -107,7 +107,7 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    if (pub && !self) {
+    if (pub) {
       const r96 = new Route96(url, pub);
       r96
         .getSelf()
@@ -119,7 +119,7 @@ export default function Admin() {
           setLoading(false);
         });
     }
-  }, [pub, self, url]);
+  }, [login, pub, url]);
 
   useEffect(() => {
     if (pub && self?.is_admin) {
@@ -154,7 +154,7 @@ export default function Admin() {
     );
   }
 
-  if (!self?.is_admin) {
+  if (self && !self.is_admin) {
     return <Navigate to="/" replace />;
   }
 
@@ -187,7 +187,6 @@ export default function Admin() {
                   <option value="">All Files</option>
                   <option value="image/webp">WebP Images</option>
                   <option value="image/jpeg">JPEG Images</option>
-                  <option value="image/jpg">JPG Images</option>
                   <option value="image/png">PNG Images</option>
                   <option value="image/gif">GIF Images</option>
                   <option value="video/mp4">MP4 Videos</option>

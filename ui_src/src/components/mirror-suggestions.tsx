@@ -38,7 +38,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const memoizedServers = useMemo(() => servers, [servers]);
 
   const fetchSuggestions = useCallback(async () => {
-    if (!pub || !login?.pubkey) return;
+    if (!pub || !login?.publicKey) return;
 
     try {
       setLoading(true);
@@ -58,7 +58,7 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
       for (const serverUrl of serverList) {
         try {
           const blossom = new Blossom(serverUrl, pub);
-          const files = await blossom.list(login.pubkey);
+          const files = await blossom.list(login.publicKey);
 
           for (const file of files) {
             const suggestion = fileMap.get(file.sha256);
@@ -105,13 +105,13 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     } finally {
       setLoading(false);
     }
-  }, [memoizedServers, pub, login?.pubkey]);
+  }, [memoizedServers, pub, login?.publicKey]);
 
   useEffect(() => {
-    if (memoizedServers.length > 1 && pub && login?.pubkey) {
+    if (memoizedServers.length > 1 && pub && login?.publicKey) {
       fetchSuggestions();
     }
-  }, [memoizedServers, pub, login?.pubkey, fetchSuggestions]);
+  }, [memoizedServers, pub, login?.publicKey, fetchSuggestions]);
 
   async function mirrorAll() {
     if (!pub || suggestions.length === 0) return;

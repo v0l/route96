@@ -22,17 +22,14 @@ export default function Header() {
     try {
       const n7 = new Nip7Signer();
       const pubkey = await n7.getPubKey();
-      Login.login({
-        type: "nip7",
-        pubkey,
-      });
+      Login.login(pubkey);
     } catch {
       //ignore
     }
   }
 
   useEffect(() => {
-    if (pub && !self) {
+    if (pub && self === undefined) {
       const r96 = new Route96(url, pub);
       r96
         .getSelf()
@@ -81,7 +78,7 @@ export default function Header() {
         <div className="flex items-center space-x-4">
           {login ? (
             <div className="flex items-center space-x-3">
-              <Profile link={NostrLink.publicKey(login.pubkey)} />
+              <Profile link={NostrLink.publicKey(login.publicKey)} />
               <Button
                 onClick={() => Login.logout()}
                 variant="secondary"

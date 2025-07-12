@@ -11,10 +11,10 @@ export function useBlossomServers() {
   const login = useLogin();
 
   const rb = new RequestBuilder("media-servers");
-  if (login?.pubkey) {
+  if (login?.publicKey) {
     rb.withFilter()
       .kinds([10_063 as EventKind])
-      .authors([login.pubkey]);
+      .authors([login.publicKey]);
   }
   const req = useRequestBuilder(rb);
 
