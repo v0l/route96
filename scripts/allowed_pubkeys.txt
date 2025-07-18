@@ -1,0 +1,10 @@
+# Route96 Allowed Pubkeys
+# This file contains pubkeys that are allowed to access the Route96 server
+# One pubkey per line, comments start with #
+# Empty lines are ignored
+
+# Example allowed pubkey (replace with actual pubkeys)
+63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed
+
+# Add more pubkeys here as needed
+# 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef 

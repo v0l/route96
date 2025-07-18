@@ -16,6 +16,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event, PagedResult};
 use crate::settings::Settings;
+use crate::whitelist::DynamicWhitelist;
 
 #[derive(Serialize, Default)]
 #[serde(crate = "rocket::serde")]
@@ -173,6 +174,7 @@ async fn upload(
     db: &State<Database>,
     settings: &State<Settings>,
     form: Form<Nip96Form<'_>>,
+    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
 ) -> Nip96Response {
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
     if upload_size > 0 && upload_size > settings.max_upload_bytes {
@@ -197,9 +199,20 @@ async fn upload(
     }
 
     // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
+    let pubkey = auth.event.pubkey.to_hex();
+    
+    // Check dynamic whitelist first if configured
+    if let Some(whitelist) = dynamic_whitelist {
+        let allowed = whitelist.is_allowed(&pubkey).await;
+        if !allowed {
+            return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Access denied by dynamic whitelist")));
+        }
+    } else {
+        // Fall back to static whitelist if no dynamic whitelist configured
+        if let Some(wl) = &settings.whitelist {
+            if !wl.contains(&pubkey) {
+                return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
+            }
         }
     }
 
