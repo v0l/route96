@@ -34,7 +34,7 @@ fi
 ALLOWED_PUBKEYS=(
     "63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    "0f4795bf31824a414148daf1b589bb8138fb0a03963f984c84462e40a8365abe"
+#   "0f4795bf31824a414148daf1b589bb8138fb0a03963f984c84462e40a8365abe"
     # Add more allowed pubkeys here
 )
 
@@ -47,7 +47,10 @@ done
 
 # Example 2: Check against a file
 # You can also read from a file containing allowed pubkeys
-if [ -f "allowed_pubkeys.txt" ]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ALLOWED_PUBKEYS_FILE="$SCRIPT_DIR/allowed_pubkeys.txt"
+
+if [ -f "$ALLOWED_PUBKEYS_FILE" ]; then
     while IFS= read -r line; do
         # Skip comments and empty lines
         [[ $line =~ ^[[:space:]]*# ]] && continue
@@ -57,7 +60,7 @@ if [ -f "allowed_pubkeys.txt" ]; then
             echo "Access granted for pubkey: $PUBKEY (from file)"
             exit 0
         fi
-    done < "allowed_pubkeys.txt"
+    done < "$ALLOWED_PUBKEYS_FILE"
 fi
 
 # Example 3: Database check

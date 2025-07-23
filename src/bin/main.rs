@@ -75,6 +75,7 @@ async fn main() -> Result<(), Error> {
         info!("Initializing dynamic whitelist with program: {}", config.user_exit_program.display());
         Some(DynamicWhitelist::new(config.clone()))
     } else {
+        info!("Dynamic whitelist not configured, using static whitelist only");
         None
     };
 
@@ -94,10 +95,9 @@ async fn main() -> Result<(), Error> {
         )
         .mount("/admin", routes::admin_routes());
 
-    // Add dynamic whitelist to Rocket state if configured
-    if let Some(whitelist) = dynamic_whitelist {
-        rocket = rocket.manage(whitelist);
-    }
+    // Always manage the dynamic whitelist state, even if it's None
+    // This allows the routes to expect the state parameter
+    rocket = rocket.manage(dynamic_whitelist);
 
     #[cfg(feature = "analytics")]
     {

@@ -156,12 +156,12 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
 async fn check_whitelist(
     auth: &BlossomAuth, 
     settings: &Settings,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>
 ) -> Option<BlossomResponse> {
     let pubkey = auth.event.pubkey.to_hex();
     
     // Check dynamic whitelist first if configured
-    if let Some(whitelist) = dynamic_whitelist {
+    if let Some(whitelist) = dynamic_whitelist.inner() {
         let allowed = whitelist.is_allowed(&pubkey).await;
         if !allowed {
             return Some(BlossomResponse::Generic(BlossomGenericResponse {
@@ -191,7 +191,7 @@ async fn delete_blob(
     auth: BlossomAuth,
     fs: &State<FileStore>,
     db: &State<Database>,
-    _dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    _dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     match delete_file(sha256, &auth.event, fs, db).await {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
@@ -228,7 +228,7 @@ async fn list_files(
 async fn upload_head(
     auth: BlossomAuth, 
     settings: &State<Settings>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>
 ) -> BlossomHead {
     check_head(auth, settings, dynamic_whitelist).await
 }
@@ -240,7 +240,7 @@ async fn upload(
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     process_upload("upload", false, auth, fs, db, settings, data, dynamic_whitelist).await
 }
@@ -252,7 +252,7 @@ async fn mirror(
     db: &State<Database>,
     settings: &State<Settings>,
     req: Json<MirrorRequest>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
@@ -329,7 +329,7 @@ async fn mirror(
 async fn head_media(
     auth: BlossomAuth, 
     settings: &State<Settings>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>
 ) -> BlossomHead {
     check_head(auth, settings, dynamic_whitelist).await
 }
@@ -342,7 +342,7 @@ async fn upload_media(
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     process_upload("media", true, auth, fs, db, settings, data, dynamic_whitelist).await
 }
@@ -350,7 +350,7 @@ async fn upload_media(
 async fn check_head(
     auth: BlossomAuth, 
     settings: &State<Settings>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>
 ) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
@@ -386,7 +386,7 @@ async fn check_head(
     let pubkey = auth.event.pubkey.to_hex();
     
     // Check dynamic whitelist first if configured
-    if let Some(whitelist) = dynamic_whitelist {
+    if let Some(whitelist) = dynamic_whitelist.inner() {
         let allowed = whitelist.is_allowed(&pubkey).await;
         if !allowed {
             return BlossomHead {
@@ -415,7 +415,7 @@ async fn process_upload(
     db: &State<Database>,
     settings: &State<Settings>,
     data: Data<'_>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, method) {
         return BlossomResponse::error("Invalid request method tag");
@@ -567,7 +567,7 @@ async fn report_file(
     db: &State<Database>,
     settings: &State<Settings>,
     data: Json<nostr::Event>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> BlossomResponse {
     // Check if the request has the correct method tag
     if !check_method(&auth.event, "report") {

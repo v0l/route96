@@ -174,7 +174,7 @@ async fn upload(
     db: &State<Database>,
     settings: &State<Settings>,
     form: Form<Nip96Form<'_>>,
-    dynamic_whitelist: Option<&State<DynamicWhitelist>>,
+    dynamic_whitelist: &State<Option<DynamicWhitelist>>,
 ) -> Nip96Response {
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
     if upload_size > 0 && upload_size > settings.max_upload_bytes {
@@ -202,7 +202,7 @@ async fn upload(
     let pubkey = auth.event.pubkey.to_hex();
     
     // Check dynamic whitelist first if configured
-    if let Some(whitelist) = dynamic_whitelist {
+    if let Some(whitelist) = dynamic_whitelist.inner() {
         let allowed = whitelist.is_allowed(&pubkey).await;
         if !allowed {
             return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Access denied by dynamic whitelist")));
