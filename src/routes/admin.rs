@@ -116,21 +116,22 @@ async fn admin_get_self(
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                let free_quota = settings
-                    .payments
-                    .as_ref()
-                    .and_then(|p| p.free_quota_bytes)
-                    .unwrap_or(104857600);
-                let mut total_available = free_quota;
+                if let Some(payment_config) = &settings.payments {
+                    let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
+                    let mut total_available = free_quota;
 
-                // Add paid quota if still valid
-                if let Some(paid_until) = &user.paid_until {
-                    if *paid_until > chrono::Utc::now() {
-                        total_available += user.paid_size;
+                    // Add paid quota if still valid
+                    if let Some(paid_until) = &user.paid_until {
+                        if *paid_until > chrono::Utc::now() {
+                            total_available += user.paid_size;
+                        }
                     }
-                }
 
-                (free_quota, total_available)
+                    (free_quota, total_available)
+                } else {
+                    // No payments config - quota disabled
+                    (0, 0)
+                }
             };
 
             AdminResponse::success(SelfUser {
@@ -310,23 +311,24 @@ async fn admin_get_user_info(
 
     #[cfg(feature = "payments")]
     let (free_quota, total_available_quota, payments) = {
-        let free_quota = settings
-            .payments
-            .as_ref()
-            .and_then(|p| p.free_quota_bytes)
-            .unwrap_or(104857600);
-        let mut total_available = free_quota;
+        if let Some(payment_config) = &settings.payments {
+            let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
+            let mut total_available = free_quota;
 
-        // Add paid quota if still valid
-        if let Some(paid_until) = &target_user.paid_until {
-            if *paid_until > chrono::Utc::now() {
-                total_available += target_user.paid_size;
+            // Add paid quota if still valid
+            if let Some(paid_until) = &target_user.paid_until {
+                if *paid_until > chrono::Utc::now() {
+                    total_available += target_user.paid_size;
+                }
             }
+
+            let payments = db.get_user_payments(target_user.id).await.unwrap_or_default();
+
+            (free_quota, total_available, payments)
+        } else {
+            // No payments config - quota disabled
+            (0, 0, vec![])
         }
-
-        let payments = db.get_user_payments(target_user.id).await.unwrap_or_default();
-
-        (free_quota, total_available, payments)
     };
 
     AdminResponse::success(AdminUserInfo {
