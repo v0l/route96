@@ -129,8 +129,8 @@ async fn admin_get_self(
 
                     (free_quota, total_available)
                 } else {
-                    // No payments config - unlimited quota
-                    (u64::MAX, u64::MAX)
+                    // No payments config - quota disabled
+                    (0, 0)
                 }
             };
 
@@ -326,8 +326,8 @@ async fn admin_get_user_info(
 
             (free_quota, total_available, payments)
         } else {
-            // No payments config - unlimited quota
-            (u64::MAX, u64::MAX, vec![])
+            // No payments config - quota disabled
+            (0, 0, vec![])
         }
     };
 
