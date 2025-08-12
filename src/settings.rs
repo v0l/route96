@@ -20,8 +20,11 @@ pub struct Settings {
     /// Public facing url
     pub public_url: String,
 
-    /// Whitelisted pubkeys
+    /// Whitelisted pubkeys (legacy static whitelist)
     pub whitelist: Option<Vec<String>>,
+
+    /// Dynamic whitelist configuration
+    pub dynamic_whitelist: Option<DynamicWhitelistConfig>,
 
     /// Path for ViT image model
     pub vit_model: Option<VitModelConfig>,
@@ -74,4 +77,17 @@ pub struct LndConfig {
     pub endpoint: String,
     pub tls: PathBuf,
     pub macaroon: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicWhitelistConfig {
+    /// Path to the external program that checks if a pubkey is allowed
+    pub user_exit_program: PathBuf,
+    /// Cache duration in seconds for positive responses (default: 3600 = 1 hour)
+    #[serde(default = "default_cache_duration")]
+    pub cache_duration_seconds: u64,
+}
+
+fn default_cache_duration() -> u64 {
+    3600 // 1 hour in seconds
 }

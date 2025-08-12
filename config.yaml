@@ -16,6 +16,11 @@ public_url: "http://localhost:8000"
 # (Optional) Whitelisted pubkeys, leave out to disable
 # whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
 
+# (Optional) Dynamic whitelist configuration
+# dynamic_whitelist:
+#   user_exit_program: "./scripts/check_access.sh"
+#   cache_duration_seconds: 3600  # 1 hour, optional (default: 3600)
+
 # (Optional) Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
 # vit_model:
 #   model: "falcon_nsfw.safetensors"

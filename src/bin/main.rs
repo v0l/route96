@@ -21,6 +21,7 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
+use route96::whitelist::DynamicWhitelist;
 use tokio::sync::broadcast;
 
 #[derive(Parser, Debug)]
@@ -68,6 +69,16 @@ async fn main() -> Result<(), Error> {
     config.ident = Ident::try_new("route96").unwrap();
 
     let fs = FileStore::new(settings.clone());
+    
+    // Initialize dynamic whitelist if configured
+    let dynamic_whitelist = if let Some(config) = &settings.dynamic_whitelist {
+        info!("Initializing dynamic whitelist with program: {}", config.user_exit_program.display());
+        Some(DynamicWhitelist::new(config.clone()))
+    } else {
+        info!("Dynamic whitelist not configured, using static whitelist only");
+        None
+    };
+
     let mut rocket = rocket::Rocket::custom(config)
         .manage(fs.clone())
         .manage(settings.clone())
@@ -83,6 +94,10 @@ async fn main() -> Result<(), Error> {
             ],
         )
         .mount("/admin", routes::admin_routes());
+
+    // Always manage the dynamic whitelist state, even if it's None
+    // This allows the routes to expect the state parameter
+    rocket = rocket.manage(dynamic_whitelist);
 
     #[cfg(feature = "analytics")]
     {
@@ -132,7 +147,10 @@ async fn main() -> Result<(), Error> {
     };
 
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    #[cfg(feature = "payments")]
     let jh = start_background_tasks(db, fs, shutdown_rx, lnd);
+    #[cfg(not(feature = "payments"))]
+    let jh = start_background_tasks(db, fs, shutdown_rx);
 
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);

@@ -1,7 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
-use crate::filesystem::FileStore;
-use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
 use rocket::serde::Serialize;
@@ -74,7 +72,7 @@ pub struct SelfUser {
 #[derive(Serialize)]
 pub struct AdminNip94File {
     #[serde(flatten)]
-    pub inner: Nip94Event,
+    pub inner: crate::routes::Nip94Event,
     pub uploader: Vec<String>,
 }
 
@@ -95,7 +93,7 @@ pub struct AdminUserInfo {
     pub total_available_quota: u64,
     #[cfg(feature = "payments")]
     pub payments: Vec<crate::db::Payment>,
-    pub files: PagedResult<AdminNip94File>,
+    pub files: crate::routes::PagedResult<AdminNip94File>,
 }
 
 #[rocket::get("/self")]
@@ -164,7 +162,7 @@ async fn admin_list_files(
     mime_type: Option<String>,
     db: &State<Database>,
     settings: &State<Settings>,
-) -> AdminResponse<PagedResult<AdminNip94File>> {
+) -> AdminResponse<crate::routes::PagedResult<AdminNip94File>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = count.clamp(1, 5_000);
 
@@ -180,14 +178,14 @@ async fn admin_list_files(
         .list_all_files(page * server_count, server_count, mime_type)
         .await
     {
-        Ok((files, count)) => AdminResponse::success(PagedResult {
+        Ok((files, count)) => AdminResponse::success(crate::routes::PagedResult {
             count: files.len() as u32,
             page,
             total: count as u32,
             files: files
                 .into_iter()
                 .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(settings, &f.0),
+                    inner: crate::routes::Nip94Event::from_upload(settings, &f.0),
                     uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
                 })
                 .collect(),
@@ -202,7 +200,7 @@ async fn admin_list_reports(
     page: u32,
     count: u32,
     db: &State<Database>,
-) -> AdminResponse<PagedResult<Report>> {
+) -> AdminResponse<crate::routes::PagedResult<Report>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = count.clamp(1, 5_000);
 
@@ -216,7 +214,7 @@ async fn admin_list_reports(
     }
 
     match db.list_reports(page * server_count, server_count).await {
-        Ok((reports, total_count)) => AdminResponse::success(PagedResult {
+        Ok((reports, total_count)) => AdminResponse::success(crate::routes::PagedResult {
             count: reports.len() as u32,
             page,
             total: total_count as u32,
@@ -296,14 +294,14 @@ async fn admin_get_user_info(
         Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
     };
 
-    let files_result = PagedResult {
+    let files_result = crate::routes::PagedResult {
         count: files.len() as u32,
         page,
         total: total_files as u32,
         files: files
             .into_iter()
             .map(|f| AdminNip94File {
-                inner: Nip94Event::from_upload(settings, &f),
+                inner: crate::routes::Nip94Event::from_upload(settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
             })
             .collect(),
