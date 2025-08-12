@@ -33,6 +33,7 @@ public_url: "http://localhost:8000"
 # void_cat_files: "/my/void.cat/data"
 
 # (Optional) Payment system config
+# Remove this entire section to disable storage quotas and enable unlimited uploads
 payments:
   # (Optional) Free quota in bytes for users without payments (default: 100MB) 
   free_quota_bytes: 104857600
