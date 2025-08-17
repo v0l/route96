@@ -20,7 +20,7 @@ impl Fairing for CORS {
             "Access-Control-Allow-Methods",
             "PUT, GET, HEAD, DELETE, OPTIONS, POST",
         ));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "Authorization, Origin, Content-Type, Content-Length, Referer"));
         response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
 
         // force status 200 for options requests

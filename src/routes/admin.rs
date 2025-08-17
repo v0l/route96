@@ -1,6 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
-use crate::filesystem::FileStore;
 use crate::routes::{Nip94Event, PagedResult};
 use crate::settings::Settings;
 use rocket::serde::json::Json;
@@ -259,7 +258,7 @@ async fn admin_get_user_info(
     settings: &State<Settings>,
 ) -> AdminResponse<AdminUserInfo> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    
+
     // Check if the requesting user is an admin
     let admin_user = match db.get_user(&pubkey_vec).await {
         Ok(user) => user,
@@ -322,7 +321,10 @@ async fn admin_get_user_info(
                 }
             }
 
-            let payments = db.get_user_payments(target_user.id).await.unwrap_or_default();
+            let payments = db
+                .get_user_payments(target_user.id)
+                .await
+                .unwrap_or_default();
 
             (free_quota, total_available, payments)
         } else {
@@ -363,7 +365,7 @@ async fn admin_purge_user(
     fs: &State<crate::filesystem::FileStore>,
 ) -> AdminResponse<()> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    
+
     // Check if the requesting user is an admin
     let admin_user = match db.get_user(&pubkey_vec).await {
         Ok(user) => user,
@@ -393,21 +395,33 @@ async fn admin_purge_user(
     for file_id in file_ids {
         // Delete file ownership records
         if let Err(e) = db.delete_all_file_owner(&file_id).await {
-            log::warn!("Failed to delete file ownership for file {}: {}", hex::encode(&file_id), e);
+            log::warn!(
+                "Failed to delete file ownership for file {}: {}",
+                hex::encode(&file_id),
+                e
+            );
             failed_count += 1;
             continue;
         }
 
         // Delete file record from database
         if let Err(e) = db.delete_file(&file_id).await {
-            log::warn!("Failed to delete file record for file {}: {}", hex::encode(&file_id), e);
+            log::warn!(
+                "Failed to delete file record for file {}: {}",
+                hex::encode(&file_id),
+                e
+            );
             failed_count += 1;
             continue;
         }
 
         // Delete physical file
         if let Err(e) = tokio::fs::remove_file(fs.get(&file_id)).await {
-            log::warn!("Failed to delete physical file {}: {}", hex::encode(&file_id), e);
+            log::warn!(
+                "Failed to delete physical file {}: {}",
+                hex::encode(&file_id),
+                e
+            );
             // Don't increment failed_count here as the DB record is already deleted
         }
 
@@ -415,7 +429,10 @@ async fn admin_purge_user(
     }
 
     if failed_count > 0 {
-        AdminResponse::error(&format!("Partially completed: {} files deleted, {} failed", deleted_count, failed_count))
+        AdminResponse::error(&format!(
+            "Partially completed: {} files deleted, {} failed",
+            deleted_count, failed_count
+        ))
     } else {
         AdminResponse::success(())
     }
