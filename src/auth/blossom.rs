@@ -33,11 +33,11 @@ impl<'r> FromRequest<'r> for BlossomAuth {
                 if event.kind != Kind::Custom(24242) {
                     return Outcome::Error((Status::new(400), "Wrong event kind"));
                 }
-                if event.created_at > Timestamp::now() {
-                    return Outcome::Error((
-                        Status::new(400),
-                        "Created timestamp is in the future",
-                    ));
+                if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64)
+                    .unsigned_abs()
+                    >= 60 * 3
+                {
+                    return Outcome::Error((Status::new(400), "Created timestamp is out of range"));
                 }
 
                 // check expiration tag
