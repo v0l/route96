@@ -33,13 +33,11 @@ impl<'r> FromRequest<'r> for Nip98Auth {
                 if event.kind != Kind::HttpAuth {
                     return Outcome::Error((Status::new(401), "Wrong event kind"));
                 }
-                if (event.created_at.as_u64() as i64 -
-                    Timestamp::now().as_u64() as i64).abs() >= 60
+                if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64)
+                    .unsigned_abs()
+                    >= 60 * 3
                 {
-                    return Outcome::Error((
-                        Status::new(401),
-                        "Created timestamp is out of range",
-                    ));
+                    return Outcome::Error((Status::new(401), "Created timestamp is out of range"));
                 }
 
                 // check url tag
