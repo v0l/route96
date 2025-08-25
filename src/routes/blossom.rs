@@ -3,6 +3,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event};
 use crate::settings::Settings;
+use crate::whitelist::Whitelist;
 use log::{error, info};
 use nostr::prelude::hex;
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
@@ -152,15 +153,12 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
     false
 }
 
-fn check_whitelist(auth: &BlossomAuth, settings: &Settings) -> Option<BlossomResponse> {
-    // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return Some(BlossomResponse::Generic(BlossomGenericResponse {
-                status: Status::Forbidden,
-                message: Some("Not on whitelist".to_string()),
-            }));
-        }
+fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<BlossomResponse> {
+    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+        return Some(BlossomResponse::Generic(BlossomGenericResponse {
+            status: Status::Forbidden,
+            message: Some("Not on whitelist".to_string()),
+        }));
     }
     None
 }
@@ -204,8 +202,8 @@ async fn list_files(
 }
 
 #[rocket::head("/upload")]
-fn upload_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
-    check_head(auth, settings)
+fn upload_head(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
+    check_head(auth, whitelist, settings)
 }
 
 #[rocket::put("/upload", data = "<data>")]
@@ -214,9 +212,10 @@ async fn upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    whitelist: &State<Whitelist>,
     data: Data<'_>,
 ) -> BlossomResponse {
-    process_upload("upload", false, auth, fs, db, settings, data).await
+    process_upload("upload", false, auth, fs, db, whitelist, settings, data).await
 }
 
 #[rocket::put("/mirror", data = "<req>", format = "json")]
@@ -225,12 +224,13 @@ async fn mirror(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    whitelist: &State<Whitelist>,
     req: Json<MirrorRequest>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
-    if let Some(e) = check_whitelist(&auth, settings) {
+    if let Some(e) = check_whitelist(&auth, whitelist) {
         return e;
     }
 
@@ -299,8 +299,8 @@ async fn mirror(
 
 #[cfg(feature = "media-compression")]
 #[rocket::head("/media")]
-fn head_media(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
-    check_head(auth, settings)
+fn head_media(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
+    check_head(auth, whitelist, settings)
 }
 
 #[cfg(feature = "media-compression")]
@@ -310,12 +310,13 @@ async fn upload_media(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    whitelist: &State<Whitelist>,
     data: Data<'_>,
 ) -> BlossomResponse {
-    process_upload("media", true, auth, fs, db, settings, data).await
+    process_upload("media", true, auth, fs, db, whitelist, settings, data).await
 }
 
-fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
+fn check_head(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -347,12 +348,8 @@ fn check_head(auth: BlossomAuth, settings: &State<Settings>) -> BlossomHead {
     }
 
     // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return BlossomHead {
-                msg: Some("Not on whitelist"),
-            };
-        }
+    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+        return BlossomHead { msg: Some("Not on whitelist") };
     }
 
     BlossomHead { msg: None }
@@ -364,6 +361,7 @@ async fn process_upload(
     auth: BlossomAuth,
     fs: &State<FileStore>,
     db: &State<Database>,
+    whitelist: &State<Whitelist>,
     settings: &State<Settings>,
     data: Data<'_>,
 ) -> BlossomResponse {
@@ -392,7 +390,7 @@ async fn process_upload(
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, settings) {
+    if let Some(e) = check_whitelist(&auth, whitelist) {
         return e;
     }
 
@@ -515,7 +513,8 @@ where
 async fn report_file(
     auth: BlossomAuth,
     db: &State<Database>,
-    settings: &State<Settings>,
+    _settings: &State<Settings>,
+    whitelist: &State<Whitelist>,
     data: Json<nostr::Event>,
 ) -> BlossomResponse {
     // Check if the request has the correct method tag
@@ -524,7 +523,7 @@ async fn report_file(
     }
 
     // Check whitelist
-    if let Some(e) = check_whitelist(&auth, settings) {
+    if let Some(e) = check_whitelist(&auth, whitelist) {
         return e;
     }
 

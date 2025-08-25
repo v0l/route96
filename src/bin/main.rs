@@ -21,6 +21,7 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
+use route96::whitelist::Whitelist;
 use tokio::sync::broadcast;
 
 #[derive(Parser, Debug)]
@@ -68,9 +69,11 @@ async fn main() -> Result<(), Error> {
     config.ident = Ident::try_new("route96").unwrap();
 
     let fs = FileStore::new(settings.clone());
+    let wl = Whitelist::new(settings.whitelist.clone());
     let mut rocket = rocket::Rocket::custom(config)
         .manage(fs.clone())
         .manage(settings.clone())
+        .manage(wl.clone())
         .manage(db.clone())
         .attach(CORS)
         .attach(Shield::new()) // disable
@@ -132,7 +135,11 @@ async fn main() -> Result<(), Error> {
     };
 
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-    let jh = start_background_tasks(db, fs, shutdown_rx, lnd);
+    let mut jh = start_background_tasks(db, fs, shutdown_rx.resubscribe(), lnd);
+    if let Some(path) = settings.whitelist_file.clone() {
+        let wh = wl.start_file_watcher(path, shutdown_rx.resubscribe());
+        jh.push(wh);
+    }
 
     if let Err(e) = rocket.launch().await {
         error!("Rocker error {}", e);

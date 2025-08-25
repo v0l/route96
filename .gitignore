@@ -1,6 +1,7 @@
 target/
 data/
 .idea/
+.db/
 ui_src/dist/
 ui_src/node_modules/
 ui_src/package-lock.json

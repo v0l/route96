@@ -23,6 +23,10 @@ pub struct Settings {
     /// Whitelisted pubkeys
     pub whitelist: Option<Vec<String>>,
 
+    /// Path to a file containing whitelisted pubkeys (one hex key per line).
+    /// When set, the server will monitor this file and reload it if it changes.
+    pub whitelist_file: Option<PathBuf>,
+
     /// Path for ViT image model
     pub vit_model: Option<VitModelConfig>,
 
