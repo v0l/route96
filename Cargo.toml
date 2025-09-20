@@ -44,6 +44,7 @@ tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
 http-range-header = { version = "0.4.2" }
 base58 = "0.2.0"
 url = "2.5.0"
+notify = "6"
 
 libc = { version = "0.2.153", optional = true }
 ffmpeg-rs-raw = { git = "https://git.v0l.io/Kieran/ffmpeg-rs-raw.git", rev = "aa1ce3edcad0fcd286d39b3e0c2fdc610c3988e7", optional = true }

@@ -16,6 +16,7 @@ use crate::db::{Database, FileUpload};
 use crate::filesystem::{FileStore, FileSystemResult};
 use crate::routes::{delete_file, Nip94Event, PagedResult};
 use crate::settings::Settings;
+use crate::whitelist::Whitelist;
 
 #[derive(Serialize, Default)]
 #[serde(crate = "rocket::serde")]
@@ -172,6 +173,7 @@ async fn upload(
     fs: &State<FileStore>,
     db: &State<Database>,
     settings: &State<Settings>,
+    whitelist: &State<Whitelist>,
     form: Form<Nip96Form<'_>>,
 ) -> Nip96Response {
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
@@ -197,10 +199,8 @@ async fn upload(
     }
 
     // check whitelist
-    if let Some(wl) = &settings.whitelist {
-        if !wl.contains(&auth.event.pubkey.to_hex()) {
-            return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
-        }
+    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+        return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();

@@ -11,6 +11,7 @@ pub mod payments;
 pub mod processing;
 pub mod routes;
 pub mod settings;
+pub mod whitelist;
 pub mod void_file;
 
 pub fn can_compress(mime_type: &str) -> bool {
