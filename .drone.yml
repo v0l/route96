@@ -24,7 +24,8 @@ steps:
     commands:
       - dockerd --data-root /cache/dockerd &
       - docker login -u voidic -p $TOKEN_DOCKER
-      - docker buildx build --push -t voidic/route96:latest .
+      - docker buildx create --platform linux/arm64,linux/amd64 --bootstrap --use
+      - docker buildx build --push -t voidic/route96:latest --platform linux/amd64 --platform linux/arm64  .
       - kill $(cat /var/run/docker.pid)
 ---
 kind: pipeline
