@@ -23,7 +23,7 @@ export default function Profile({
     <img
         src={
           profile?.picture ||
-          `https://nostr.api.v0l.io/api/v1/avatar/cyberpunks/${link.id}`
+          `https://nostr-rs-api.v0l.io/avatar/cyberpunks/${link.id}`
         }
         alt={profile?.display_name || profile?.name || "User avatar"}
         width={s}
@@ -31,7 +31,7 @@ export default function Profile({
         className="rounded-full object-fit owbject-center"
         onError={(e) => {
           const target = e.target as HTMLImageElement;
-          target.src = `https://nostr.api.v0l.io/api/v1/avatar/cyberpunks/${link.id}`;
+          target.src = `https://nostr-rs-api.v0l.io/avatar/cyberpunks/${link.id}`;
         }}
       />
       {(showName ?? true) && (
