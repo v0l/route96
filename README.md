@@ -30,6 +30,7 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - **Content Reporting** - Community-driven moderation via NIP-56 reports
 - **Admin Dashboard** - Web interface for content and user management
 - **CORS Support** - Full cross-origin resource sharing compliance
+- **EXIF Privacy Protection** - Optional rejection of images with sensitive metadata (GPS, device info)
 
 ### Payment System
 - **Lightning Network** - Bitcoin payments via LND integration
