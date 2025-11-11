@@ -31,6 +31,10 @@ public_url: "http://localhost:8000"
 # (Optional) Legacy file path for void.cat uploads
 # void_cat_files: "/my/void.cat/data"
 
+# (Optional) Reject image uploads containing sensitive EXIF metadata (GPS coordinates, device info)
+# Default: false
+# reject_sensitive_exif: true
+
 # (Optional) Payment system config
 # Remove this entire section to disable storage quotas and enable unlimited uploads
 payments:

@@ -454,6 +454,20 @@ where
                     return BlossomResponse::error("Mirror request failed, server responses with invalid file content (hash mismatch)");
                 }
             }
+
+            // Check for sensitive EXIF metadata if enabled
+            #[cfg(feature = "blossom")]
+            if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
+                let file_path = fs.get(&ret.id);
+                if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
+                    // Clean up the file
+                    if let Err(cleanup_err) = tokio::fs::remove_file(&file_path).await {
+                        log::warn!("Failed to cleanup file with sensitive EXIF: {}", cleanup_err);
+                    }
+                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                }
+            }
+
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
 

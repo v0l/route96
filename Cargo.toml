@@ -45,6 +45,7 @@ http-range-header = { version = "0.4.2" }
 base58 = "0.2.0"
 url = "2.5.0"
 notify = "8.2.0"
+kamadak-exif = "0.6.1"
 
 libc = { version = "0.2.153", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "ad08b049fca3d96ec6e22109780217ce1314aa50", optional = true }
