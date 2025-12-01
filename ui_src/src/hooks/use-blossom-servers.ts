@@ -5,7 +5,7 @@ import { EventKind, RequestBuilder } from "@snort/system";
 import { dedupe, removeUndefined, sanitizeRelayUrl } from "@snort/shared";
 import { ServerUrl } from "../const";
 
-const DefaultMediaServers = ["https://blossom.band/", "https://blossom.primal.net", ServerUrl]
+const DefaultMediaServers = [ServerUrl]
 
 export function useBlossomServers() {
   const login = useLogin();
