@@ -13,6 +13,8 @@ pub mod routes;
 pub mod settings;
 pub mod whitelist;
 pub mod void_file;
+#[cfg(feature = "blossom")]
+pub mod exif_validator;
 
 pub fn can_compress(mime_type: &str) -> bool {
     mime_type.starts_with("image/")
