@@ -2,11 +2,11 @@ use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
+    Json, Router,
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
@@ -14,12 +14,12 @@ use std::sync::Arc;
 
 pub fn admin_routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/self", get(admin_get_self))
-        .route("/files", get(admin_list_files))
-        .route("/reports", get(admin_list_reports))
-        .route("/reports/:report_id", delete(admin_acknowledge_report))
-        .route("/user/:user_pubkey", get(admin_get_user_info))
-        .route("/user/:user_pubkey/purge", delete(admin_purge_user))
+        .route("/admin/self", get(admin_get_self))
+        .route("/admin/files", get(admin_list_files))
+        .route("/admin/reports", get(admin_list_reports))
+        .route("/admin/reports/{report_id}", delete(admin_acknowledge_report))
+        .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
+        .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
 }
 
 #[derive(Serialize, Default)]
@@ -63,7 +63,9 @@ where
 {
     fn into_response(self) -> Response {
         match self {
-            AdminResponse::GenericError(json) => (StatusCode::INTERNAL_SERVER_ERROR, json).into_response(),
+            AdminResponse::GenericError(json) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, json).into_response()
+            }
             AdminResponse::Ok(json) => (StatusCode::OK, json).into_response(),
         }
     }
@@ -121,7 +123,7 @@ async fn admin_get_self(
             let s = match state.db.get_user_stats(user.id).await {
                 Ok(r) => r,
                 Err(e) => {
-                    return AdminResponse::error(&format!("Failed to load user stats: {}", e))
+                    return AdminResponse::error(&format!("Failed to load user stats: {}", e));
                 }
             };
 
@@ -196,7 +198,8 @@ async fn admin_list_files(
     if !user.is_admin {
         return AdminResponse::error("User is not an admin");
     }
-    match state.db
+    match state
+        .db
         .list_all_files(params.page * server_count, server_count, params.mime_type)
         .await
     {
@@ -241,7 +244,11 @@ async fn admin_list_reports(
         return AdminResponse::error("User is not an admin");
     }
 
-    match state.db.list_reports(params.page * server_count, server_count).await {
+    match state
+        .db
+        .list_reports(params.page * server_count, server_count)
+        .await
+    {
         Ok((reports, total_count)) => AdminResponse::success(PagedResult {
             count: reports.len() as u32,
             page: params.page,
@@ -319,7 +326,11 @@ async fn admin_get_user_info(
     // Get user files with pagination
     let page = params.page.unwrap_or(0);
     let count = params.count.unwrap_or(50).clamp(1, 100);
-    let (files, total_files) = match state.db.list_files(&target_pubkey, page * count, count).await {
+    let (files, total_files) = match state
+        .db
+        .list_files(&target_pubkey, page * count, count)
+        .await
+    {
         Ok((files, total)) => (files, total),
         Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
     };
@@ -350,7 +361,8 @@ async fn admin_get_user_info(
                 }
             }
 
-            let payments = state.db
+            let payments = state
+                .db
                 .get_user_payments(target_user.id)
                 .await
                 .unwrap_or_default();

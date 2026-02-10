@@ -1,6 +1,6 @@
 [package]
 name = "route96"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 [[bin]]
@@ -11,53 +11,49 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "react-ui", "payments", "r96util"]
+default = ["nip96", "blossom", "analytics", "react-ui", "r96util"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
 nip96 = ["media-compression"]
 blossom = []
 analytics = []
 react-ui = []
-payments = ["dep:fedimint-tonic-lnd"]
+payments = ["dep:payments-rs"]
 r96util = ["dep:walkdir", "dep:indicatif"]
 
 [dependencies]
-log = "0.4.21"
-nostr = "0.43.1"
-pretty_env_logger = "0.5.0"
+log = "0.4"
+nostr = "0.44"
+pretty_env_logger = "0.5"
 axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.12", features = ["file-stream"] }
-async-trait = "0.1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }
-tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
-base64 = "0.22.1"
-hex = { version = "0.4.3", features = ["serde"] }
-serde = { version = "1.0.198", features = ["derive"] }
-uuid = { version = "1.8.0", features = ["v4", "serde"] }
-anyhow = "^1.0.98"
-sha2 = "0.10.8"
-sqlx = { version = "0.8.1", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
-config = { version = "0.15.7", features = ["yaml"] }
-chrono = { version = "0.4.38", features = ["serde"] }
-reqwest = { version = "0.12.8", features = ["stream", "http2", "json"] }
-clap = { version = "4.5.18", features = ["derive"] }
-mime2ext = "0.1.53"
-infer = "0.19.0"
-tokio-util = { version = "0.7.13", features = ["io", "io-util"] }
-http-range-header = { version = "0.4.2" }
-http-body-util = "0.1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
+base64 = "0.22"
+hex = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1.8", features = ["v4", "serde"] }
+anyhow = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
+config = { version = "0.15", features = ["yaml"] }
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.13", features = ["stream", "http2", "json"] }
+clap = { version = "4.5", features = ["derive"] }
+mime2ext = "0.1"
+infer = "0.19"
+tokio-util = { version = "0.7", features = ["io", "io-util"] }
 futures-util = "0.3"
-base58 = "0.2.0"
-url = "2.5.0"
-notify = "8.2.0"
-kamadak-exif = "0.6.1"
+url = "2"
+notify = "8.2"
+kamadak-exif = "0.6"
 
-libc = { version = "0.2.153", optional = true }
-ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "ad08b049fca3d96ec6e22109780217ce1314aa50", optional = true }
+libc = { version = "0.2", optional = true }
+ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "f6dc45ecea44b235476c4f2114f15ce935ab7201", optional = true }
 candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-fedimint-tonic-lnd = { version = "0.2.0", optional = true, default-features = false, features = ["invoicesrpc", "lightningrpc"] }
-walkdir = { version = "2.5.0", optional = true }
-indicatif = { version = "0.18.0", optional = true }
+walkdir = { version = "2.5", optional = true }
+indicatif = { version = "0.18", optional = true }
+payments-rs = { git = "https://github.com/v0l/payments-rs.git", optional = true, rev = "60b0fbf3838385439fbd08d43565fb1d9ab810fb" }

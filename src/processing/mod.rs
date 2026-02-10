@@ -1,9 +1,7 @@
-use anyhow::{bail, Error, Result};
+use anyhow::{Error, Result, bail};
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
-use ffmpeg_rs_raw::ffmpeg_sys_the_third::{av_frame_free, av_packet_free, AVFrame};
 use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Encoder, Scaler, StreamType, Transcoder};
 use std::path::{Path, PathBuf};
-use std::ptr;
 use uuid::Uuid;
 
 #[cfg(feature = "labels")]
@@ -105,25 +103,19 @@ impl WebpProcessor {
             let mut decoder = Decoder::new();
             decoder.setup_decoder(image_stream, None)?;
 
-            while let Ok((mut pkt, _)) = input.get_packet() {
+            while let Ok((pkt, _)) = input.get_packet() {
                 // skip packets not in the image stream
-                if (*pkt).stream_index != image_stream.index as i32 {
-                    av_packet_free(&mut pkt);
+                if let Some(pkt) = pkt.as_ref()
+                    && pkt.stream_index != image_stream.index as i32
+                {
                     continue;
                 }
-                let mut frame_save: *mut AVFrame = ptr::null_mut();
-                for (mut frame, _stream) in decoder.decode_pkt(pkt)? {
-                    if frame_save.is_null() {
-                        frame_save = sws.process_frame(frame, w, h, AV_PIX_FMT_YUV420P)?;
+                while let Ok(results) = decoder.decode_pkt(pkt.as_ref()) {
+                    if let Some((frame, _)) = results.into_iter().next() {
+                        let frame_save = sws.process_frame(&frame, w, h, AV_PIX_FMT_YUV420P)?;
+                        enc.save_picture(&frame_save, out_path.to_str().unwrap())?;
+                        return Ok(());
                     }
-                    av_frame_free(&mut frame);
-                }
-
-                av_packet_free(&mut pkt);
-                if !frame_save.is_null() {
-                    enc.save_picture(frame_save, out_path.to_str().unwrap())?;
-                    av_frame_free(&mut frame_save);
-                    return Ok(());
                 }
             }
 

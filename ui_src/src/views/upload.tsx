@@ -347,33 +347,6 @@ export default function Upload() {
           </div>
         )}
 
-        {/* Files Widget */}
-        <div className="w-full bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-neutral-100">Your Files</h3>
-              {!listedFiles && (
-                <Button onClick={() => listUploads(0)}>
-                  Load Files
-                </Button>
-              )}
-            </div>
-
-          {listedFiles && (
-            <FileList
-              files={listedFiles.files}
-              pages={Math.ceil(listedFiles.total / listedFiles.count)}
-              page={listedFiles.page}
-              onPage={(x) => setListedPage(x)}
-              onDelete={async (x) => {
-                await deleteFile(x);
-                await listUploads(listedPage);
-              }}
-            />
-          )}
-          </div>
-        </div>
-
         {/* Upload Results Widget */}
         {results.length > 0 && (
           <div className="w-full bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
@@ -388,7 +361,7 @@ export default function Upload() {
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <h4 className="font-medium text-green-400 mb-1">
-                          ✅ Upload Successful
+                          Upload Successful
                         </h4>
                         <p className="text-sm text-neutral-500">
                           {new Date(
@@ -457,6 +430,33 @@ export default function Upload() {
             </div>
           </div>
         )}
+
+        {/* Files Widget */}
+        <div className="w-full bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-semibold text-neutral-100">Your Files</h3>
+              {!listedFiles && (
+                <Button onClick={() => listUploads(0)}>
+                  Load Files
+                </Button>
+              )}
+            </div>
+
+          {listedFiles && (
+            <FileList
+              files={listedFiles.files}
+              pages={Math.ceil(listedFiles.total / listedFiles.count)}
+              page={listedFiles.page}
+              onPage={(x) => setListedPage(x)}
+              onDelete={async (x) => {
+                await deleteFile(x);
+                await listUploads(listedPage);
+              }}
+            />
+          )}
+          </div>
+        </div>
       </div>
     </div>
   );

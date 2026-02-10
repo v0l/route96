@@ -1,27 +1,27 @@
 use std::collections::HashMap;
+use std::env::temp_dir;
 use std::ops::Sub;
+use std::path::PathBuf;
 use std::time::Duration;
-
-use axum::{
-    body::Bytes,
-    extract::{Multipart, Path, Query, State as AxumState},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::{delete as route_delete, get, post},
-    Json, Router,
-};
-use futures_util::stream::Stream;
-use log::error;
-use nostr::Timestamp;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio_util::io::StreamReader;
 
 use crate::auth::nip98::Nip98Auth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{delete_file, AppState, Nip94Event, PagedResult};
+use crate::routes::{AppState, Nip94Event, PagedResult, delete_file};
 use crate::settings::Settings;
+use axum::{
+    Json, Router,
+    extract::{Multipart, Path, Query, State as AxumState},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{delete as route_delete, get, post},
+};
+use futures_util::StreamExt;
+use log::error;
+use nostr::Timestamp;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Serialize, Default)]
 struct Nip96InfoDoc {
@@ -135,7 +135,7 @@ impl Nip96UploadResult {
 }
 
 struct Nip96Form {
-    file_stream: StreamReader<impl Stream<Item = Result<Bytes, axum::Error>> + Unpin, Bytes>,
+    tmp_file: PathBuf,
     expiration: Option<usize>,
     size: u64,
     alt: Option<String>,
@@ -162,9 +162,21 @@ impl Nip96Form {
             let name = field.name().unwrap_or("").to_string();
             match name.as_str() {
                 "file" => {
-                    // Convert field to a stream
-                    let stream = field.map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-                    file_stream = Some(StreamReader::new(stream));
+                    let temp_id = Uuid::new_v4();
+                    let tmp_path = temp_dir().join(temp_id.to_string());
+                    tokio::fs::write(
+                        &tmp_path,
+                        field.bytes().await.map_err(|e| {
+                            error!("Failed to write file: {}", e);
+                            "Failed to write temp file".to_string()
+                        })?,
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to write file: {}", e);
+                        "Failed to write temp file".to_string()
+                    })?;
+                    file_stream = Some(tmp_path);
                 }
                 "expiration" => {
                     if let Ok(text) = field.text().await {
@@ -201,7 +213,7 @@ impl Nip96Form {
         }
 
         Ok(Nip96Form {
-            file_stream: file_stream.ok_or_else(|| "Missing file field".to_string())?,
+            tmp_file: file_stream.ok_or_else(|| "Missing file field".to_string())?,
             expiration,
             size,
             alt,
@@ -216,7 +228,7 @@ pub fn nip96_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/.well-known/nostr/nip96.json", get(get_info_doc))
         .route("/n96", post(upload).get(list_files))
-        .route("/n96/:sha256", route_delete(delete))
+        .route("/n96/{sha256}", route_delete(delete))
 }
 
 async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96InfoDoc> {
@@ -303,13 +315,12 @@ async fn upload(
         }
     }
 
+    let Ok(temp_file) = tokio::fs::File::open(form.tmp_file).await else {
+        return Nip96Response::error("Failed to open temporary file");
+    };
     let upload = match state
         .fs
-        .put(
-            form.file_stream,
-            content_type,
-            !form.no_transform.unwrap_or(false),
-        )
+        .put(temp_file, content_type, !form.no_transform.unwrap_or(false))
         .await
     {
         Ok(FileSystemResult::NewFile(blob)) => {

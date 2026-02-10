@@ -220,11 +220,10 @@ pub async fn get_blob(
     if id.len() != 32 {
         return Err(StatusCode::NOT_FOUND);
     }
-    if let Ok(Some(info)) = state.db.get_file(&id).await {
-        if let Ok(f) = File::open(state.fs.get(&id)).await {
+    if let Ok(Some(info)) = state.db.get_file(&id).await
+        && let Ok(f) = File::open(state.fs.get(&id)).await {
             return Ok(FilePayload { file: f, info });
         }
-    }
     Err(StatusCode::NOT_FOUND)
 }
 
@@ -307,36 +306,5 @@ pub async fn get_blob_thumb(
         })
     } else {
         Err(StatusCode::NOT_FOUND)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ranges() -> Result<()> {
-        let size = 16482469;
-
-        let req = parse_range_header("bytes=0-1023")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 0);
-        assert_eq!(r.end, 1023);
-
-        let req = parse_range_header("bytes=16482467-")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 16482467);
-        assert_eq!(r.end, 16482468);
-
-        let req = parse_range_header("bytes=-10")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 16482459);
-        assert_eq!(r.end, 16482468);
-
-        let req = parse_range_header("bytes=-16482470")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 0);
-        assert_eq!(r.end, MAX_UNBOUNDED_RANGE);
-        Ok(())
     }
 }

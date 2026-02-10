@@ -1,21 +1,20 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{delete_file, Nip94Event, AppState};
+use crate::routes::{AppState, Nip94Event, delete_file};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use axum::{
+    Json, Router,
     body::Body,
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, head, put},
-    Json, Router,
 };
-use futures_util::stream::StreamExt;
 use futures_util::TryStreamExt;
+use futures_util::stream::StreamExt;
 use log::{error, info};
-use nostr::prelude::hex;
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -64,17 +63,14 @@ struct MirrorRequest {
 
 pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = Router::new()
-        .route("/:sha256", delete(delete_blob))
-        .route("/list/:pubkey", get(list_files))
-        .route("/upload", head(upload_head))
-        .route("/upload", put(upload))
+        .route("/{sha256}", delete(delete_blob))
+        .route("/list/{pubkey}", get(list_files))
+        .route("/upload", head(upload_head).put(upload))
         .route("/mirror", put(mirror))
         .route("/report", put(report_file));
 
     #[cfg(feature = "media-compression")]
-    let router = router
-        .route("/media", head(head_media))
-        .route("/media", put(upload_media));
+    let router = router.route("/media", head(head_media).put(upload_media));
 
     router
 }
@@ -88,10 +84,10 @@ struct BlossomGenericResponse {
 impl IntoResponse for BlossomGenericResponse {
     fn into_response(self) -> Response {
         let mut headers = HeaderMap::new();
-        if let Some(message) = self.message {
-            if let Ok(value) = message.parse() {
-                headers.insert("x-reason", value);
-            }
+        if let Some(message) = self.message
+            && let Ok(value) = message.parse()
+        {
+            headers.insert("x-reason", value);
         }
         (self.status, headers).into_response()
     }
@@ -196,10 +192,7 @@ async fn list_files(
     }
 }
 
-async fn upload_head(
-    auth: BlossomAuth,
-    AxumState(state): AxumState<Arc<AppState>>,
-) -> BlossomHead {
+async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     check_head(auth, &state.wl, &state.settings)
 }
 
@@ -235,9 +228,10 @@ async fn mirror(
 
     let client = Client::builder().build().unwrap();
 
-    let req_builder = client
-        .get(url.clone())
-        .header("user-agent", format!("route96 ({})", state.settings.public_url));
+    let req_builder = client.get(url.clone()).header(
+        "user-agent",
+        format!("route96 ({})", state.settings.public_url),
+    );
     info!("Requesting mirror: {}", url);
     info!("{:?}", req_builder);
 
@@ -271,7 +265,7 @@ async fn mirror(
     process_stream(
         StreamReader::new(
             rsp.bytes_stream()
-                .map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
+                .map(|result| result.map_err(|e| std::io::Error::other(e))),
         ),
         &mime_type,
         &None,
@@ -285,10 +279,7 @@ async fn mirror(
 }
 
 #[cfg(feature = "media-compression")]
-async fn head_media(
-    auth: BlossomAuth,
-    AxumState(state): AxumState<Arc<AppState>>,
-) -> BlossomHead {
+async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     check_head(auth, &state.wl, &state.settings)
 }
 
@@ -334,7 +325,9 @@ fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> 
 
     // check whitelist
     if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
-        return BlossomHead { msg: Some("Not on whitelist") };
+        return BlossomHead {
+            msg: Some("Not on whitelist"),
+        };
     }
 
     BlossomHead { msg: None }
@@ -383,7 +376,11 @@ async fn process_upload(
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
         if size > 0 {
-            match state.db.check_user_quota(&pubkey_vec, size, free_quota).await {
+            match state
+                .db
+                .check_user_quota(&pubkey_vec, size, free_quota)
+                .await
+            {
                 Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
                 Err(_) => return BlossomResponse::error("Failed to check quota"),
                 Ok(true) => {} // Quota check passed
@@ -391,9 +388,8 @@ async fn process_upload(
         }
     }
 
-    
     let data_stream = body.into_data_stream();
-    let stream = TryStreamExt::map_err(data_stream, |e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let stream = TryStreamExt::map_err(data_stream, |e| std::io::Error::other(e));
     let reader = StreamReader::new(stream);
 
     process_stream(
@@ -430,23 +426,30 @@ where
             let mut ret: FileUpload = (&blob).into();
 
             // check expected hash (mirroring)
-            if let Some(h) = expect_hash {
-                if h != ret.id {
-                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&ret.id)).await {
-                        log::warn!("Failed to cleanup file: {}", e);
-                    }
-                    return BlossomResponse::error("Mirror request failed, server responses with invalid file content (hash mismatch)");
+            if let Some(h) = expect_hash
+                && h != ret.id
+            {
+                if let Err(e) = tokio::fs::remove_file(state.fs.get(&ret.id)).await {
+                    log::warn!("Failed to cleanup file: {}", e);
                 }
+                return BlossomResponse::error(
+                    "Mirror request failed, server responses with invalid file content (hash mismatch)",
+                );
             }
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
-            if state.settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
+            if state.settings.reject_sensitive_exif.unwrap_or(false)
+                && mime_type.starts_with("image/")
+            {
                 let file_path = state.fs.get(&ret.id);
                 if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
                     // Clean up the file
                     if let Err(cleanup_err) = tokio::fs::remove_file(&file_path).await {
-                        log::warn!("Failed to cleanup file with sensitive EXIF: {}", cleanup_err);
+                        log::warn!(
+                            "Failed to cleanup file with sensitive EXIF: {}",
+                            cleanup_err
+                        );
                     }
                     return BlossomResponse::error(format!("Upload rejected: {}", e));
                 }
@@ -480,7 +483,11 @@ where
         if let Some(payment_config) = &state.settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
-            match state.db.check_user_quota(pubkey, upload.size, free_quota).await {
+            match state
+                .db
+                .check_user_quota(pubkey, upload.size, free_quota)
+                .await
+            {
                 Ok(false) => {
                     // Clean up the uploaded file if quota exceeded
                     if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
@@ -546,13 +553,18 @@ async fn report_file(
     }
 
     // Get or create the reporter user
-    let reporter_id = match state.db.upsert_user(&auth.event.pubkey.to_bytes().to_vec()).await {
+    let reporter_id = match state
+        .db
+        .upsert_user(&auth.event.pubkey.to_bytes().to_vec())
+        .await
+    {
         Ok(user_id) => user_id,
         Err(e) => return BlossomResponse::error(format!("Failed to get user: {}", e)),
     };
 
     // Store the report (the database will handle duplicate prevention via unique index)
-    match state.db
+    match state
+        .db
         .add_report(&file_sha256, reporter_id, &data.as_json())
         .await
     {

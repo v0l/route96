@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import Button from "./button";
@@ -30,12 +30,29 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [mirrorAllProgress, setMirrorAllProgress] = useState<MirrorProgress | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
 
   const pub = usePublisher();
   const login = useLogin();
 
+  // Track previous servers to detect actual changes in content
+  const prevServersRef = useRef<string[]>([]);
+  
   // Memoize the servers array to prevent unnecessary re-renders when array contents are the same
-  const memoizedServers = useMemo(() => servers, [servers]);
+  const memoizedServers = useMemo(() => {
+    const sortedServers = [...servers].sort();
+    const prevSorted = [...prevServersRef.current].sort();
+    
+    // Check if the arrays have the same content
+    if (sortedServers.length === prevSorted.length && 
+        sortedServers.every((s, i) => s === prevSorted[i])) {
+      return prevServersRef.current;
+    }
+    
+    prevServersRef.current = servers;
+    return servers;
+  }, [servers]);
 
   const fetchSuggestions = useCallback(async () => {
     if (!pub || !login?.publicKey) return;
@@ -108,10 +125,12 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   }, [memoizedServers, pub, login?.publicKey]);
 
   useEffect(() => {
-    if (memoizedServers.length > 1 && pub && login?.publicKey) {
+    // Only fetch when expanded and haven't fetched yet
+    if (isExpanded && memoizedServers.length > 1 && pub && login?.publicKey && !hasFetched) {
       fetchSuggestions();
+      setHasFetched(true);
     }
-  }, [memoizedServers, pub, login?.publicKey, fetchSuggestions]);
+  }, [isExpanded, memoizedServers, pub, login?.publicKey, fetchSuggestions, hasFetched]);
 
   async function mirrorAll() {
     if (!pub || suggestions.length === 0) return;
@@ -207,13 +226,45 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     return null; // No suggestions needed for single server
   }
 
+  // Collapsible header component
+  const CollapsibleHeader = ({ title, badge }: { title: string; badge?: React.ReactNode }) => (
+    <button
+      onClick={() => setIsExpanded(!isExpanded)}
+      className="w-full flex items-center justify-between p-4 text-left hover:bg-neutral-700/50 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <svg
+          className={`w-4 h-4 text-neutral-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <h3 className="text-lg font-semibold text-neutral-100">{title}</h3>
+        {badge}
+      </div>
+    </button>
+  );
+
+  // Not yet fetched - show collapsed header with no badge
+  if (!hasFetched && !loading) {
+    return (
+      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
+        <CollapsibleHeader title="Mirror Suggestions" />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
-          <p className="text-neutral-400">Loading mirror suggestions...</p>
-        </div>
+        <CollapsibleHeader title="Mirror Suggestions" />
+        {isExpanded && (
+          <div className="px-4 pb-4">
+            <p className="text-neutral-400">Loading mirror suggestions...</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -221,17 +272,20 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   if (error) {
     return (
       <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
-          <div className="space-y-4">
+        <CollapsibleHeader 
+          title="Mirror Suggestions" 
+          badge={<span className="px-2 py-1 text-xs bg-red-900 text-red-200 rounded-full">Error</span>}
+        />
+        {isExpanded && (
+          <div className="px-4 pb-4 space-y-4">
             <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
               {error}
             </div>
-            <Button onClick={fetchSuggestions} variant="secondary">
+            <Button onClick={() => { setHasFetched(false); fetchSuggestions(); }} variant="secondary">
               Retry
             </Button>
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -239,19 +293,32 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   if (suggestions.length === 0) {
     return (
       <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-neutral-100">Mirror Suggestions</h3>
-          <p className="text-neutral-400">All your files are synchronized across all servers.</p>
-        </div>
+        <CollapsibleHeader 
+          title="Mirror Suggestions"
+          badge={<span className="px-2 py-1 text-xs bg-green-900 text-green-200 rounded-full">Synced</span>}
+        />
+        {isExpanded && (
+          <div className="px-4 pb-4">
+            <p className="text-neutral-400">All your files are synchronized across all servers.</p>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-      <div className="p-6">
-        <h3 className="text-lg font-semibold mb-6 text-neutral-100">Mirror Coverage</h3>
-        <div className="space-y-6">
+      <CollapsibleHeader 
+        title="Mirror Coverage"
+        badge={
+          <span className="px-2 py-1 text-xs bg-orange-900 text-orange-200 rounded-full">
+            {totalMirrorOperations} ops needed
+          </span>
+        }
+      />
+      {isExpanded && (
+        <div className="px-4 pb-4">
+          <div className="space-y-6">
 
           {/* Coverage Summary */}
           <div className="bg-neutral-700 border border-neutral-600 rounded-lg">
@@ -377,8 +444,9 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
             )}
           </div>
           )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

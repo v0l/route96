@@ -13,9 +13,23 @@ export interface LoginSession {
   bunker?: string;
   currency: string;
 }
+
+// Helper to wait for window.nostr to be available
+async function waitForNostr(maxWaitMs = 3000): Promise<boolean> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    if (window.nostr) {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
 class LoginStore extends ExternalStore<LoginSession | undefined> {
   #session?: LoginSession;
   #signer?: EventPublisher;
+  #signerInitPromise?: Promise<EventPublisher | undefined>;
 
   constructor() {
     super();
@@ -36,6 +50,7 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
   logout() {
     this.#session = undefined;
     this.#signer = undefined;
+    this.#signerInitPromise = undefined;
     this.#save();
   }
 
@@ -45,6 +60,8 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
       publicKey: pubkey,
       currency: "EUR",
     };
+    this.#signer = undefined;
+    this.#signerInitPromise = undefined;
     this.#save();
   }
 
@@ -89,6 +106,10 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
           );
           break;
         case "nip7":
+          // For nip7, check if window.nostr is available
+          if (!window.nostr) {
+            throw new Error("NIP-07 extension not found. Please install a Nostr browser extension.");
+          }
           this.#signer = new EventPublisher(
             new Nip7Signer(),
             this.#session.publicKey,
@@ -100,7 +121,64 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
     if (this.#signer) {
       return this.#signer;
     }
-    throw "Signer not setup!";
+    throw new Error("Signer not setup!");
+  }
+
+  // Async version that waits for nip7 extension to load
+  async getSignerAsync(): Promise<EventPublisher> {
+    if (this.#signer) {
+      return this.#signer;
+    }
+
+    if (this.#signerInitPromise) {
+      const result = await this.#signerInitPromise;
+      if (result) return result;
+      throw new Error("Signer not setup!");
+    }
+
+    if (!this.#session) {
+      throw new Error("Signer not setup!");
+    }
+
+    this.#signerInitPromise = this.#initSignerAsync();
+    const result = await this.#signerInitPromise;
+    if (result) return result;
+    throw new Error("Signer not setup!");
+  }
+
+  async #initSignerAsync(): Promise<EventPublisher | undefined> {
+    if (!this.#session) return undefined;
+
+    switch (this.#session.type) {
+      case "nsec":
+        this.#signer = new EventPublisher(
+          new PrivateKeySigner(this.#session.privateKey!),
+          this.#session.publicKey,
+        );
+        break;
+      case "nip46":
+        this.#signer = new EventPublisher(
+          new Nip46Signer(
+            this.#session.bunker!,
+            new PrivateKeySigner(this.#session.privateKey!),
+          ),
+          this.#session.publicKey,
+        );
+        break;
+      case "nip7":
+        // Wait for window.nostr to become available
+        const nostrAvailable = await waitForNostr();
+        if (!nostrAvailable) {
+          throw new Error("NIP-07 extension not found. Please install a Nostr browser extension.");
+        }
+        this.#signer = new EventPublisher(
+          new Nip7Signer(),
+          this.#session.publicKey,
+        );
+        break;
+    }
+
+    return this.#signer;
   }
 
   updateSession(fx: (s: LoginSession) => void) {

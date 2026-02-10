@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::filesystem::FileStore;
 #[cfg(any(feature = "media-compression", feature = "payments"))]
-use log::{error, info, warn};
+use log::{error, info};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 

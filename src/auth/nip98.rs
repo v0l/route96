@@ -1,11 +1,12 @@
 use axum::{
     extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
+    http::{StatusCode, request::Parts},
 };
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, Timestamp};
+use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
+use url::Url;
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
@@ -35,31 +36,30 @@ where
             .decode(&auth[6..])
             .map_err(|_| (StatusCode::FORBIDDEN, "Invalid auth string"))?;
 
-        let event = Event::from_json(event)
-            .map_err(|_| (StatusCode::FORBIDDEN, "Invalid nostr event"))?;
+        let event =
+            Event::from_json(event).map_err(|_| (StatusCode::FORBIDDEN, "Invalid nostr event"))?;
 
         if event.kind != Kind::HttpAuth {
             return Err((StatusCode::UNAUTHORIZED, "Wrong event kind"));
         }
 
-        if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64)
-            .unsigned_abs()
-            >= 60 * 3
+        if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
+            >= 60 * 10
         {
-            return Err((StatusCode::UNAUTHORIZED, "Created timestamp is out of range"));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Created timestamp is out of range",
+            ));
         }
 
         // check url tag
-        if let Some(url) = event.tags.iter().find_map(|t| {
-            let vec = t.as_slice();
-            if vec[0] == "u" {
-                Some(vec[1].clone())
-            } else {
-                None
-            }
-        }) {
-            let url_path = url.split('?').next().unwrap_or(&url);
-            if parts.uri.path() != url_path && !url.ends_with(parts.uri.path()) {
+        if let Some(v) = event.tags.find(TagKind::u()) {
+            let url: Url = v
+                .content()
+                .unwrap_or("")
+                .parse()
+                .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid U tag, not a url"))?;
+            if parts.uri.path() != url.path() && !url.path().ends_with(parts.uri.path()) {
                 return Err((StatusCode::UNAUTHORIZED, "U tag does not match"));
             }
         } else {
@@ -67,15 +67,8 @@ where
         }
 
         // check method tag
-        if let Some(method) = event.tags.iter().find_map(|t| {
-            let vec = t.as_slice();
-            if vec[0] == "method" {
-                Some(vec[1].clone())
-            } else {
-                None
-            }
-        }) {
-            if parts.method.as_str() != method {
+        if let Some(method) = event.tags.find(TagKind::Method) {
+            if parts.method.as_str() != method.content().unwrap_or("") {
                 return Err((StatusCode::UNAUTHORIZED, "Method tag incorrect"));
             }
         } else {
@@ -87,13 +80,13 @@ where
             .map_err(|_| (StatusCode::UNAUTHORIZED, "Event signature invalid"))?;
 
         info!("{}", event.as_json());
-        
+
         let content_type = parts
             .headers
             .get("content-type")
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
-        
+
         let content_length = parts
             .headers
             .get("content-length")

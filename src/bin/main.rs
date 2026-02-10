@@ -11,9 +11,9 @@ use config::Config;
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
 use log::info;
 #[cfg(feature = "analytics")]
-use route96::analytics::plausible::PlausibleAnalytics;
-#[cfg(feature = "analytics")]
 use route96::analytics::AnalyticsLayer;
+#[cfg(feature = "analytics")]
+use route96::analytics::plausible::PlausibleAnalytics;
 use route96::background::start_background_tasks;
 use route96::cors::cors_layer;
 use route96::db::Database;
@@ -91,16 +91,15 @@ async fn main() -> Result<(), Error> {
     // Build the router
     let mut app = Router::new()
         .route("/", get(routes::root))
-        .route("/:sha256", get(routes::get_blob))
-        .route("/:sha256", head(routes::head_blob));
+        .route("/{sha256}", head(routes::head_blob).get(routes::get_blob));
 
     #[cfg(feature = "media-compression")]
     {
-        app = app.route("/thumb/:sha256", get(routes::get_blob_thumb));
+        app = app.route("/thumb/{sha256}", get(routes::get_blob_thumb));
     }
 
     // Add admin routes
-    app = app.nest("/admin", routes::admin_routes());
+    app = app.merge(routes::admin_routes());
 
     // Add blossom routes
     #[cfg(feature = "blossom")]
@@ -123,19 +122,20 @@ async fn main() -> Result<(), Error> {
     }
 
     // Add state
-    let mut app = app
-        .with_state(Arc::new(routes::AppState {
-            fs: fs.clone(),
-            db: db.clone(),
-            settings: settings.clone(),
-            wl: wl.clone(),
-            #[cfg(feature = "payments")]
-            lnd: lnd.clone(),
-        }));
+    let mut app = app.with_state(Arc::new(routes::AppState {
+        fs: fs.clone(),
+        db: db.clone(),
+        settings: settings.clone(),
+        wl: wl.clone(),
+        #[cfg(feature = "payments")]
+        lnd: lnd.clone(),
+    }));
 
     // Add middleware layers
     app = app.layer(cors_layer());
-    app = app.layer(RequestBodyLimitLayer::new(settings.max_upload_bytes as usize));
+    app = app.layer(RequestBodyLimitLayer::new(
+        settings.max_upload_bytes as usize,
+    ));
 
     #[cfg(feature = "analytics")]
     {
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Error> {
 
     info!("Starting server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    
+
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             tokio::signal::ctrl_c().await.ok();
