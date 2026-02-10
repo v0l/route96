@@ -1,7 +1,12 @@
 use anyhow::Error;
+use axum::{
+    extract::Request,
+    response::Response,
+};
 use log::warn;
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::{Data, Request};
+use std::sync::Arc;
+use tower::{Layer, Service};
+use std::task::{Context, Poll};
 
 pub mod plausible;
 
@@ -9,33 +14,60 @@ pub trait Analytics {
     fn track(&self, req: &Request) -> Result<(), Error>;
 }
 
-pub struct AnalyticsFairing {
-    inner: Box<dyn Analytics + Sync + Send>,
+#[derive(Clone)]
+pub struct AnalyticsLayer {
+    inner: Arc<dyn Analytics + Sync + Send>,
 }
 
-impl AnalyticsFairing {
+impl AnalyticsLayer {
     pub fn new<T>(inner: T) -> Self
     where
         T: Analytics + Send + Sync + 'static,
     {
         Self {
-            inner: Box::new(inner),
+            inner: Arc::new(inner),
         }
     }
 }
 
-#[rocket::async_trait]
-impl Fairing for AnalyticsFairing {
-    fn info(&self) -> Info {
-        Info {
-            name: "Analytics",
-            kind: Kind::Request,
+impl<S> Layer<S> for AnalyticsLayer {
+    type Service = AnalyticsMiddleware<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        AnalyticsMiddleware {
+            inner,
+            analytics: self.inner.clone(),
         }
     }
+}
 
-    async fn on_request(&self, req: &mut Request<'_>, _data: &mut Data<'_>) {
-        if let Err(e) = self.inner.track(req) {
+#[derive(Clone)]
+pub struct AnalyticsMiddleware<S> {
+    inner: S,
+    analytics: Arc<dyn Analytics + Sync + Send>,
+}
+
+impl<S> Service<Request> for AnalyticsMiddleware<S>
+where
+    S: Service<Request, Response = Response> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request) -> Self::Future {
+        let analytics = self.analytics.clone();
+        
+        if let Err(e) = analytics.track(&req) {
             warn!("Failed to track! {}", e);
         }
+
+        let future = self.inner.call(req);
+        Box::pin(future)
     }
 }

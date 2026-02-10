@@ -1,10 +1,10 @@
 use crate::analytics::Analytics;
 use crate::settings::Settings;
 use anyhow::Error;
+use axum::extract::Request;
 use log::{debug, warn};
 use nostr::serde_json;
 use reqwest::ClientBuilder;
-use rocket::Request;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -73,18 +73,33 @@ impl PlausibleAnalytics {
 
 impl Analytics for PlausibleAnalytics {
     fn track(&self, req: &Request) -> Result<(), Error> {
+        let uri = req.uri();
+        let headers = req.headers();
+        
+        let host = headers
+            .get("host")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+        
+        if host.is_none() {
+            return Ok(()); // ignore request without host
+        }
+        
         Ok(self.tx.send(Event {
             name: "pageview".to_string(),
-            domain: match req.host() {
-                Some(s) => s.to_string(),
-                None => return Ok(()), // ignore request
-            },
-            url: req.uri().to_string(),
-            referrer: req.headers().get_one("Referer").map(|s| s.to_string()),
-            user_agent: req.headers().get_one("User-Agent").map(|s| s.to_string()),
-            xff: req
-                .headers()
-                .get_one("X-Forwarded-For")
+            domain: host.unwrap(),
+            url: uri.to_string(),
+            referrer: headers
+                .get("referer")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string()),
+            user_agent: headers
+                .get("user-agent")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string()),
+            xff: headers
+                .get("x-forwarded-for")
+                .and_then(|h| h.to_str().ok())
                 .map(|s| s.to_string()),
         })?)
     }

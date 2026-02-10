@@ -39,11 +39,11 @@ export default function FileList({
   }, [gridCols]);
   
   if (files.length === 0) {
-    return <b className="text-neutral-400">No Files</b>;
+    return <span className="text-neutral-500 text-sm">No Files</span>;
   }
 
   function getGridClass() {
-    const baseClasses = "grid gap-4";
+    const baseClasses = "grid gap-2";
     switch (gridCols) {
       case 2:
         return `${baseClasses} grid-cols-1 sm:grid-cols-2`;
@@ -110,57 +110,53 @@ export default function FileList({
     const ret = [];
     const maxVisiblePages = 5;
     
-    // Previous arrow
     ret.push(
       <button
         key="prev"
         onClick={() => onPage?.(page - 1)}
         disabled={page === 0}
-        className="px-3 py-2 text-sm font-medium border border-neutral-600 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-l-md transition-colors"
+        className="px-2 py-1 text-xs border border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-l-sm transition-colors"
       >
-        ←
+        &larr;
       </button>
     );
 
     let startPage = Math.max(0, page - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(totalPages - 1, startPage + maxVisiblePages - 1);
     
-    // Adjust start if we're near the end
     if (endPage - startPage < maxVisiblePages - 1) {
       startPage = Math.max(0, endPage - maxVisiblePages + 1);
     }
 
-    // First page + ellipsis if needed
     if (startPage > 0) {
       ret.push(
         <button
           key={0}
           onClick={() => onPage?.(0)}
-          className="px-3 py-2 text-sm font-medium border-t border-b border-neutral-600 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="px-2 py-1 text-xs border-t border-b border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 transition-colors"
         >
           1
         </button>
       );
       if (startPage > 1) {
         ret.push(
-          <span key="ellipsis1" className="px-3 py-2 text-sm text-neutral-400 border-t border-b border-neutral-600 bg-neutral-800">
+          <span key="ellipsis1" className="px-2 py-1 text-xs text-neutral-600 border-t border-b border-neutral-800 bg-neutral-900">
             ...
           </span>
         );
       }
     }
 
-    // Visible page numbers
     for (let x = startPage; x <= endPage; x++) {
       ret.push(
         <button
           key={x}
           onClick={() => onPage?.(x)}
           className={classNames(
-            "px-3 py-2 text-sm font-medium border-t border-b border-neutral-600 transition-colors",
+            "px-2 py-1 text-xs border-t border-b border-neutral-800 transition-colors",
             {
-              "bg-neutral-600 text-neutral-100 border-neutral-500": page === x,
-              "bg-neutral-800 text-neutral-200 hover:bg-neutral-700": page !== x,
+              "bg-white text-black": page === x,
+              "bg-neutral-900 text-neutral-300 hover:bg-neutral-800": page !== x,
             },
           )}
         >
@@ -169,11 +165,10 @@ export default function FileList({
       );
     }
 
-    // Last page + ellipsis if needed
     if (endPage < totalPages - 1) {
       if (endPage < totalPages - 2) {
         ret.push(
-          <span key="ellipsis2" className="px-3 py-2 text-sm text-neutral-400 border-t border-b border-neutral-600 bg-neutral-800">
+          <span key="ellipsis2" className="px-2 py-1 text-xs text-neutral-600 border-t border-b border-neutral-800 bg-neutral-900">
             ...
           </span>
         );
@@ -182,22 +177,21 @@ export default function FileList({
         <button
           key={totalPages - 1}
           onClick={() => onPage?.(totalPages - 1)}
-          className="px-3 py-2 text-sm font-medium border-t border-b border-neutral-600 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 transition-colors"
+          className="px-2 py-1 text-xs border-t border-b border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 transition-colors"
         >
           {totalPages}
         </button>
       );
     }
 
-    // Next arrow
     ret.push(
       <button
         key="next"
         onClick={() => onPage?.(page + 1)}
         disabled={page === totalPages - 1}
-        className="px-3 py-2 text-sm font-medium border border-neutral-600 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-r-md transition-colors"
+        className="px-2 py-1 text-xs border border-neutral-800 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-r-sm transition-colors"
       >
-        →
+        &rarr;
       </button>
     );
 
@@ -213,9 +207,9 @@ export default function FileList({
           return (
             <div
               key={info.id}
-              className="group relative rounded-lg aspect-square overflow-hidden bg-neutral-700 border border-neutral-600 hover:shadow-md transition-shadow"
+              className="group relative rounded-sm aspect-square overflow-hidden bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-colors"
             >
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-xs text-center opacity-0 group-hover:opacity-100 bg-black/75 text-white transition-opacity">
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-xs text-center opacity-0 group-hover:opacity-100 bg-black/80 text-white transition-opacity">
                 <div className="font-medium mb-1">
                   {(info.name?.length ?? 0) === 0
                     ? "Untitled"
@@ -223,16 +217,16 @@ export default function FileList({
                       ? `${info.name?.substring(0, 10)}...${info.name?.substring(info.name.length - 10)}`
                       : info.name}
                 </div>
-                <div className="text-neutral-200 mb-1">
+                <div className="text-neutral-400 mb-1">
                   {info.size && !isNaN(info.size)
                     ? FormatBytes(info.size, 2)
                     : ""}
                 </div>
-                <div className="text-neutral-200 mb-2">{info.type}</div>
-                <div className="flex gap-2">
+                <div className="text-neutral-500 mb-2">{info.type}</div>
+                <div className="flex gap-1">
                   <a
                     href={info.url}
-                    className="bg-neutral-700 hover:bg-neutral-600 text-white px-2 py-1 rounded text-xs"
+                    className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
                     target="_blank"
                   >
                     View
@@ -243,7 +237,7 @@ export default function FileList({
                         e.preventDefault();
                         onDelete?.(info.id);
                       }}
-                      className="bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded text-xs"
+                      className="bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded-sm text-xs"
                     >
                       Delete
                     </button>
@@ -270,54 +264,54 @@ export default function FileList({
   function showList() {
     return (
       <div className="overflow-x-auto">
-        <table className="min-w-full bg-neutral-800 border border-neutral-600 rounded-lg">
-          <thead className="bg-neutral-700/50">
+        <table className="min-w-full bg-neutral-900 border border-neutral-800 rounded-sm text-xs">
+          <thead className="bg-neutral-950">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Preview
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Name
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Type
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Size
               </th>
               {files.some((i) => "uploader" in i) && (
-                <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+                <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                   Uploader
                 </th>
               )}
-              <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-600">
+          <tbody className="divide-y divide-neutral-800">
             {files.map((a) => {
               const info = getInfo(a);
               return (
-                <tr key={info.id} className="hover:bg-neutral-700/30">
-                  <td className="px-4 py-3 w-16">
-                    <div className="w-12 h-12 bg-neutral-700 rounded overflow-hidden">
+                <tr key={info.id} className="hover:bg-neutral-800/50">
+                  <td className="px-2 py-1.5 w-12">
+                    <div className="w-10 h-10 bg-neutral-800 rounded-sm overflow-hidden">
                       {renderInner(info)}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-neutral-100 break-all max-w-xs">
+                  <td className="px-2 py-1.5 text-neutral-200 break-all max-w-xs">
                     {(info.name?.length ?? 0) === 0 ? "<Untitled>" : info.name}
                   </td>
-                  <td className="px-4 py-3 text-sm text-neutral-400">
+                  <td className="px-2 py-1.5 text-neutral-500">
                     {info.type}
                   </td>
-                  <td className="px-4 py-3 text-sm text-neutral-400">
+                  <td className="px-2 py-1.5 text-neutral-500">
                     {info.size && !isNaN(info.size)
                       ? FormatBytes(info.size, 2)
                       : ""}
                   </td>
                   {info.uploader && (
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1.5">
                       {info.uploader.map((a, idx) => (
                         <Profile
                           key={idx}
@@ -328,11 +322,11 @@ export default function FileList({
                       ))}
                     </td>
                   )}
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                  <td className="px-2 py-1.5">
+                    <div className="flex gap-1">
                       <a
                         href={info.url}
-                        className="bg-neutral-700 hover:bg-neutral-600 text-white px-3 py-1 rounded text-xs"
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
                         target="_blank"
                       >
                         View
@@ -343,7 +337,7 @@ export default function FileList({
                             e.preventDefault();
                             onDelete?.(info.id);
                           }}
-                          className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded text-xs"
+                          className="bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded-sm text-xs"
                         >
                           Delete
                         </button>
@@ -360,25 +354,25 @@ export default function FileList({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div className="flex rounded-lg border border-neutral-600 overflow-hidden">
+    <div className="space-y-3">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="flex rounded-sm border border-neutral-800 overflow-hidden">
           <button
             onClick={() => setViewType("grid")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`px-2 py-1 text-xs transition-colors ${
               viewType === "grid"
-                ? "bg-neutral-600 text-neutral-100"
-                : "bg-neutral-800 text-neutral-200 hover:bg-neutral-700"
+                ? "bg-white text-black"
+                : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
             }`}
           >
             Grid
           </button>
           <button
             onClick={() => setViewType("list")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-l border-neutral-600 ${
+            className={`px-2 py-1 text-xs transition-colors border-l border-neutral-800 ${
               viewType === "list"
-                ? "bg-neutral-600 text-neutral-100"
-                : "bg-neutral-800 text-neutral-200 hover:bg-neutral-700"
+                ? "bg-white text-black"
+                : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
             }`}
           >
             List
@@ -387,13 +381,11 @@ export default function FileList({
         
         {viewType === "grid" && (
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-neutral-400">
-              Columns:
-            </label>
+            <label className="text-xs text-neutral-500">Cols:</label>
             <select
               value={gridCols}
               onChange={(e) => setGridCols(parseInt(e.target.value))}
-              className="flex h-9 w-16 rounded-md border border-neutral-600 bg-neutral-700 text-neutral-100 px-2 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-6 w-14 rounded-sm border border-neutral-800 bg-neutral-900 text-neutral-300 px-1 text-xs"
             >
               <option value={2}>2</option>
               <option value={3}>3</option>
@@ -412,9 +404,7 @@ export default function FileList({
 
       {pages !== undefined && pages > 1 && (
         <div className="flex justify-center">
-          <div className="flex rounded-lg border border-neutral-600 overflow-hidden">
-            {pageButtons(page ?? 0, pages)}
-          </div>
+          <div className="flex">{pageButtons(page ?? 0, pages)}</div>
         </div>
       )}
     </div>

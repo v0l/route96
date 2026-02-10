@@ -19,7 +19,7 @@ export default function ReportList({
   onDeleteFile?: (fileId: string) => void;
 }) {
   if (reports.length === 0) {
-    return <b>No Reports</b>;
+    return <span className="text-neutral-500 text-sm">No Reports</span>;
   }
 
   function pageButtons(page: number, n: number) {
@@ -28,20 +28,21 @@ export default function ReportList({
 
     for (let x = start; x < n; x++) {
       ret.push(
-        <div
+        <button
           key={x}
           onClick={() => onPage?.(x)}
           className={classNames(
-            "bg-neutral-700 hover:bg-neutral-600 min-w-8 text-center cursor-pointer font-bold",
+            "px-2 py-1 text-xs border border-neutral-800 transition-colors",
             {
-              "rounded-l-md": x === start,
-              "rounded-r-md": x + 1 === n,
-              "bg-neutral-400": page === x,
+              "rounded-l-sm": x === start,
+              "rounded-r-sm": x + 1 === n,
+              "bg-white text-black": page === x,
+              "bg-neutral-900 text-neutral-300 hover:bg-neutral-800": page !== x,
             },
           )}
         >
           {x + 1}
-        </div>,
+        </button>,
       );
     }
 
@@ -71,88 +72,88 @@ export default function ReportList({
   }
 
   return (
-    <>
-      <table className="w-full border-collapse border border-neutral-500">
-        <thead>
-          <tr className="bg-neutral-700">
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              Report ID
-            </th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              File ID
-            </th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              Reporter
-            </th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              Reason
-            </th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              Created
-            </th>
-            <th className="border border-neutral-500 py-2 px-4 text-left">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {reports.map((report) => {
-            const reporterPubkey = getReporterPubkey(report.event_json);
-            const reason = getReportReason(report.event_json);
+    <div className="space-y-3">
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs bg-neutral-900 border border-neutral-800 rounded-sm">
+          <thead className="bg-neutral-950">
+            <tr>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                ID
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                File
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                Reporter
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                Reason
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                Created
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-800">
+            {reports.map((report) => {
+              const reporterPubkey = getReporterPubkey(report.event_json);
+              const reason = getReportReason(report.event_json);
 
-            return (
-              <tr key={report.id} className="hover:bg-neutral-700">
-                <td className="border border-neutral-500 py-2 px-4">
-                  {report.id}
-                </td>
-                <td className="border border-neutral-500 py-2 px-4 font-mono text-sm">
-                  {report.file_id.substring(0, 12)}...
-                </td>
-                <td className="border border-neutral-500 py-2 px-4">
-                  {reporterPubkey ? (
-                    <Profile
-                      link={NostrLink.publicKey(reporterPubkey)}
-                      size={20}
-                    />
-                  ) : (
-                    "Unknown"
-                  )}
-                </td>
-                <td className="border border-neutral-500 py-2 px-4 max-w-xs truncate">
-                  {reason}
-                </td>
-                <td className="border border-neutral-500 py-2 px-4">
-                  {formatDate(report.created)}
-                </td>
-                <td className="border border-neutral-500 py-2 px-4">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onAcknowledge?.(report.id)}
-                      className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-sm"
-                    >
-                      Acknowledge
-                    </button>
-                    <button
-                      onClick={() => onDeleteFile?.(report.file_id)}
-                      className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-sm"
-                    >
-                      Delete File
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              return (
+                <tr key={report.id} className="hover:bg-neutral-800/50">
+                  <td className="px-2 py-1.5 text-neutral-300">
+                    {report.id}
+                  </td>
+                  <td className="px-2 py-1.5 font-mono text-neutral-500">
+                    {report.file_id.substring(0, 8)}...
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {reporterPubkey ? (
+                      <Profile
+                        link={NostrLink.publicKey(reporterPubkey)}
+                        size={16}
+                      />
+                    ) : (
+                      <span className="text-neutral-500">Unknown</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-neutral-400 max-w-32 truncate">
+                    {reason}
+                  </td>
+                  <td className="px-2 py-1.5 text-neutral-500">
+                    {formatDate(report.created)}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => onAcknowledge?.(report.id)}
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-0.5 rounded-sm text-xs"
+                      >
+                        Ack
+                      </button>
+                      <button
+                        onClick={() => onDeleteFile?.(report.file_id)}
+                        className="bg-red-600 hover:bg-red-500 text-white px-2 py-0.5 rounded-sm text-xs"
+                      >
+                        Del
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-      {pages !== undefined && (
-        <>
-          <div className="flex justify-center mt-4">
-            <div className="flex gap-1">{pageButtons(page ?? 0, pages)}</div>
-          </div>
-        </>
+      {pages !== undefined && pages > 1 && (
+        <div className="flex justify-center">
+          <div className="flex">{pageButtons(page ?? 0, pages)}</div>
+        </div>
       )}
-    </>
+    </div>
   );
 }

@@ -1,25 +1,29 @@
 use std::collections::HashMap;
+use std::env::temp_dir;
 use std::ops::Sub;
+use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::auth::nip98::Nip98Auth;
+use crate::db::FileUpload;
+use crate::filesystem::FileSystemResult;
+use crate::routes::{AppState, Nip94Event, PagedResult, delete_file};
+use crate::settings::Settings;
+use axum::{
+    Json, Router,
+    extract::{Multipart, Path, Query, State as AxumState},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{delete as route_delete, get, post},
+};
+use futures_util::StreamExt;
 use log::error;
 use nostr::Timestamp;
-use rocket::data::ToByteUnit;
-use rocket::form::Form;
-use rocket::fs::TempFile;
-use rocket::serde::json::Json;
-use rocket::serde::Serialize;
-use rocket::{routes, FromForm, Responder, Route, State};
-
-use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload};
-use crate::filesystem::{FileStore, FileSystemResult};
-use crate::routes::{delete_file, Nip94Event, PagedResult};
-use crate::settings::Settings;
-use crate::whitelist::Whitelist;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct Nip96InfoDoc {
     /// File upload and deletion are served from this url
     pub api_url: String,
@@ -38,7 +42,6 @@ struct Nip96InfoDoc {
 }
 
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct Nip96Plan {
     pub name: String,
     pub is_nip98_required: bool,
@@ -57,7 +60,6 @@ struct Nip96Plan {
 }
 
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct Nip96MediaTransformations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<Vec<String>>,
@@ -65,18 +67,10 @@ struct Nip96MediaTransformations {
     pub video: Option<Vec<String>>,
 }
 
-#[derive(Responder)]
 enum Nip96Response {
-    #[response(status = 500)]
     GenericError(Json<Nip96UploadResult>),
-
-    #[response(status = 200)]
     UploadResult(Json<Nip96UploadResult>),
-
-    #[response(status = 200)]
     FileList(Json<PagedResult<Nip94Event>>),
-
-    #[response(status = 403)]
     Forbidden(Json<Nip96UploadResult>),
 }
 
@@ -90,8 +84,20 @@ impl Nip96Response {
     }
 }
 
+impl IntoResponse for Nip96Response {
+    fn into_response(self) -> Response {
+        match self {
+            Nip96Response::GenericError(json) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, json).into_response()
+            }
+            Nip96Response::UploadResult(json) => (StatusCode::OK, json).into_response(),
+            Nip96Response::FileList(json) => (StatusCode::OK, json).into_response(),
+            Nip96Response::Forbidden(json) => (StatusCode::FORBIDDEN, json).into_response(),
+        }
+    }
+}
+
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct Nip96UploadResult {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,29 +134,110 @@ impl Nip96UploadResult {
     }
 }
 
-#[derive(FromForm)]
-struct Nip96Form<'r> {
-    file: TempFile<'r>,
+struct Nip96Form {
+    tmp_file: PathBuf,
     expiration: Option<usize>,
     size: u64,
-    alt: Option<&'r str>,
-    caption: Option<&'r str>,
-    content_type: Option<&'r str>,
+    alt: Option<String>,
+    caption: Option<String>,
+    content_type: Option<String>,
     no_transform: Option<bool>,
 }
 
-pub fn nip96_routes() -> Vec<Route> {
-    routes![get_info_doc, upload, delete, list_files]
+impl Nip96Form {
+    async fn from_multipart(mut multipart: Multipart) -> Result<Self, String> {
+        let mut file_stream = None;
+        let mut expiration = None;
+        let mut size = 0;
+        let mut alt = None;
+        let mut caption = None;
+        let mut content_type = None;
+        let mut no_transform = None;
+
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| format!("Failed to get field: {}", e))?
+        {
+            let name = field.name().unwrap_or("").to_string();
+            match name.as_str() {
+                "file" => {
+                    let temp_id = Uuid::new_v4();
+                    let tmp_path = temp_dir().join(temp_id.to_string());
+                    tokio::fs::write(
+                        &tmp_path,
+                        field.bytes().await.map_err(|e| {
+                            error!("Failed to write file: {}", e);
+                            "Failed to write temp file".to_string()
+                        })?,
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to write file: {}", e);
+                        "Failed to write temp file".to_string()
+                    })?;
+                    file_stream = Some(tmp_path);
+                }
+                "expiration" => {
+                    if let Ok(text) = field.text().await {
+                        expiration = text.parse().ok();
+                    }
+                }
+                "size" => {
+                    if let Ok(text) = field.text().await {
+                        size = text.parse().unwrap_or(0);
+                    }
+                }
+                "alt" => {
+                    if let Ok(text) = field.text().await {
+                        alt = Some(text);
+                    }
+                }
+                "caption" => {
+                    if let Ok(text) = field.text().await {
+                        caption = Some(text);
+                    }
+                }
+                "content_type" => {
+                    if let Ok(text) = field.text().await {
+                        content_type = Some(text);
+                    }
+                }
+                "no_transform" => {
+                    if let Ok(text) = field.text().await {
+                        no_transform = text.parse::<bool>().ok();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Nip96Form {
+            tmp_file: file_stream.ok_or_else(|| "Missing file field".to_string())?,
+            expiration,
+            size,
+            alt,
+            caption,
+            content_type,
+            no_transform,
+        })
+    }
 }
 
-#[rocket::get("/.well-known/nostr/nip96.json")]
-async fn get_info_doc(settings: &State<Settings>) -> Json<Nip96InfoDoc> {
+pub fn nip96_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/.well-known/nostr/nip96.json", get(get_info_doc))
+        .route("/n96", post(upload).get(list_files))
+        .route("/n96/{sha256}", route_delete(delete))
+}
+
+async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96InfoDoc> {
     let mut plans = HashMap::new();
     plans.insert(
         "free".to_string(),
         Nip96Plan {
             is_nip98_required: true,
-            max_byte_size: settings.max_upload_bytes,
+            max_byte_size: state.settings.max_upload_bytes,
             ..Default::default()
         },
     );
@@ -167,39 +254,44 @@ async fn get_info_doc(settings: &State<Settings>) -> Json<Nip96InfoDoc> {
     })
 }
 
-#[rocket::post("/n96", data = "<form>")]
 async fn upload(
     auth: Nip98Auth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    whitelist: &State<Whitelist>,
-    form: Form<Nip96Form<'_>>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    multipart: Multipart,
 ) -> Nip96Response {
+    let form = match Nip96Form::from_multipart(multipart).await {
+        Ok(f) => f,
+        Err(e) => return Nip96Response::error(&format!("Could not parse form: {}", e)),
+    };
+
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
-    if upload_size > 0 && upload_size > settings.max_upload_bytes {
+    if upload_size > 0 && upload_size > state.settings.max_upload_bytes {
         return Nip96Response::error("File too large");
     }
-    let file = match form.file.open().await {
-        Ok(f) => f,
-        Err(e) => return Nip96Response::error(&format!("Could not open file: {}", e)),
-    };
-    let content_type = form.content_type.unwrap_or("application/octet-stream");
+
+    let content_type = form
+        .content_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
 
     if form.expiration.is_some() {
         return Nip96Response::error("Expiration not supported");
     }
 
     // account for upload speeds as slow as 1MB/s (8 Mbps)
-    let size_for_timing = if upload_size > 0 { upload_size } else { form.size };
-    let mbs = size_for_timing / 1.megabytes().as_u64();
+    let size_for_timing = if upload_size > 0 {
+        upload_size
+    } else {
+        form.size
+    };
+    let mbs = size_for_timing / (1024 * 1024); // 1 MB in bytes
     let max_time = 60.max(mbs);
     if auth.event.created_at < Timestamp::now().sub(Duration::from_secs(max_time)) {
         return Nip96Response::error("Auth event timestamp out of range");
     }
 
     // check whitelist
-    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+    if !state.wl.contains_hex(&auth.event.pubkey.to_hex()) {
         return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 
@@ -207,39 +299,47 @@ async fn upload(
 
     // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
-    if let Some(payment_config) = &settings.payments {
-        let free_quota = payment_config.free_quota_bytes
-            .unwrap_or(104857600); // Default to 100MB
-        
+    if let Some(payment_config) = &state.settings.payments {
+        let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
+
         if upload_size > 0 {
-            match db.check_user_quota(&pubkey_vec, upload_size, free_quota).await {
+            match state
+                .db
+                .check_user_quota(&pubkey_vec, upload_size, free_quota)
+                .await
+            {
                 Ok(false) => return Nip96Response::error("Upload would exceed quota"),
                 Err(_) => return Nip96Response::error("Failed to check quota"),
                 Ok(true) => {} // Quota check passed
             }
         }
     }
-    let upload = match fs
-        .put(file, content_type, !form.no_transform.unwrap_or(false))
+
+    let Ok(temp_file) = tokio::fs::File::open(form.tmp_file).await else {
+        return Nip96Response::error("Failed to open temporary file");
+    };
+    let upload = match state
+        .fs
+        .put(temp_file, content_type, !form.no_transform.unwrap_or(false))
         .await
     {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut upload: FileUpload = (&blob).into();
-            
+
             // Validate file size after upload if no pre-upload size was available
-            if upload_size == 0 && upload.size > settings.max_upload_bytes {
+            if upload_size == 0 && upload.size > state.settings.max_upload_bytes {
                 // Clean up the uploaded file
-                if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                     log::warn!("Failed to cleanup oversized file: {}", e);
                 }
                 return Nip96Response::error("File too large");
             }
-            
-            upload.name = form.caption.map(|cap| cap.to_string());
-            upload.alt = form.alt.as_ref().map(|s| s.to_string());
+
+            upload.name = form.caption;
+            upload.alt = form.alt;
             upload
         }
-        Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
+        Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) => f,
             _ => return Nip96Response::error("File not found"),
         },
@@ -249,7 +349,7 @@ async fn upload(
         }
     };
 
-    let user_id = match db.upsert_user(&pubkey_vec).await {
+    let user_id = match state.db.upsert_user(&pubkey_vec).await {
         Ok(u) => u,
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
@@ -257,21 +357,24 @@ async fn upload(
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if upload_size == 0 {
-        if let Some(payment_config) = &settings.payments {
-            let free_quota = payment_config.free_quota_bytes
-                .unwrap_or(104857600); // Default to 100MB
-            
-            match db.check_user_quota(&pubkey_vec, upload.size, free_quota).await {
+        if let Some(payment_config) = &state.settings.payments {
+            let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
+
+            match state
+                .db
+                .check_user_quota(&pubkey_vec, upload.size, free_quota)
+                .await
+            {
                 Ok(false) => {
                     // Clean up the uploaded file if quota exceeded
-                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                         log::warn!("Failed to cleanup quota-exceeding file: {}", e);
                     }
                     return Nip96Response::error("Upload would exceed quota");
                 }
                 Err(_) => {
                     // Clean up on quota check error
-                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                         log::warn!("Failed to cleanup file after quota check error: {}", e);
                     }
                     return Nip96Response::error("Failed to check quota");
@@ -281,48 +384,53 @@ async fn upload(
         }
     }
 
-    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
+    if let Err(e) = state.db.add_file(&upload, Some(user_id)).await {
         error!("{}", e);
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }
-    Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(settings, &upload)))
+    Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
+        &state.settings,
+        &upload,
+    )))
 }
 
-#[rocket::delete("/n96/<sha256>")]
 async fn delete(
-    sha256: &str,
+    Path(sha256): Path<String>,
     auth: Nip98Auth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> Nip96Response {
-    match delete_file(sha256, &auth.event, fs, db).await {
+    match delete_file(&sha256, &auth.event, &state.fs, &state.db).await {
         Ok(()) => Nip96Response::success("File deleted."),
         Err(e) => Nip96Response::error(&format!("Failed to delete file: {}", e)),
     }
 }
 
-#[rocket::get("/n96?<page>&<count>")]
-async fn list_files(
-    auth: Nip98Auth,
+#[derive(Deserialize)]
+struct ListFilesQuery {
     page: u32,
     count: u32,
-    db: &State<Database>,
-    settings: &State<Settings>,
+}
+
+async fn list_files(
+    auth: Nip98Auth,
+    Query(query): Query<ListFilesQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> Nip96Response {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let server_count = count.min(5_000).max(1);
-    match db
-        .list_files(&pubkey_vec, page * server_count, server_count)
+    let server_count = query.count.min(5_000).max(1);
+    match state
+        .db
+        .list_files(&pubkey_vec, query.page * server_count, server_count)
         .await
     {
         Ok((files, total)) => Nip96Response::FileList(Json(PagedResult {
             count: server_count,
-            page,
+            page: query.page,
             total: total as u32,
             files: files
                 .iter()
                 .map(|f| {
-                    Nip96UploadResult::from_upload(settings, f)
+                    Nip96UploadResult::from_upload(&state.settings, f)
                         .nip94_event
                         .unwrap()
                 })

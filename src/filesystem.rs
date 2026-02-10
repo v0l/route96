@@ -12,8 +12,6 @@ use anyhow::Result;
 use ffmpeg_rs_raw::DemuxerInfo;
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::StreamInfo;
-#[cfg(feature = "media-compression")]
-use rocket::form::validate::Contains;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

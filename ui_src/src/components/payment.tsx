@@ -31,10 +31,8 @@ export default function PaymentFlow({
     }
   }, [paymentInfo]);
 
-  // Set default gigabytes to user's current quota
   useEffect(() => {
     if (userInfo?.quota && userInfo.quota > 0) {
-      // Convert from bytes to GB using 1024^3 (MiB)
       const currentQuotaGB = Math.round(userInfo.quota / (1024 * 1024 * 1024));
       if (currentQuotaGB > 0) {
         setGigabytes(currentQuotaGB);
@@ -78,15 +76,15 @@ export default function PaymentFlow({
   }
 
   if (error && !paymentInfo) {
-    return <div className="text-red-400">Payment not available: {error}</div>;
+    return <div className="text-red-400 text-xs">Payment not available: {error}</div>;
   }
 
   if (!paymentInfo) {
-    return <div className="text-neutral-400">Loading payment info...</div>;
+    return <div className="text-neutral-500 text-xs">Loading payment info...</div>;
   }
 
   const totalCostBTC = paymentInfo.cost.amount * gigabytes * months;
-  const totalCostSats = Math.round(totalCostBTC * 100000000); // Convert BTC to sats
+  const totalCostSats = Math.round(totalCostBTC * 100000000);
 
   function formatStorageUnit(unit: string): string {
     if (
@@ -99,74 +97,70 @@ export default function PaymentFlow({
   }
 
   return (
-    <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-      <div className="p-6">
-        <h3 className="text-lg font-semibold mb-6 text-neutral-100">Top Up Account</h3>
-        <div className="space-y-6">
-          <div className="text-center">
-            <div className="text-2xl font-bold mb-2 text-neutral-100">
-              {gigabytes} {formatStorageUnit(paymentInfo.unit)} for {months} month
-              {months > 1 ? "s" : ""}
-            </div>
-            <div className="text-lg text-neutral-300 font-semibold">
-              {totalCostSats.toLocaleString()} sats
-            </div>
+    <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-3">
+      <h3 className="text-sm font-medium mb-3 text-white">Top Up</h3>
+      <div className="space-y-3">
+        <div className="text-center">
+          <div className="text-lg font-medium text-white">
+            {gigabytes} {formatStorageUnit(paymentInfo.unit)} x {months}mo
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-neutral-300">
-                Storage ({formatStorageUnit(paymentInfo.unit)})
-              </label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={gigabytes}
-                onChange={(e) => setGigabytes(parseInt(e.target.value) || 1)}
-                className="flex h-10 w-full rounded-md border border-neutral-600 bg-neutral-700 px-3 py-2 text-center text-lg text-neutral-100 ring-offset-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2 text-neutral-300">
-                Duration (months)
-              </label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={months}
-                onChange={(e) => setMonths(parseInt(e.target.value) || 1)}
-                className="flex h-10 w-full rounded-md border border-neutral-600 bg-neutral-700 px-3 py-2 text-center text-lg text-neutral-100 ring-offset-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
+          <div className="text-sm text-neutral-400">
+            {totalCostSats.toLocaleString()} sats
           </div>
-
-          <Button
-            onClick={requestPayment}
-            disabled={loading || gigabytes <= 0 || months <= 0}
-            className="w-full"
-          >
-            {loading ? "Processing..." : "Generate Payment Request"}
-          </Button>
-
-          {error && <div className="text-red-400 text-sm">{error}</div>}
-
-          {paymentRequest && (
-            <div className="bg-neutral-700 border border-neutral-600 rounded-lg">
-              <div className="p-4">
-                <div className="text-sm font-medium mb-2 text-neutral-200">Lightning Invoice:</div>
-                <div className="font-mono text-xs break-all bg-neutral-800 text-neutral-200 p-2 rounded">
-                  {paymentRequest}
-                </div>
-                <div className="text-xs text-neutral-400 mt-2">
-                  Copy this invoice to your Lightning wallet to complete payment
-                </div>
-              </div>
-            </div>
-          )}
         </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs text-neutral-500 mb-1">
+              {formatStorageUnit(paymentInfo.unit)}
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={gigabytes}
+              onChange={(e) => setGigabytes(parseInt(e.target.value) || 1)}
+              className="w-full h-8 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-center text-sm text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-neutral-500 mb-1">
+              Months
+            </label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={months}
+              onChange={(e) => setMonths(parseInt(e.target.value) || 1)}
+              className="w-full h-8 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-center text-sm text-white"
+            />
+          </div>
+        </div>
+
+        <Button
+          onClick={requestPayment}
+          disabled={loading || gigabytes <= 0 || months <= 0}
+          className="w-full"
+          size="sm"
+        >
+          {loading ? "..." : "Generate Invoice"}
+        </Button>
+
+        {error && <div className="text-red-400 text-xs">{error}</div>}
+
+        {paymentRequest && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-sm p-2">
+            <div className="text-xs text-neutral-500 mb-1">Lightning Invoice:</div>
+            <code className="text-xs text-neutral-300 break-all block">
+              {paymentRequest}
+            </code>
+            <div className="text-xs text-neutral-600 mt-1">
+              Copy to your Lightning wallet
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

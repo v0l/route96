@@ -44,9 +44,9 @@ impl Whitelist {
             let mut last_modified: Option<SystemTime> = None;
             info!("Starting whitelist watcher for {}", path.display());
             // initial load
-            if let Ok(md) = tokio::fs::metadata(&path).await {
-                if let Ok(modified) = md.modified() {
-                    if let Ok(contents) = tokio::fs::read_to_string(&path).await {
+            if let Ok(md) = tokio::fs::metadata(&path).await
+                && let Ok(modified) = md.modified()
+                    && let Ok(contents) = tokio::fs::read_to_string(&path).await {
                         let set: HashSet<String> = contents
                             .lines()
                             .map(|l| l.trim())
@@ -57,8 +57,6 @@ impl Whitelist {
                         last_modified = Some(modified);
                         info!("Loaded whitelist from {}", path.display());
                     }
-                }
-            }
             // Event-driven watching using notify; fallback to polling if it fails
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             let mut watcher = match RecommendedWatcher::new(
@@ -118,7 +116,7 @@ impl Whitelist {
                     }
                     _ = debounce.tick() => {
                         if pending_change {
-                            if let Some(t) = last_evt { if t.elapsed() < Duration::from_millis(250) { continue; } }
+                            if let Some(t) = last_evt && t.elapsed() < Duration::from_millis(250) { continue; }
                             match tokio::fs::read_to_string(&path).await {
                                 Ok(contents) => {
                                     let set: HashSet<String> = contents

@@ -1,10 +1,56 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  /* Dark theme with neutral-900/black background and white text */
+  --color-background: #0a0a0a;
+  --color-foreground: #fafafa;
+  
+  /* Surface colors for cards/panels */
+  --color-surface: #171717;
+  --color-surface-hover: #262626;
+  
+  /* Border colors */
+  --color-border: #262626;
+  --color-border-hover: #404040;
+  
+  /* Muted text */
+  --color-muted: #a3a3a3;
+  --color-muted-foreground: #737373;
+  
+  /* Primary accent */
+  --color-primary: #fafafa;
+  --color-primary-foreground: #0a0a0a;
+  
+  /* Destructive/danger */
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #fafafa;
+  
+  /* Success */
+  --color-success: #22c55e;
+  
+  /* Warning */
+  --color-warning: #eab308;
+  
+  /* Compact spacing */
+  --spacing-compact: 0.5rem;
+  
+  /* Small border radius */
+  --radius-sm: 0.125rem;
+  --radius-default: 0.25rem;
+}
 
 @layer base {
   body {
-    @apply bg-neutral-900 text-neutral-100;
+    @apply bg-background text-foreground antialiased;
+  }
+  
+  /* Compact form elements */
+  input, select, textarea {
+    @apply bg-surface border border-border text-foreground rounded-sm px-2 py-1.5 text-sm;
+    @apply focus:outline-none focus:ring-1 focus:ring-border-hover focus:border-border-hover;
+  }
+  
+  input[type="checkbox"] {
+    @apply w-4 h-4 rounded-sm bg-surface border-border;
   }
 }
-

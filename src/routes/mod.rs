@@ -8,25 +8,26 @@ pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
 use crate::settings::Settings;
+use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
-use http_range_header::{
-    parse_range_header, EndPosition, StartPosition, SyntacticallyCorrectRange,
+use axum::{
+    extract::{Path, State as AxumState},
+    http::{header, HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
 };
+use axum_extra::response::file_stream::FileStream;
+use http_range_header::{parse_range_header, EndPosition, StartPosition};
 use log::warn;
 use nostr::Event;
-use rocket::fs::NamedFile;
-use rocket::http::{ContentType, Header, Status};
-use rocket::response::Responder;
-use rocket::serde::Serialize;
-use rocket::{Request, Response, State};
+use serde::Serialize;
+#[cfg(feature = "media-compression")]
 use std::env::temp_dir;
 use std::io::SeekFrom;
-use std::ops::Range;
-use std::pin::{pin, Pin};
-use std::str::FromStr;
-use std::task::{Context, Poll};
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::io::ReaderStream;
 
 mod admin;
 #[cfg(feature = "blossom")]
@@ -36,13 +37,22 @@ mod nip96;
 #[cfg(feature = "payments")]
 pub mod payment;
 
+#[derive(Clone)]
+pub struct AppState {
+    pub fs: FileStore,
+    pub db: Database,
+    pub settings: Settings,
+    pub wl: Whitelist,
+    #[cfg(feature = "payments")]
+    pub lnd: Option<fedimint_tonic_lnd::Client>,
+}
+
 pub struct FilePayload {
     pub file: File,
     pub info: FileUpload,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct Nip94Event {
     pub created_at: i64,
     pub content: Option<String>,
@@ -50,7 +60,6 @@ struct Nip94Event {
 }
 
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct PagedResult<T> {
     pub count: u32,
     pub page: u32,
@@ -114,149 +123,36 @@ impl Nip94Event {
     }
 }
 
-/// Range request handler over file handle
-struct RangeBody {
-    file: File,
-    range_start: u64,
-    range_end: u64,
-    current_offset: u64,
-    poll_complete: bool,
-    file_size: u64,
-}
-
 const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
-impl RangeBody {
-    pub fn new(file: File, file_size: u64, range: Range<u64>) -> Self {
-        Self {
-            file,
-            file_size,
-            range_start: range.start,
-            range_end: range.end,
-            current_offset: 0,
-            poll_complete: false,
-        }
-    }
 
-    pub fn get_range(file_size: u64, header: &SyntacticallyCorrectRange) -> Range<u64> {
-        let range_start = match header.start {
-            StartPosition::Index(i) => i,
-            StartPosition::FromLast(i) => file_size.saturating_sub(i),
-        };
-        let range_end = match header.end {
-            EndPosition::Index(i) => i,
-            EndPosition::LastByte => (file_size - 1).min(range_start + MAX_UNBOUNDED_RANGE),
-        };
-        range_start..range_end
-    }
-
-    pub fn get_headers(&self) -> Vec<Header<'static>> {
-        let r_len = (self.range_end - self.range_start) + 1;
-        vec![
-            Header::new("content-length", r_len.to_string()),
-            Header::new(
-                "content-range",
-                format!(
-                    "bytes {}-{}/{}",
-                    self.range_start, self.range_end, self.file_size
-                ),
-            ),
-        ]
-    }
-}
-
-impl AsyncRead for RangeBody {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let range_start = self.range_start + self.current_offset;
-        let range_len = self.range_end.saturating_sub(range_start) + 1;
-        let bytes_to_read = buf.remaining().min(range_len as usize) as u64;
-
-        if bytes_to_read == 0 {
-            return Poll::Ready(Ok(()));
-        }
-
-        // when no pending poll, seek to starting position
-        if !self.poll_complete {
-            let pinned = pin!(&mut self.file);
-            pinned.start_seek(SeekFrom::Start(range_start))?;
-            self.poll_complete = true;
-        }
-
-        // check poll completion
-        if self.poll_complete {
-            let pinned = pin!(&mut self.file);
-            match pinned.poll_complete(cx) {
-                Poll::Ready(Ok(_)) => {
-                    self.poll_complete = false;
-                }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-
-        // Read data from the file
-        let pinned = pin!(&mut self.file);
-        match pinned.poll_read(cx, buf) {
-            Poll::Ready(Ok(_)) => {
-                self.current_offset += bytes_to_read;
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => {
-                self.poll_complete = true;
-                Poll::Pending
-            }
+/// Set common headers for file responses
+fn set_file_headers(response: &mut Response, info: &FileUpload) {
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        info.mime_type.parse().unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        "max-age=31536000, immutable".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        header::ACCEPT_RANGES,
+        "bytes".parse().unwrap(),
+    );
+    if let Some(name) = &info.name {
+        if let Ok(disposition) = format!("inline; filename=\"{}\"", name).parse() {
+            response.headers_mut().insert(header::CONTENT_DISPOSITION, disposition);
         }
     }
 }
 
-impl<'r> Responder<'r, 'static> for FilePayload {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut response = Response::new();
-        response.set_header(Header::new("cache-control", "max-age=31536000, immutable"));
-
-        // handle ranges
-        // only use range response for files > 1MiB
-        if self.info.size < MAX_UNBOUNDED_RANGE {
-            response.set_sized_body(None, self.file);
-        } else {
-            response.set_header(Header::new("accept-ranges", "bytes"));
-            if let Some(r) = request.headers().get("range").next() {
-                if let Ok(ranges) = parse_range_header(r) {
-                    if ranges.ranges.len() > 1 {
-                        warn!("Multipart ranges are not supported, fallback to non-range request");
-                        response.set_streamed_body(self.file);
-                    } else {
-                        let single_range = ranges.ranges.first().unwrap();
-                        let range = RangeBody::get_range(self.info.size, single_range);
-                        let r_body = RangeBody::new(self.file, self.info.size, range.clone());
-
-                        response.set_status(Status::PartialContent);
-                        let headers = r_body.get_headers();
-                        for h in headers {
-                            response.set_header(h);
-                        }
-                        response.set_streamed_body(Box::pin(r_body));
-                    }
-                }
-            } else {
-                response.set_sized_body(None, self.file);
-            }
-        }
-
-        if let Ok(ct) = ContentType::from_str(&self.info.mime_type) {
-            response.set_header(ct);
-        }
-        if let Some(name) = &self.info.name {
-            response.set_header(Header::new(
-                "content-disposition",
-                format!("inline; filename=\"{}\"", name),
-            ));
-        }
-        Ok(response)
+impl IntoResponse for FilePayload {
+    fn into_response(self) -> Response {
+        let stream = ReaderStream::new(self.file);
+        let file_stream = FileStream::new(stream).content_size(self.info.size);
+        let mut response = file_stream.into_response();
+        set_file_headers(&mut response, &self.info);
+        response
     }
 }
 
@@ -318,105 +214,182 @@ async fn delete_file(
     }
 }
 
-#[rocket::get("/")]
-pub async fn root() -> Result<NamedFile, Status> {
+pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
     #[cfg(all(debug_assertions, feature = "react-ui"))]
     let index = "./ui_src/dist/index.html";
     #[cfg(all(not(debug_assertions), feature = "react-ui"))]
     let index = "./ui/index.html";
     #[cfg(not(feature = "react-ui"))]
     let index = "./index.html";
-    if let Ok(f) = NamedFile::open(index).await {
-        Ok(f)
-    } else {
-        Err(Status::InternalServerError)
+    
+    match tokio::fs::read(index).await {
+        Ok(contents) => Ok(Html(contents)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 
-#[rocket::get("/<sha256>")]
+/// Get the range from a parsed Range header
+fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64)> {
+    let ranges = match parse_range_header(range_header) {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+
+    // Only handle single range (no multipart)
+    if ranges.ranges.len() != 1 {
+        warn!("Multipart ranges are not supported, fallback to non-range request");
+        return None;
+    }
+
+    let single_range = ranges.ranges.first().unwrap();
+
+    let start = match single_range.start {
+        StartPosition::Index(i) => i,
+        StartPosition::FromLast(i) => file_size.saturating_sub(i),
+    };
+
+    let end = match single_range.end {
+        EndPosition::Index(i) => i,
+        EndPosition::LastByte => (file_size - 1).min(start + MAX_UNBOUNDED_RANGE),
+    };
+
+    // Validate the range
+    if start > end || start >= file_size {
+        return None;
+    }
+
+    // Clamp end to file size
+    let end = end.min(file_size - 1);
+
+    Some((start, end))
+}
+
 pub async fn get_blob(
-    sha256: &str,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-) -> Result<FilePayload, Status> {
+    Path(sha256): Path<String>,
+    headers: HeaderMap,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> Result<Response, StatusCode> {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
-        sha256
+        &sha256
     };
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if id.len() != 32 {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     }
-    if let Ok(Some(info)) = db.get_file(&id).await {
-        if let Ok(f) = File::open(fs.get(&id)).await {
-            return Ok(FilePayload { file: f, info });
+
+    let info = match state.db.get_file(&id).await {
+        Ok(Some(info)) => info,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+
+    let file_path = state.fs.get(&id);
+
+    // Check for Range header and handle range requests
+    let range_header = headers
+        .get(header::RANGE)
+        .and_then(|h| h.to_str().ok());
+
+    // Only use range response for files > 1MiB
+    if info.size >= MAX_UNBOUNDED_RANGE {
+        if let Some(range_str) = range_header {
+            if let Some((start, end)) = get_range_from_header(range_str, info.size) {
+                // Build the range response directly
+                return Ok(build_range_response(file_path, info, start, end).await?);
+            }
         }
     }
-    Err(Status::NotFound)
+
+    // Full file response
+    let file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    let payload = FilePayload { file, info };
+
+    Ok(payload.into_response())
 }
 
-#[rocket::head("/<sha256>")]
-pub async fn head_blob(sha256: &str, fs: &State<FileStore>) -> Status {
+/// Build a range response by reading the specified range from file
+async fn build_range_response(
+    file_path: PathBuf,
+    info: FileUpload,
+    start: u64,
+    end: u64,
+) -> Result<Response, StatusCode> {
+    let mut file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    file.seek(SeekFrom::Start(start)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let range_len = end - start + 1;
+    let limited_reader = file.take(range_len);
+    let stream = ReaderStream::new(limited_reader);
+    let file_stream = FileStream::new(stream);
+
+    let mut response = file_stream.into_range_response(start, end, info.size);
+    set_file_headers(&mut response, &info);
+
+    Ok(response)
+}
+
+pub async fn head_blob(
+    Path(sha256): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> StatusCode {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
-        sha256
+        &sha256
     };
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return Status::NotFound;
+        return StatusCode::NOT_FOUND;
     };
 
     if id.len() != 32 {
-        return Status::NotFound;
+        return StatusCode::NOT_FOUND;
     }
-    if fs.get(&id).exists() {
-        Status::Ok
+    if state.fs.get(&id).exists() {
+        StatusCode::OK
     } else {
-        Status::NotFound
+        StatusCode::NOT_FOUND
     }
 }
 
 /// Generate thumbnail for image / video
 #[cfg(feature = "media-compression")]
-#[rocket::get("/thumb/<sha256>")]
 pub async fn get_blob_thumb(
-    sha256: &str,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-) -> Result<FilePayload, Status> {
+    Path(sha256): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> Result<FilePayload, StatusCode> {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
-        sha256
+        &sha256
     };
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if id.len() != 32 {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     }
-    let info = if let Ok(Some(info)) = db.get_file(&id).await {
+    let info = if let Ok(Some(info)) = state.db.get_file(&id).await {
         info
     } else {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if !(info.mime_type.starts_with("image/") || info.mime_type.starts_with("video/")) {
-        return Err(Status::NotFound);
+        return Err(StatusCode::NOT_FOUND);
     }
 
-    let file_path = fs.get(&id);
+    let file_path = state.fs.get(&id);
 
     let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
     thumb_file.set_extension("webp");
@@ -425,7 +398,7 @@ pub async fn get_blob_thumb(
         let mut p = WebpProcessor::new();
         if let Err(e) = p.thumbnail(&file_path, &thumb_file) {
             warn!("Failed to generate thumbnail: {}", e);
-            return Err(Status::InternalServerError);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
 
@@ -439,37 +412,6 @@ pub async fn get_blob_thumb(
             },
         })
     } else {
-        Err(Status::NotFound)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ranges() -> Result<()> {
-        let size = 16482469;
-
-        let req = parse_range_header("bytes=0-1023")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 0);
-        assert_eq!(r.end, 1023);
-
-        let req = parse_range_header("bytes=16482467-")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 16482467);
-        assert_eq!(r.end, 16482468);
-
-        let req = parse_range_header("bytes=-10")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 16482459);
-        assert_eq!(r.end, 16482468);
-
-        let req = parse_range_header("bytes=-16482470")?;
-        let r = RangeBody::get_range(size, req.ranges.first().unwrap());
-        assert_eq!(r.start, 0);
-        assert_eq!(r.end, MAX_UNBOUNDED_RANGE);
-        Ok(())
+        Err(StatusCode::NOT_FOUND)
     }
 }
