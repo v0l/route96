@@ -195,7 +195,7 @@ impl Nip96Form {
                 }
                 "no_transform" => {
                     if let Ok(text) = field.text().await {
-                        form.no_transform = text.parse().ok().or(Some(text == "true"));
+                        form.no_transform = Some(text.to_lowercase() == "true");
                     }
                 }
                 _ => {}
