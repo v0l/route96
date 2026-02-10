@@ -1,25 +1,29 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
-use crate::routes::{Nip94Event, PagedResult};
+use crate::routes::{AppState, Nip94Event, PagedResult};
 use crate::settings::Settings;
-use rocket::serde::json::Json;
-use rocket::serde::Serialize;
-use rocket::{routes, Responder, Route, State};
+use axum::{
+    extract::{Path, Query, State as AxumState},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{delete, get},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
+use std::sync::Arc;
 
-pub fn admin_routes() -> Vec<Route> {
-    routes![
-        admin_list_files,
-        admin_get_self,
-        admin_list_reports,
-        admin_acknowledge_report,
-        admin_get_user_info,
-        admin_purge_user,
-    ]
+pub fn admin_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/self", get(admin_get_self))
+        .route("/files", get(admin_list_files))
+        .route("/reports", get(admin_list_reports))
+        .route("/reports/:report_id", delete(admin_acknowledge_report))
+        .route("/user/:user_pubkey", get(admin_get_user_info))
+        .route("/user/:user_pubkey/purge", delete(admin_purge_user))
 }
 
 #[derive(Serialize, Default)]
-#[serde(crate = "rocket::serde")]
 struct AdminResponseBase<T> {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,16 +32,15 @@ struct AdminResponseBase<T> {
     pub data: Option<T>,
 }
 
-#[derive(Responder)]
 enum AdminResponse<T> {
-    #[response(status = 500)]
     GenericError(Json<AdminResponseBase<T>>),
-
-    #[response(status = 200)]
     Ok(Json<AdminResponseBase<T>>),
 }
 
-impl<T> AdminResponse<T> {
+impl<T> AdminResponse<T>
+where
+    T: Serialize,
+{
     pub fn error(msg: &str) -> Self {
         Self::GenericError(Json(AdminResponseBase {
             status: "error".to_string(),
@@ -52,6 +55,18 @@ impl<T> AdminResponse<T> {
             message: None,
             data: Some(msg),
         }))
+    }
+}
+
+impl<T> IntoResponse for AdminResponse<T>
+where
+    T: Serialize,
+{
+    fn into_response(self) -> Response {
+        match self {
+            AdminResponse::GenericError(json) => (StatusCode::INTERNAL_SERVER_ERROR, json).into_response(),
+            AdminResponse::Ok(json) => (StatusCode::OK, json).into_response(),
+        }
     }
 }
 
@@ -97,16 +112,14 @@ pub struct AdminUserInfo {
     pub files: PagedResult<AdminNip94File>,
 }
 
-#[rocket::get("/self")]
 async fn admin_get_self(
     auth: Nip98Auth,
-    db: &State<Database>,
-    settings: &State<Settings>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    match db.get_user(&pubkey_vec).await {
+    match state.db.get_user(&pubkey_vec).await {
         Ok(user) => {
-            let s = match db.get_user_stats(user.id).await {
+            let s = match state.db.get_user_stats(user.id).await {
                 Ok(r) => r,
                 Err(e) => {
                     return AdminResponse::error(&format!("Failed to load user stats: {}", e))
@@ -115,7 +128,7 @@ async fn admin_get_self(
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                if let Some(payment_config) = &settings.payments {
+                if let Some(payment_config) = &state.settings.payments {
                     let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
                     let mut total_available = free_quota;
 
@@ -155,19 +168,22 @@ async fn admin_get_self(
     }
 }
 
-#[rocket::get("/files?<page>&<count>&<mime_type>")]
-async fn admin_list_files(
-    auth: Nip98Auth,
+#[derive(Deserialize)]
+struct AdminListFilesQuery {
     page: u32,
     count: u32,
     mime_type: Option<String>,
-    db: &State<Database>,
-    settings: &State<Settings>,
+}
+
+async fn admin_list_files(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListFilesQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<PagedResult<AdminNip94File>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let server_count = count.clamp(1, 5_000);
+    let server_count = params.count.clamp(1, 5_000);
 
-    let user = match db.get_user(&pubkey_vec).await {
+    let user = match state.db.get_user(&pubkey_vec).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("User not found"),
     };
@@ -175,18 +191,18 @@ async fn admin_list_files(
     if !user.is_admin {
         return AdminResponse::error("User is not an admin");
     }
-    match db
-        .list_all_files(page * server_count, server_count, mime_type)
+    match state.db
+        .list_all_files(params.page * server_count, server_count, params.mime_type)
         .await
     {
         Ok((files, count)) => AdminResponse::success(PagedResult {
             count: files.len() as u32,
-            page,
+            page: params.page,
             total: count as u32,
             files: files
                 .into_iter()
                 .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(settings, &f.0),
+                    inner: Nip94Event::from_upload(&state.settings, &f.0),
                     uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
                 })
                 .collect(),
@@ -195,17 +211,21 @@ async fn admin_list_files(
     }
 }
 
-#[rocket::get("/reports?<page>&<count>")]
-async fn admin_list_reports(
-    auth: Nip98Auth,
+#[derive(Deserialize)]
+struct AdminListReportsQuery {
     page: u32,
     count: u32,
-    db: &State<Database>,
+}
+
+async fn admin_list_reports(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListReportsQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<PagedResult<Report>> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let server_count = count.clamp(1, 5_000);
+    let server_count = params.count.clamp(1, 5_000);
 
-    let user = match db.get_user(&pubkey_vec).await {
+    let user = match state.db.get_user(&pubkey_vec).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("User not found"),
     };
@@ -214,10 +234,10 @@ async fn admin_list_reports(
         return AdminResponse::error("User is not an admin");
     }
 
-    match db.list_reports(page * server_count, server_count).await {
+    match state.db.list_reports(params.page * server_count, server_count).await {
         Ok((reports, total_count)) => AdminResponse::success(PagedResult {
             count: reports.len() as u32,
-            page,
+            page: params.page,
             total: total_count as u32,
             files: reports,
         }),
@@ -225,15 +245,14 @@ async fn admin_list_reports(
     }
 }
 
-#[rocket::delete("/reports/<report_id>")]
 async fn admin_acknowledge_report(
     auth: Nip98Auth,
-    report_id: u64,
-    db: &State<Database>,
+    Path(report_id): Path<u64>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<()> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
-    let user = match db.get_user(&pubkey_vec).await {
+    let user = match state.db.get_user(&pubkey_vec).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("User not found"),
     };
@@ -242,25 +261,28 @@ async fn admin_acknowledge_report(
         return AdminResponse::error("User is not an admin");
     }
 
-    match db.mark_report_reviewed(report_id).await {
+    match state.db.mark_report_reviewed(report_id).await {
         Ok(()) => AdminResponse::success(()),
         Err(e) => AdminResponse::error(&format!("Could not acknowledge report: {}", e)),
     }
 }
 
-#[rocket::get("/user/<user_pubkey>?<page>&<count>")]
-async fn admin_get_user_info(
-    auth: Nip98Auth,
-    user_pubkey: &str,
+#[derive(Deserialize)]
+struct AdminGetUserInfoQuery {
     page: Option<u32>,
     count: Option<u32>,
-    db: &State<Database>,
-    settings: &State<Settings>,
+}
+
+async fn admin_get_user_info(
+    auth: Nip98Auth,
+    Path(user_pubkey): Path<String>,
+    Query(params): Query<AdminGetUserInfoQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<AdminUserInfo> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
     // Check if the requesting user is an admin
-    let admin_user = match db.get_user(&pubkey_vec).await {
+    let admin_user = match state.db.get_user(&pubkey_vec).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("User not found"),
     };
@@ -270,27 +292,27 @@ async fn admin_get_user_info(
     }
 
     // Parse target user pubkey
-    let target_pubkey = match hex::decode(user_pubkey) {
+    let target_pubkey = match hex::decode(&user_pubkey) {
         Ok(pk) => pk,
         Err(_) => return AdminResponse::error("Invalid pubkey format"),
     };
 
     // Get target user
-    let target_user = match db.get_user(&target_pubkey).await {
+    let target_user = match state.db.get_user(&target_pubkey).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("Target user not found"),
     };
 
     // Get user stats
-    let user_stats = match db.get_user_stats(target_user.id).await {
+    let user_stats = match state.db.get_user_stats(target_user.id).await {
         Ok(stats) => stats,
         Err(e) => return AdminResponse::error(&format!("Failed to load user stats: {}", e)),
     };
 
     // Get user files with pagination
-    let page = page.unwrap_or(0);
-    let count = count.unwrap_or(50).clamp(1, 100);
-    let (files, total_files) = match db.list_files(&target_pubkey, page * count, count).await {
+    let page = params.page.unwrap_or(0);
+    let count = params.count.unwrap_or(50).clamp(1, 100);
+    let (files, total_files) = match state.db.list_files(&target_pubkey, page * count, count).await {
         Ok((files, total)) => (files, total),
         Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
     };
@@ -302,7 +324,7 @@ async fn admin_get_user_info(
         files: files
             .into_iter()
             .map(|f| AdminNip94File {
-                inner: Nip94Event::from_upload(settings, &f),
+                inner: Nip94Event::from_upload(&state.settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
             })
             .collect(),
@@ -310,7 +332,7 @@ async fn admin_get_user_info(
 
     #[cfg(feature = "payments")]
     let (free_quota, total_available_quota, payments) = {
-        if let Some(payment_config) = &settings.payments {
+        if let Some(payment_config) = &state.settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
             let mut total_available = free_quota;
 
@@ -321,7 +343,7 @@ async fn admin_get_user_info(
                 }
             }
 
-            let payments = db
+            let payments = state.db
                 .get_user_payments(target_user.id)
                 .await
                 .unwrap_or_default();
@@ -357,17 +379,15 @@ async fn admin_get_user_info(
     })
 }
 
-#[rocket::delete("/user/<user_pubkey>/purge")]
 async fn admin_purge_user(
     auth: Nip98Auth,
-    user_pubkey: &str,
-    db: &State<Database>,
-    fs: &State<crate::filesystem::FileStore>,
+    Path(user_pubkey): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<()> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
     // Check if the requesting user is an admin
-    let admin_user = match db.get_user(&pubkey_vec).await {
+    let admin_user = match state.db.get_user(&pubkey_vec).await {
         Ok(user) => user,
         Err(_) => return AdminResponse::error("User not found"),
     };
@@ -377,13 +397,13 @@ async fn admin_purge_user(
     }
 
     // Parse target user pubkey
-    let target_pubkey = match hex::decode(user_pubkey) {
+    let target_pubkey = match hex::decode(&user_pubkey) {
         Ok(pk) => pk,
         Err(_) => return AdminResponse::error("Invalid pubkey format"),
     };
 
     // Get all file IDs for the target user
-    let file_ids = match db.get_user_file_ids(&target_pubkey).await {
+    let file_ids = match state.db.get_user_file_ids(&target_pubkey).await {
         Ok(ids) => ids,
         Err(e) => return AdminResponse::error(&format!("Failed to get user files: {}", e)),
     };
@@ -394,7 +414,7 @@ async fn admin_purge_user(
     // Delete each file
     for file_id in file_ids {
         // Delete file ownership records
-        if let Err(e) = db.delete_all_file_owner(&file_id).await {
+        if let Err(e) = state.db.delete_all_file_owner(&file_id).await {
             log::warn!(
                 "Failed to delete file ownership for file {}: {}",
                 hex::encode(&file_id),
@@ -405,7 +425,7 @@ async fn admin_purge_user(
         }
 
         // Delete file record from database
-        if let Err(e) = db.delete_file(&file_id).await {
+        if let Err(e) = state.db.delete_file(&file_id).await {
             log::warn!(
                 "Failed to delete file record for file {}: {}",
                 hex::encode(&file_id),
@@ -416,7 +436,7 @@ async fn admin_purge_user(
         }
 
         // Delete physical file
-        if let Err(e) = tokio::fs::remove_file(fs.get(&file_id)).await {
+        if let Err(e) = tokio::fs::remove_file(state.fs.get(&file_id)).await {
             log::warn!(
                 "Failed to delete physical file {}: {}",
                 hex::encode(&file_id),
