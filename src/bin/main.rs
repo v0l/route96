@@ -117,7 +117,7 @@ async fn main() -> Result<(), Error> {
     #[cfg(feature = "payments")]
     {
         if lnd.is_some() {
-            app = app.merge(routes::payment::routes());
+            app = app.merge(routes::payment::payment_routes());
         }
     }
 

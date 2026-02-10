@@ -1,18 +1,24 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, Payment};
+use crate::db::Payment;
 use crate::payments::{Currency, PaymentAmount, PaymentInterval, PaymentUnit};
-use crate::settings::Settings;
+use crate::routes::AppState;
+use axum::{
+    extract::State as AxumState,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use chrono::{Months, Utc};
 use fedimint_tonic_lnd::lnrpc::Invoice;
-use fedimint_tonic_lnd::Client;
 use log::{error, info};
-use rocket::serde::json::Json;
-use rocket::{routes, Route, State};
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Deref};
+use std::sync::Arc;
 
-pub fn routes() -> Vec<Route> {
-    routes![get_payment, req_payment]
+pub fn payment_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/payment", get(get_payment))
+        .route("/payment", post(req_payment))
 }
 
 #[derive(Deserialize, Serialize)]
@@ -41,45 +47,70 @@ struct PaymentResponse {
     pub pr: String,
 }
 
-#[rocket::get("/payment")]
-async fn get_payment(settings: &State<Settings>) -> Option<Json<PaymentInfo>> {
-    settings.payments.as_ref().map(|p| {
-        Json::from(PaymentInfo {
-            unit: p.unit.clone(),
-            interval: p.interval.clone(),
-            cost: p.cost.clone(),
+async fn get_payment(
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> Result<Json<PaymentInfo>, StatusCode> {
+    state
+        .settings
+        .payments
+        .as_ref()
+        .map(|p| {
+            Json(PaymentInfo {
+                unit: p.unit.clone(),
+                interval: p.interval.clone(),
+                cost: p.cost.clone(),
+            })
         })
-    })
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
-#[rocket::post("/payment", data = "<req>", format = "json")]
 async fn req_payment(
     auth: Nip98Auth,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    lnd: &State<Client>,
-    req: Json<PaymentRequest>,
-) -> Result<Json<PaymentResponse>, String> {
-    let cfg = if let Some(p) = &settings.payments {
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(req): Json<PaymentRequest>,
+) -> Result<Json<PaymentResponse>, (StatusCode, String)> {
+    let cfg = if let Some(p) = &state.settings.payments {
         p
     } else {
-        return Err("Payment not enabled, missing configuration option(s)".to_string());
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Payment not enabled, missing configuration option(s)".to_string(),
+        ));
     };
 
     let btc_amount = match cfg.cost.currency {
         Currency::BTC => cfg.cost.amount,
-        _ => return Err("Currency not supported".to_string()),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Currency not supported".to_string(),
+            ))
+        }
     };
 
     let amount = btc_amount * req.units * req.quantity as f32;
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let uid = db
+    let uid = state
+        .db
         .upsert_user(&pubkey_vec)
         .await
-        .map_err(|_| "Failed to get user account".to_string())?;
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get user account".to_string(),
+            )
+        })?;
 
-    let mut lnd = lnd.deref().clone();
+    let lnd_client = state
+        .lnd
+        .as_ref()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "LND client not configured".to_string(),
+        ))?;
+
+    let mut lnd = lnd_client.deref().clone();
     let c = lnd.lightning();
     let msat = (amount * 1e11f32) as u64;
     let memo = format!(
@@ -94,7 +125,7 @@ async fn req_payment(
             ..Default::default()
         })
         .await
-        .map_err(|e| e.message().to_string())?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.message().to_string()))?;
 
     let days_value = match cfg.interval {
         PaymentInterval::Day(d) => d as u64,
@@ -120,9 +151,12 @@ async fn req_payment(
         rate: None,
     };
 
-    if let Err(e) = db.insert_payment(&record).await {
+    if let Err(e) = state.db.insert_payment(&record).await {
         error!("Failed to insert payment: {}", e);
-        return Err("Failed to insert payment".to_string());
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to insert payment".to_string(),
+        ));
     }
 
     Ok(Json(PaymentResponse {
