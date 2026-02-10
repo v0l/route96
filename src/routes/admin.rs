@@ -170,9 +170,15 @@ async fn admin_get_self(
 
 #[derive(Deserialize)]
 struct AdminListFilesQuery {
+    #[serde(default)]
     page: u32,
+    #[serde(default = "default_count")]
     count: u32,
     mime_type: Option<String>,
+}
+
+fn default_count() -> u32 {
+    50
 }
 
 async fn admin_list_files(
@@ -213,7 +219,9 @@ async fn admin_list_files(
 
 #[derive(Deserialize)]
 struct AdminListReportsQuery {
+    #[serde(default)]
     page: u32,
+    #[serde(default = "default_count")]
     count: u32,
 }
 
