@@ -1,7 +1,6 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, User};
 use crate::routes::{AppState, Nip94Event, PagedResult};
-use crate::settings::Settings;
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::StatusCode,

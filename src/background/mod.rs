@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::filesystem::FileStore;
+#[cfg(any(feature = "media-compression", feature = "payments"))]
 use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -11,12 +12,18 @@ mod media_metadata;
 mod payments;
 
 pub fn start_background_tasks(
-    db: Database,
-    file_store: FileStore,
-    shutdown_rx: broadcast::Receiver<()>,
+    #[cfg(feature = "media-compression")] db: Database,
+    #[cfg(not(feature = "media-compression"))] _db: Database,
+    #[cfg(feature = "media-compression")] file_store: FileStore,
+    #[cfg(not(feature = "media-compression"))] _file_store: FileStore,
+    #[cfg(feature = "payments")] shutdown_rx: broadcast::Receiver<()>,
+    #[cfg(not(feature = "payments"))] _shutdown_rx: broadcast::Receiver<()>,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> Vec<JoinHandle<()>> {
+    #[cfg(any(feature = "media-compression", feature = "payments"))]
     let mut ret = vec![];
+    #[cfg(not(any(feature = "media-compression", feature = "payments")))]
+    let ret = vec![];
 
     #[cfg(feature = "media-compression")]
     {

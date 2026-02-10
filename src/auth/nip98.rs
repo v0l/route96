@@ -60,8 +60,8 @@ where
                 None
             }
         }) {
-            if !parts.uri.path().eq(&url.split('?').next().unwrap_or(&url)) 
-                && !url.ends_with(parts.uri.path()) {
+            let url_path = url.split('?').next().unwrap_or(&url);
+            if parts.uri.path() != url_path && !url.ends_with(parts.uri.path()) {
                 return Err((StatusCode::UNAUTHORIZED, "U tag does not match"));
             }
         } else {

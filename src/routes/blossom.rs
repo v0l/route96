@@ -424,7 +424,8 @@ async fn process_stream<'p, S>(
     name: &Option<&str>,
     pubkey: &Vec<u8>,
     compress: bool,
-    size: u64,
+    #[cfg(feature = "payments")] size: u64,
+    #[cfg(not(feature = "payments"))] _size: u64,
     state: Arc<AppState>,
     expect_hash: Option<Vec<u8>>,
 ) -> BlossomResponse

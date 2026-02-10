@@ -2,7 +2,6 @@ use anyhow::Error;
 use axum::{
     extract::Request,
     response::Response,
-    middleware::Next,
 };
 use log::warn;
 use std::sync::Arc;
