@@ -1,32 +1,9 @@
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::http::{Header, Method, Status};
-use rocket::{Request, Response};
-use std::io::Cursor;
+use tower_http::cors::{Any, CorsLayer};
 
-pub struct CORS;
-
-#[rocket::async_trait]
-impl Fairing for CORS {
-    fn info(&self) -> Info {
-        Info {
-            name: "CORS headers",
-            kind: Kind::Response,
-        }
-    }
-
-    async fn on_response<'r>(&self, req: &'r Request<'_>, response: &mut Response<'r>) {
-        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new(
-            "Access-Control-Allow-Methods",
-            "PUT, GET, HEAD, DELETE, OPTIONS, POST",
-        ));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "Authorization, Origin, Content-Type, Content-Length, Referer"));
-        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-
-        // force status 200 for options requests
-        if req.method() == Method::Options {
-            response.set_status(Status::Ok);
-            response.set_sized_body(None, Cursor::new(""))
-        }
-    }
+pub fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .allow_credentials(true)
 }

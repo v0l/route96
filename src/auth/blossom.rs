@@ -1,9 +1,11 @@
+use axum::{
+    async_trait,
+    extract::FromRequestParts,
+    http::{request::Parts, StatusCode},
+};
 use base64::prelude::*;
 use log::info;
 use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
-use rocket::http::Status;
-use rocket::request::{FromRequest, Outcome};
-use rocket::{async_trait, Request};
 
 pub struct BlossomAuth {
     pub content_type: Option<String>,
@@ -14,89 +16,94 @@ pub struct BlossomAuth {
 }
 
 #[async_trait]
-impl<'r> FromRequest<'r> for BlossomAuth {
-    type Error = &'static str;
+impl<S> FromRequestParts<S> for BlossomAuth
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, &'static str);
 
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Some(auth) = request.headers().get_one("authorization") {
-            if auth.starts_with("Nostr ") {
-                let event = if let Ok(j) = BASE64_STANDARD.decode(&auth[6..]) {
-                    if let Ok(ev) = Event::from_json(j) {
-                        ev
-                    } else {
-                        return Outcome::Error((Status::new(400), "Invalid nostr event"));
-                    }
-                } else {
-                    return Outcome::Error((Status::new(400), "Invalid auth string"));
-                };
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let auth = parts
+            .headers
+            .get("authorization")
+            .ok_or((StatusCode::UNAUTHORIZED, "Auth header not found"))?
+            .to_str()
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid auth header"))?;
 
-                if event.kind != Kind::Custom(24242) {
-                    return Outcome::Error((Status::new(400), "Wrong event kind"));
-                }
-                if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64)
-                    .unsigned_abs()
-                    >= 60 * 3
-                {
-                    return Outcome::Error((Status::new(400), "Created timestamp is out of range"));
-                }
+        if !auth.starts_with("Nostr ") {
+            return Err((StatusCode::BAD_REQUEST, "Auth scheme must be Nostr"));
+        }
 
-                // check expiration tag
-                if let Some(expiration) = event.tags.iter().find_map(|t| {
-                    if t.kind() == TagKind::Expiration {
-                        t.content()
-                    } else {
-                        None
-                    }
-                }) {
-                    let u_exp: Timestamp = expiration.parse().unwrap();
-                    if u_exp <= Timestamp::now() {
-                        return Outcome::Error((Status::new(400), "Expiration invalid"));
-                    }
-                } else {
-                    return Outcome::Error((Status::new(400), "Missing expiration tag"));
-                }
+        let event = BASE64_STANDARD
+            .decode(&auth[6..])
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid auth string"))?;
 
-                if event.verify().is_err() {
-                    return Outcome::Error((Status::new(400), "Event signature invalid"));
-                }
+        let event = Event::from_json(event)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid nostr event"))?;
 
-                info!("{}", event.as_json());
-                Outcome::Success(BlossomAuth {
-                    event,
-                    content_type: request.headers().iter().find_map(|h| {
-                        if h.name == "content-type" {
-                            Some(h.value.to_string())
-                        } else {
-                            None
-                        }
-                    }),
-                    x_sha_256: request.headers().iter().find_map(|h| {
-                        if h.name == "x-sha-256" {
-                            Some(h.value.to_string())
-                        } else {
-                            None
-                        }
-                    }),
-                    x_content_length: request.headers().iter().find_map(|h| {
-                        if h.name == "x-content-length" {
-                            Some(h.value.parse().unwrap())
-                        } else {
-                            None
-                        }
-                    }),
-                    x_content_type: request.headers().iter().find_map(|h| {
-                        if h.name == "x-content-type" {
-                            Some(h.value.to_string())
-                        } else {
-                            None
-                        }
-                    }),
-                })
+        if event.kind != Kind::Custom(24242) {
+            return Err((StatusCode::BAD_REQUEST, "Wrong event kind"));
+        }
+
+        if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64)
+            .unsigned_abs()
+            >= 60 * 3
+        {
+            return Err((StatusCode::BAD_REQUEST, "Created timestamp is out of range"));
+        }
+
+        // check expiration tag
+        if let Some(expiration) = event.tags.iter().find_map(|t| {
+            if t.kind() == TagKind::Expiration {
+                t.content()
             } else {
-                Outcome::Error((Status::new(400), "Auth scheme must be Nostr"))
+                None
+            }
+        }) {
+            let u_exp: Timestamp = expiration.parse().unwrap();
+            if u_exp <= Timestamp::now() {
+                return Err((StatusCode::BAD_REQUEST, "Expiration invalid"));
             }
         } else {
-            Outcome::Error((Status::new(401), "Auth header not found"))
+            return Err((StatusCode::BAD_REQUEST, "Missing expiration tag"));
         }
+
+        event
+            .verify()
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Event signature invalid"))?;
+
+        info!("{}", event.as_json());
+
+        let content_type = parts
+            .headers
+            .get("content-type")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        let x_sha_256 = parts
+            .headers
+            .get("x-sha-256")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        let x_content_length = parts
+            .headers
+            .get("x-content-length")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse().ok());
+
+        let x_content_type = parts
+            .headers
+            .get("x-content-type")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        Ok(BlossomAuth {
+            event,
+            content_type,
+            x_sha_256,
+            x_content_length,
+            x_content_type,
+        })
     }
 }

@@ -1,28 +1,28 @@
 use std::net::{IpAddr, SocketAddr};
 
 use anyhow::Error;
+use axum::{
+    Router,
+    routing::{get, head, post, put, delete},
+};
 use clap::Parser;
 use config::Config;
 #[cfg(feature = "payments")]
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
 use log::{error, info};
-use rocket::config::Ident;
-use rocket::data::{ByteUnit, Limits};
-use rocket::routes;
-use rocket::shield::Shield;
 #[cfg(feature = "analytics")]
 use route96::analytics::plausible::PlausibleAnalytics;
 #[cfg(feature = "analytics")]
-use route96::analytics::AnalyticsFairing;
+use route96::analytics::AnalyticsLayer;
 use route96::background::start_background_tasks;
-use route96::cors::CORS;
+use route96::cors::cors_layer;
 use route96::db::Database;
 use route96::filesystem::FileStore;
 use route96::routes;
-use route96::routes::{get_blob, head_blob, root};
 use route96::settings::Settings;
 use route96::whitelist::Whitelist;
 use tokio::sync::broadcast;
+use tower_http::limit::RequestBodyLimitLayer;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -31,7 +31,7 @@ struct Args {
     pub config: Option<String>,
 }
 
-#[rocket::main]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
@@ -53,58 +53,14 @@ async fn main() -> Result<(), Error> {
     info!("Running DB migration");
     db.migrate().await?;
 
-    let mut config = rocket::Config::default();
-    let ip: SocketAddr = match &settings.listen {
+    let addr: SocketAddr = match &settings.listen {
         Some(i) => i.parse()?,
         None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000),
     };
-    config.address = ip.ip();
-    config.port = ip.port();
-
-    let upload_limit = ByteUnit::from(settings.max_upload_bytes);
-    config.limits = Limits::new()
-        .limit("file", upload_limit)
-        .limit("data-form", upload_limit)
-        .limit("form", upload_limit);
-    config.ident = Ident::try_new("route96").unwrap();
 
     let fs = FileStore::new(settings.clone());
     let wl = Whitelist::new(settings.whitelist.clone());
-    let mut rocket = rocket::Rocket::custom(config)
-        .manage(fs.clone())
-        .manage(settings.clone())
-        .manage(wl.clone())
-        .manage(db.clone())
-        .attach(CORS)
-        .attach(Shield::new()) // disable
-        .mount(
-            "/",
-            routes![
-                root,
-                get_blob,
-                head_blob
-            ],
-        )
-        .mount("/admin", routes::admin_routes());
 
-    #[cfg(feature = "analytics")]
-    {
-        if settings.plausible_url.is_some() {
-            rocket = rocket.attach(AnalyticsFairing::new(PlausibleAnalytics::new(&settings)))
-        }
-    }
-    #[cfg(feature = "blossom")]
-    {
-        rocket = rocket.mount("/", routes::blossom_routes());
-    }
-    #[cfg(feature = "nip96")]
-    {
-        rocket = rocket.mount("/", routes::nip96_routes());
-    }
-    #[cfg(feature = "media-compression")]
-    {
-        rocket = rocket.mount("/", routes![routes::get_blob_thumb]);
-    }
     #[cfg(feature = "payments")]
     let lnd = {
         if let Some(lnd) = settings.payments.as_ref().map(|p| &p.lnd) {
@@ -125,25 +81,87 @@ async fn main() -> Result<(), Error> {
                 info.get_ref().alias,
                 info.get_ref().version
             );
-            rocket = rocket
-                .manage(lnd.clone())
-                .mount("/", routes::payment::routes());
             Some(lnd)
         } else {
             None
         }
     };
 
+    // Build the router
+    let mut app = Router::new()
+        .route("/", get(routes::root))
+        .route("/:sha256", get(routes::get_blob))
+        .route("/:sha256", head(routes::head_blob));
+
+    #[cfg(feature = "media-compression")]
+    {
+        app = app.route("/thumb/:sha256", get(routes::get_blob_thumb));
+    }
+
+    // Add admin routes
+    app = app.nest("/admin", routes::admin_routes());
+
+    // Add blossom routes
+    #[cfg(feature = "blossom")]
+    {
+        app = app.merge(routes::blossom_routes());
+    }
+
+    // Add nip96 routes
+    #[cfg(feature = "nip96")]
+    {
+        app = app.merge(routes::nip96_routes());
+    }
+
+    // Add payment routes
+    #[cfg(feature = "payments")]
+    {
+        if lnd.is_some() {
+            app = app.merge(routes::payment::routes());
+        }
+    }
+
+    // Add state
+    let mut app = app
+        .with_state(routes::AppState {
+            fs: fs.clone(),
+            db: db.clone(),
+            settings: settings.clone(),
+            wl: wl.clone(),
+            #[cfg(feature = "payments")]
+            lnd: lnd.clone(),
+        });
+
+    // Add middleware layers
+    app = app.layer(cors_layer());
+    app = app.layer(RequestBodyLimitLayer::new(settings.max_upload_bytes as usize));
+
+    #[cfg(feature = "analytics")]
+    {
+        if settings.plausible_url.is_some() {
+            app = app.layer(AnalyticsLayer::new(PlausibleAnalytics::new(&settings)));
+        }
+    }
+
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    #[cfg(not(feature = "payments"))]
+    let lnd = None;
     let mut jh = start_background_tasks(db, fs, shutdown_rx.resubscribe(), lnd);
     if let Some(path) = settings.whitelist_file.clone() {
         let wh = wl.start_file_watcher(path, shutdown_rx.resubscribe());
         jh.push(wh);
     }
 
-    if let Err(e) = rocket.launch().await {
-        error!("Rocker error {}", e);
-    }
+    info!("Starting server on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutdown signal received");
+        })
+        .await?;
+
     shutdown_tx
         .send(())
         .expect("Failed to send shutdown signal");
