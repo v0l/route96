@@ -27,8 +27,8 @@ nostr = "0.43.1"
 pretty_env_logger = "0.5.0"
 axum = { version = "0.7", features = ["multipart", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs"] }
-tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }
+tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
 base64 = "0.22.1"
 hex = { version = "0.4.3", features = ["serde"] }
 serde = { version = "1.0.198", features = ["derive"] }

@@ -16,8 +16,8 @@ pub fn start_background_tasks(
     #[cfg(not(feature = "media-compression"))] _db: Database,
     #[cfg(feature = "media-compression")] file_store: FileStore,
     #[cfg(not(feature = "media-compression"))] _file_store: FileStore,
-    #[cfg(feature = "payments")] shutdown_rx: broadcast::Receiver<()>,
-    #[cfg(not(feature = "payments"))] _shutdown_rx: broadcast::Receiver<()>,
+    #[cfg(any(feature = "media-compression", feature = "payments"))] shutdown_rx: broadcast::Receiver<()>,
+    #[cfg(not(any(feature = "media-compression", feature = "payments")))] _shutdown_rx: broadcast::Receiver<()>,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> Vec<JoinHandle<()>> {
     #[cfg(any(feature = "media-compression", feature = "payments"))]

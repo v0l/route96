@@ -3,13 +3,13 @@ use std::net::{IpAddr, SocketAddr};
 use anyhow::Error;
 use axum::{
     Router,
-    routing::{get, head, post, put, delete},
+    routing::{get, head},
 };
 use clap::Parser;
 use config::Config;
 #[cfg(feature = "payments")]
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
-use log::{error, info};
+use log::info;
 #[cfg(feature = "analytics")]
 use route96::analytics::plausible::PlausibleAnalytics;
 #[cfg(feature = "analytics")]
@@ -21,6 +21,7 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::settings::Settings;
 use route96::whitelist::Whitelist;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -123,14 +124,14 @@ async fn main() -> Result<(), Error> {
 
     // Add state
     let mut app = app
-        .with_state(routes::AppState {
+        .with_state(Arc::new(routes::AppState {
             fs: fs.clone(),
             db: db.clone(),
             settings: settings.clone(),
             wl: wl.clone(),
             #[cfg(feature = "payments")]
             lnd: lnd.clone(),
-        });
+        }));
 
     // Add middleware layers
     app = app.layer(cors_layer());
@@ -144,9 +145,13 @@ async fn main() -> Result<(), Error> {
     }
 
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-    #[cfg(not(feature = "payments"))]
-    let lnd = None;
-    let mut jh = start_background_tasks(db, fs, shutdown_rx.resubscribe(), lnd);
+    let mut jh = start_background_tasks(
+        db.clone(),
+        fs.clone(),
+        shutdown_rx.resubscribe(),
+        #[cfg(feature = "payments")]
+        lnd.clone(),
+    );
     if let Some(path) = settings.whitelist_file.clone() {
         let wh = wl.start_file_watcher(path, shutdown_rx.resubscribe());
         jh.push(wh);
