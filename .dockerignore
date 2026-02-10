@@ -9,3 +9,5 @@ docker-compose.yml
 docs/
 **/dist
 **/node_modules
+**/.vscode
+**/.claude
