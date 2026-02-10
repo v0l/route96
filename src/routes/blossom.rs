@@ -1,26 +1,30 @@
 use crate::auth::blossom::BlossomAuth;
-use crate::db::{Database, FileUpload};
-use crate::filesystem::{FileStore, FileSystemResult};
-use crate::routes::{delete_file, Nip94Event};
+use crate::db::FileUpload;
+use crate::filesystem::FileSystemResult;
+use crate::routes::{delete_file, Nip94Event, AppState};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
+use axum::{
+    body::Body,
+    extract::State as AxumState,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::{delete, get, head, put},
+    Json, Router,
+};
+use futures_util::stream::StreamExt;
+use futures_util::TryStreamExt;
 use log::{error, info};
 use nostr::prelude::hex;
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use reqwest::Client;
-use rocket::data::ByteUnit;
-use rocket::futures::StreamExt;
-use rocket::http::{Header, Status};
-use rocket::response::Responder;
-use rocket::serde::json::Json;
-use rocket::{routes, Data, Request, Response, Route, State};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct BlobDescriptor {
     pub url: String,
     pub sha256: String,
@@ -59,63 +63,68 @@ struct MirrorRequest {
 }
 
 #[cfg(feature = "media-compression")]
-pub fn blossom_routes() -> Vec<Route> {
-    routes![
-        delete_blob,
-        upload,
-        list_files,
-        upload_head,
-        upload_media,
-        head_media,
-        mirror,
-        report_file
-    ]
+pub fn blossom_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/:sha256", delete(delete_blob))
+        .route("/list/:pubkey", get(list_files))
+        .route("/upload", head(upload_head))
+        .route("/upload", put(upload))
+        .route("/media", head(head_media))
+        .route("/media", put(upload_media))
+        .route("/mirror", put(mirror))
+        .route("/report", put(report_file))
 }
 
 #[cfg(not(feature = "media-compression"))]
-pub fn blossom_routes() -> Vec<Route> {
-    routes![
-        delete_blob,
-        upload,
-        list_files,
-        upload_head,
-        mirror,
-        report_file
-    ]
+pub fn blossom_routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/:sha256", delete(delete_blob))
+        .route("/list/:pubkey", get(list_files))
+        .route("/upload", head(upload_head))
+        .route("/upload", put(upload))
+        .route("/mirror", put(mirror))
+        .route("/report", put(report_file))
 }
 
 /// Generic holder response, mostly for errors
 struct BlossomGenericResponse {
     pub message: Option<String>,
-    pub status: Status,
+    pub status: StatusCode,
 }
 
-impl<'r> Responder<'r, 'static> for BlossomGenericResponse {
-    fn respond_to(self, _request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut r = Response::new();
-        r.set_status(self.status);
+impl IntoResponse for BlossomGenericResponse {
+    fn into_response(self) -> Response {
+        let mut headers = HeaderMap::new();
         if let Some(message) = self.message {
-            r.set_raw_header("X-Reason", message);
+            if let Ok(value) = message.parse() {
+                headers.insert("x-reason", value);
+            }
         }
-        Ok(r)
+        (self.status, headers).into_response()
     }
 }
-#[derive(Responder)]
+
 enum BlossomResponse {
     Generic(BlossomGenericResponse),
-
-    #[response(status = 200)]
     BlobDescriptor(Json<BlobDescriptor>),
-
-    #[response(status = 200)]
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
+}
+
+impl IntoResponse for BlossomResponse {
+    fn into_response(self) -> Response {
+        match self {
+            BlossomResponse::Generic(g) => g.into_response(),
+            BlossomResponse::BlobDescriptor(j) => (StatusCode::OK, j).into_response(),
+            BlossomResponse::BlobDescriptorList(j) => (StatusCode::OK, j).into_response(),
+        }
+    }
 }
 
 impl BlossomResponse {
     pub fn error(msg: impl Into<String>) -> Self {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
-            status: Status::InternalServerError,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
         })
     }
 }
@@ -124,19 +133,16 @@ struct BlossomHead {
     pub msg: Option<&'static str>,
 }
 
-impl<'r> Responder<'r, 'static> for BlossomHead {
-    fn respond_to(self, _request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut response = Response::new();
+impl IntoResponse for BlossomHead {
+    fn into_response(self) -> Response {
         match self.msg {
             Some(m) => {
-                response.set_status(Status::InternalServerError);
-                response.set_header(Header::new("x-upload-message", m));
+                let mut headers = HeaderMap::new();
+                headers.insert("x-upload-message", m.parse().unwrap());
+                (StatusCode::INTERNAL_SERVER_ERROR, headers).into_response()
             }
-            None => {
-                response.set_status(Status::Ok);
-            }
+            None => StatusCode::OK.into_response(),
         }
-        Ok(response)
     }
 }
 
@@ -156,81 +162,71 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
 fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<BlossomResponse> {
     if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
         return Some(BlossomResponse::Generic(BlossomGenericResponse {
-            status: Status::Forbidden,
+            status: StatusCode::FORBIDDEN,
             message: Some("Not on whitelist".to_string()),
         }));
     }
     None
 }
 
-#[rocket::delete("/<sha256>")]
 async fn delete_blob(
-    sha256: &str,
+    axum::extract::Path(sha256): axum::extract::Path<String>,
     auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> BlossomResponse {
-    match delete_file(sha256, &auth.event, fs, db).await {
+    match delete_file(&sha256, &auth.event, &state.fs, &state.db).await {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
-            status: Status::Ok,
+            status: StatusCode::OK,
             message: None,
         }),
         Err(e) => BlossomResponse::error(format!("Failed to delete file: {}", e)),
     }
 }
 
-#[rocket::get("/list/<pubkey>")]
 async fn list_files(
-    db: &State<Database>,
-    settings: &State<Settings>,
-    pubkey: &str,
+    axum::extract::Path(pubkey): axum::extract::Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
 ) -> BlossomResponse {
-    let id = if let Ok(i) = hex::decode(pubkey) {
+    let id = if let Ok(i) = hex::decode(&pubkey) {
         i
     } else {
         return BlossomResponse::error("invalid pubkey");
     };
-    match db.list_files(&id, 0, 10_000).await {
+    match state.db.list_files(&id, 0, 10_000).await {
         Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(settings, f))
+                .map(|f| BlobDescriptor::from_upload(&state.settings, f))
                 .collect(),
         )),
         Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
     }
 }
 
-#[rocket::head("/upload")]
-fn upload_head(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
-    check_head(auth, whitelist, settings)
+async fn upload_head(
+    auth: BlossomAuth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> BlossomHead {
+    check_head(auth, &state.wl, &state.settings)
 }
 
-#[rocket::put("/upload", data = "<data>")]
 async fn upload(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    whitelist: &State<Whitelist>,
-    data: Data<'_>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    body: Body,
 ) -> BlossomResponse {
-    process_upload("upload", false, auth, fs, db, whitelist, settings, data).await
+    process_upload("upload", false, auth, state, body).await
 }
 
-#[rocket::put("/mirror", data = "<req>", format = "json")]
 async fn mirror(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    whitelist: &State<Whitelist>,
-    req: Json<MirrorRequest>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(req): Json<MirrorRequest>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
-    if let Some(e) = check_whitelist(&auth, whitelist) {
+    if let Some(e) = check_whitelist(&auth, &state.wl) {
         return e;
     }
 
@@ -246,14 +242,14 @@ async fn mirror(
 
     let client = Client::builder().build().unwrap();
 
-    let req = client
+    let req_builder = client
         .get(url.clone())
-        .header("user-agent", format!("route96 ({})", settings.public_url));
+        .header("user-agent", format!("route96 ({})", state.settings.public_url));
     info!("Requesting mirror: {}", url);
-    info!("{:?}", req);
+    info!("{:?}", req_builder);
 
     // download file
-    let rsp = match req.send().await {
+    let rsp = match req_builder.send().await {
         Err(e) => {
             error!("Error downloading file: {}", e);
             return BlossomResponse::error("Failed to mirror file");
@@ -282,41 +278,37 @@ async fn mirror(
     process_stream(
         StreamReader::new(
             rsp.bytes_stream()
-                .map(|result| result.map_err(std::io::Error::other)),
+                .map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))),
         ),
         &mime_type,
         &None,
         &pubkey,
         false,
         0, // No size info for mirror
-        fs,
-        db,
-        settings,
+        state,
         hash.and_then(|h| hex::decode(h).ok()),
     )
     .await
 }
 
 #[cfg(feature = "media-compression")]
-#[rocket::head("/media")]
-fn head_media(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
-    check_head(auth, whitelist, settings)
+async fn head_media(
+    auth: BlossomAuth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> BlossomHead {
+    check_head(auth, &state.wl, &state.settings)
 }
 
 #[cfg(feature = "media-compression")]
-#[rocket::put("/media", data = "<data>")]
 async fn upload_media(
     auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
-    whitelist: &State<Whitelist>,
-    data: Data<'_>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    body: Body,
 ) -> BlossomResponse {
-    process_upload("media", true, auth, fs, db, whitelist, settings, data).await
+    process_upload("media", true, auth, state, body).await
 }
 
-fn check_head(auth: BlossomAuth, whitelist: &State<Whitelist>, settings: &State<Settings>) -> BlossomHead {
+fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -359,11 +351,8 @@ async fn process_upload(
     method: &str,
     compress: bool,
     auth: BlossomAuth,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    whitelist: &State<Whitelist>,
-    settings: &State<Settings>,
-    data: Data<'_>,
+    state: Arc<AppState>,
+    body: Body,
 ) -> BlossomResponse {
     if !check_method(&auth.event, method) {
         return BlossomResponse::error("Invalid request method tag");
@@ -385,23 +374,23 @@ async fn process_upload(
     });
 
     let size = size_tag.or(auth.x_content_length).unwrap_or(0);
-    if size > 0 && size > settings.max_upload_bytes {
+    if size > 0 && size > state.settings.max_upload_bytes {
         return BlossomResponse::error("File too large");
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, whitelist) {
+    if let Some(e) = check_whitelist(&auth, &state.wl) {
         return e;
     }
 
     // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
-    if let Some(payment_config) = &settings.payments {
+    if let Some(payment_config) = &state.settings.payments {
         let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
         let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
 
         if size > 0 {
-            match db.check_user_quota(&pubkey_vec, size, free_quota).await {
+            match state.db.check_user_quota(&pubkey_vec, size, free_quota).await {
                 Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
                 Err(_) => return BlossomResponse::error("Failed to check quota"),
                 Ok(true) => {} // Quota check passed
@@ -409,8 +398,13 @@ async fn process_upload(
         }
     }
 
+    
+    let data_stream = body.into_data_stream();
+    let stream = TryStreamExt::map_err(data_stream, |e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let reader = StreamReader::new(stream);
+
     process_stream(
-        data.open(ByteUnit::Byte(settings.max_upload_bytes)),
+        reader,
         &auth
             .content_type
             .unwrap_or("application/octet-stream".to_string()),
@@ -418,9 +412,7 @@ async fn process_upload(
         &auth.event.pubkey.to_bytes().to_vec(),
         compress,
         size,
-        fs,
-        db,
-        settings,
+        state,
         None,
     )
     .await
@@ -432,23 +424,21 @@ async fn process_stream<'p, S>(
     name: &Option<&str>,
     pubkey: &Vec<u8>,
     compress: bool,
-    size: u64,
-    fs: &State<FileStore>,
-    db: &State<Database>,
-    settings: &State<Settings>,
+    _size: u64,
+    state: Arc<AppState>,
     expect_hash: Option<Vec<u8>>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
 {
-    let upload = match fs.put(stream, mime_type, compress).await {
+    let upload = match state.fs.put(stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
 
             // check expected hash (mirroring)
             if let Some(h) = expect_hash {
                 if h != ret.id {
-                    if let Err(e) = tokio::fs::remove_file(fs.get(&ret.id)).await {
+                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&ret.id)).await {
                         log::warn!("Failed to cleanup file: {}", e);
                     }
                     return BlossomResponse::error("Mirror request failed, server responses with invalid file content (hash mismatch)");
@@ -457,8 +447,8 @@ where
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
-            if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
-                let file_path = fs.get(&ret.id);
+            if state.settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
+                let file_path = state.fs.get(&ret.id);
                 if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
                     // Clean up the file
                     if let Err(cleanup_err) = tokio::fs::remove_file(&file_path).await {
@@ -473,7 +463,7 @@ where
 
             ret
         }
-        Ok(FileSystemResult::AlreadyExists(i)) => match db.get_file(&i).await {
+        Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) => f,
             _ => return BlossomResponse::error("File not found"),
         },
@@ -483,7 +473,7 @@ where
         }
     };
 
-    let user_id = match db.upsert_user(pubkey).await {
+    let user_id = match state.db.upsert_user(pubkey).await {
         Ok(u) => u,
         Err(e) => {
             return BlossomResponse::error(format!("Failed to save file (db): {}", e));
@@ -493,20 +483,20 @@ where
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if size == 0 {
-        if let Some(payment_config) = &settings.payments {
+        if let Some(payment_config) = &state.settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
-            match db.check_user_quota(pubkey, upload.size, free_quota).await {
+            match state.db.check_user_quota(pubkey, upload.size, free_quota).await {
                 Ok(false) => {
                     // Clean up the uploaded file if quota exceeded
-                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                         log::warn!("Failed to cleanup quota-exceeding file: {}", e);
                     }
                     return BlossomResponse::error("Upload would exceed quota");
                 }
                 Err(_) => {
                     // Clean up on quota check error
-                    if let Err(e) = tokio::fs::remove_file(fs.get(&upload.id)).await {
+                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                         log::warn!("Failed to cleanup file after quota check error: {}", e);
                     }
                     return BlossomResponse::error("Failed to check quota");
@@ -515,21 +505,18 @@ where
             }
         }
     }
-    if let Err(e) = db.add_file(&upload, Some(user_id)).await {
+    if let Err(e) = state.db.add_file(&upload, Some(user_id)).await {
         error!("{}", e);
         BlossomResponse::error(format!("Error saving file (db): {}", e))
     } else {
-        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(settings, &upload)))
+        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings, &upload)))
     }
 }
 
-#[rocket::put("/report", data = "<data>", format = "json")]
 async fn report_file(
     auth: BlossomAuth,
-    db: &State<Database>,
-    _settings: &State<Settings>,
-    whitelist: &State<Whitelist>,
-    data: Json<nostr::Event>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(data): Json<nostr::Event>,
 ) -> BlossomResponse {
     // Check if the request has the correct method tag
     if !check_method(&auth.event, "report") {
@@ -537,7 +524,7 @@ async fn report_file(
     }
 
     // Check whitelist
-    if let Some(e) = check_whitelist(&auth, whitelist) {
+    if let Some(e) = check_whitelist(&auth, &state.wl) {
         return e;
     }
 
@@ -558,25 +545,25 @@ async fn report_file(
     };
 
     // Verify the reported file exists
-    match db.get_file(&file_sha256).await {
+    match state.db.get_file(&file_sha256).await {
         Ok(Some(_)) => {} // File exists, continue
         Ok(None) => return BlossomResponse::error("File not found"),
         Err(e) => return BlossomResponse::error(format!("Failed to check file: {}", e)),
     }
 
     // Get or create the reporter user
-    let reporter_id = match db.upsert_user(&auth.event.pubkey.to_bytes().to_vec()).await {
+    let reporter_id = match state.db.upsert_user(&auth.event.pubkey.to_bytes().to_vec()).await {
         Ok(user_id) => user_id,
         Err(e) => return BlossomResponse::error(format!("Failed to get user: {}", e)),
     };
 
     // Store the report (the database will handle duplicate prevention via unique index)
-    match db
+    match state.db
         .add_report(&file_sha256, reporter_id, &data.as_json())
         .await
     {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
-            status: Status::Ok,
+            status: StatusCode::OK,
             message: Some("Report submitted successfully".to_string()),
         }),
         Err(e) => {
