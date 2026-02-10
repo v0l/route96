@@ -39,22 +39,22 @@ export default function Header() {
   }, [pub, self, url]);
 
   return (
-    <header className="border-b border-neutral-600 bg-neutral-800 w-full">
-      <div className="px-4 flex justify-between items-center py-4">
-        <div className="flex items-center space-x-8">
+    <header className="border-b border-neutral-800 bg-neutral-950">
+      <div className="px-4 flex justify-between items-center py-2">
+        <div className="flex items-center gap-6">
           <Link to="/">
-            <div className="text-2xl font-bold text-neutral-100 hover:text-neutral-300 transition-colors">
+            <div className="text-lg font-bold text-white hover:text-neutral-300 transition-colors">
               route96
             </div>
           </Link>
 
-          <nav className="flex space-x-6">
+          <nav className="flex gap-4">
             <Link
               to="/"
-              className={`text-sm font-medium transition-colors ${
+              className={`text-sm transition-colors ${
                 location.pathname === "/"
-                  ? "text-neutral-300 border-b-2 border-neutral-300 pb-1"
-                  : "text-neutral-400 hover:text-neutral-100"
+                  ? "text-white"
+                  : "text-neutral-500 hover:text-white"
               }`}
             >
               Upload
@@ -63,10 +63,10 @@ export default function Header() {
             {self?.is_admin && (
               <Link
                 to="/admin"
-                className={`text-sm font-medium transition-colors ${
+                className={`text-sm transition-colors ${
                   location.pathname === "/admin"
-                    ? "text-neutral-300 border-b-2 border-neutral-300 pb-1"
-                    : "text-neutral-400 hover:text-neutral-100"
+                    ? "text-white"
+                    : "text-neutral-500 hover:text-white"
                 }`}
               >
                 Admin
@@ -75,9 +75,9 @@ export default function Header() {
           </nav>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-3">
           {login ? (
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-2">
               <Profile link={NostrLink.publicKey(login.publicKey)} />
               <Button
                 onClick={() => Login.logout()}
@@ -88,7 +88,7 @@ export default function Header() {
               </Button>
             </div>
           ) : (
-            <Button onClick={tryLogin}>
+            <Button onClick={tryLogin} size="sm">
               Login
             </Button>
           )}

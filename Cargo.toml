@@ -48,6 +48,7 @@ futures-util = "0.3"
 url = "2"
 notify = "8.2"
 kamadak-exif = "0.6"
+http-range-header = "0.4"
 
 libc = { version = "0.2", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "f6dc45ecea44b235476c4f2114f15ce935ab7201", optional = true }

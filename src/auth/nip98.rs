@@ -5,8 +5,10 @@ use axum::{
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
+use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
 use url::Url;
+
+const DEFAULT_EXPIRATION_SECS: u64 = 60 * 10; // 10 minutes
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
@@ -43,36 +45,63 @@ where
             return Err((StatusCode::UNAUTHORIZED, "Wrong event kind"));
         }
 
-        if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
-            >= 60 * 10
-        {
+        // Get expiration from tag, or use default (10 minutes from created_at)
+        let expiration = event
+            .tags
+            .find(TagKind::Expiration)
+            .and_then(|t| t.content())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or_else(|| event.created_at.as_secs() + DEFAULT_EXPIRATION_SECS);
+
+        let now = Timestamp::now().as_secs();
+
+        // Check "not before" - created_at should be in the past or very near future (allow 60s clock skew)
+        if event.created_at.as_secs() > now + 60 {
             return Err((
                 StatusCode::UNAUTHORIZED,
-                "Created timestamp is out of range",
+                "Event created_at is in the future",
             ));
         }
 
-        // check url tag
-        if let Some(v) = event.tags.find(TagKind::u()) {
-            let url: Url = v
-                .content()
-                .unwrap_or("")
-                .parse()
-                .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid U tag, not a url"))?;
-            if parts.uri.path() != url.path() && !url.path().ends_with(parts.uri.path()) {
-                return Err((StatusCode::UNAUTHORIZED, "U tag does not match"));
-            }
-        } else {
+        // Check "not after" - expiration should be in the future
+        if now > expiration {
+            return Err((StatusCode::UNAUTHORIZED, "Event has expired"));
+        }
+
+        // Check url tag - match any 'u' tag against the full URL (excluding query args)
+        let request_path = parts.uri.path();
+        let url_tags: Vec<_> = event.tags.filter(TagKind::u()).collect();
+
+        if url_tags.is_empty() {
             return Err((StatusCode::UNAUTHORIZED, "Missing url tag"));
         }
 
-        // check method tag
-        if let Some(method) = event.tags.find(TagKind::Method) {
-            if parts.method.as_str() != method.content().unwrap_or("") {
-                return Err((StatusCode::UNAUTHORIZED, "Method tag incorrect"));
-            }
-        } else {
+        let url_matched = url_tags.iter().any(|tag| {
+            tag.content()
+                .and_then(|s| s.parse::<Url>().ok())
+                .map(|u| u.path() == request_path)
+                .unwrap_or(false)
+        });
+
+        if !url_matched {
+            return Err((StatusCode::UNAUTHORIZED, "U tag does not match request URL"));
+        }
+
+        // check method tag - match any 'method' tag against the request method
+        let method_tags: Vec<_> = event.tags.filter(TagKind::Method).collect();
+
+        if method_tags.is_empty() {
             return Err((StatusCode::UNAUTHORIZED, "Missing method tag"));
+        }
+
+        let method_matched = method_tags.iter().any(|tag| {
+            tag.content()
+                .map(|m| m.eq_ignore_ascii_case(parts.method.as_str()))
+                .unwrap_or(false)
+        });
+
+        if !method_matched {
+            return Err((StatusCode::UNAUTHORIZED, "Method tag does not match request method"));
         }
 
         event

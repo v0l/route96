@@ -22,7 +22,6 @@ export default function UserScope() {
   const url =
     import.meta.env.VITE_API_URL || `${location.protocol}//${location.host}`;
 
-  // Check if current user is admin
   useEffect(() => {
     if (pub && !self) {
       const r96 = new Route96(url, pub);
@@ -37,7 +36,6 @@ export default function UserScope() {
     }
   }, [pub, self, url]);
 
-  // Load user info
   useEffect(() => {
     if (pub && self?.is_admin && pubkey) {
       setLoading(true);
@@ -59,17 +57,15 @@ export default function UserScope() {
     if (!pub || !pubkey) return;
     
     const confirmed = window.confirm(
-      `Are you sure you want to delete ALL files for this user?\n\nThis action cannot be undone and will permanently delete:\n- ${userInfo?.file_count || 0} files\n- ${FormatBytes(userInfo?.total_size || 0, 2)} of storage\n\nType "DELETE" to confirm.`
+      `Delete ALL files for this user?\n\n${userInfo?.file_count || 0} files (${FormatBytes(userInfo?.total_size || 0, 2)})\n\nThis cannot be undone.`
     );
     
     if (!confirmed) return;
     
-    const confirmText = window.prompt(
-      'Please type "DELETE" to confirm this destructive action:'
-    );
+    const confirmText = window.prompt('Type "DELETE" to confirm:');
     
     if (confirmText !== "DELETE") {
-      alert("Confirmation text did not match. Operation cancelled.");
+      alert("Cancelled.");
       return;
     }
 
@@ -80,13 +76,12 @@ export default function UserScope() {
       const r96 = new Route96(url, pub);
       await r96.purgeUser(pubkey);
       
-      // Refresh user info to show updated counts
       const response = await r96.getUserInfo(pubkey, filesPage, 50);
       setUserInfo(response.data);
       
-      alert("User account purged successfully. All files have been deleted.");
+      alert("User purged.");
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to purge user account";
+      const message = e instanceof Error ? e.message : "Failed to purge user";
       setError(message);
     } finally {
       setPurging(false);
@@ -95,21 +90,19 @@ export default function UserScope() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-lg text-neutral-400">Loading...</div>
+      <div className="flex justify-center items-center h-48">
+        <div className="text-sm text-neutral-500">Loading...</div>
       </div>
     );
   }
 
   if (!login) {
     return (
-      <div className="max-w-md mx-auto bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="text-center p-6">
-          <h2 className="text-xl font-semibold mb-4 text-neutral-100">Authentication Required</h2>
-          <p className="text-neutral-300">
-            Please log in to access the admin panel.
-          </p>
-        </div>
+      <div className="max-w-sm mx-auto bg-neutral-900 border border-neutral-800 rounded-sm p-4">
+        <h2 className="text-sm font-medium mb-2 text-white">Authentication Required</h2>
+        <p className="text-neutral-500 text-xs">
+          Please log in to access the admin panel.
+        </p>
       </div>
     );
   }
@@ -124,17 +117,14 @@ export default function UserScope() {
 
   if (error) {
     return (
-      <div className="space-y-8 px-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-neutral-100">User Scope</h1>
-          <Link
-            to="/admin"
-            className="text-blue-400 hover:text-blue-300 underline"
-          >
-            ← Back to Admin
+          <h1 className="text-xl font-medium text-white">User</h1>
+          <Link to="/admin" className="text-xs text-neutral-500 hover:text-white">
+            &larr; Back
           </Link>
         </div>
-        <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded">
+        <div className="bg-red-950 border border-red-900 text-red-200 px-3 py-2 rounded-sm text-sm">
           {error}
         </div>
       </div>
@@ -143,199 +133,165 @@ export default function UserScope() {
 
   if (!userInfo) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-lg text-neutral-400">User not found</div>
+      <div className="flex justify-center items-center h-48">
+        <div className="text-sm text-neutral-500">User not found</div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 px-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-neutral-100">User Scope</h1>
-        <a
-          href="/admin"
-          className="text-blue-400 hover:text-blue-300 underline"
-        >
-          ← Back to Admin
-        </a>
+        <h1 className="text-xl font-medium text-white">User</h1>
+        <Link to="/admin" className="text-xs text-neutral-500 hover:text-white">
+          &larr; Back
+        </Link>
       </div>
 
-      {/* User Information Card */}
-      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-neutral-100">User Information</h3>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-neutral-400">Public Key</label>
-              <div className="text-neutral-100 font-mono text-sm break-all">
-                {hexToBech32("npub", pubkey)}
-              </div>
-              <div className="text-neutral-400 font-mono text-xs break-all mt-1">
-                {pubkey}
-              </div>
+      {/* User Info */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-3">
+        <h3 className="text-sm font-medium mb-3 text-white">Info</h3>
+        <div className="grid gap-3 md:grid-cols-2 text-xs">
+          <div>
+            <label className="text-neutral-500">Public Key</label>
+            <div className="text-neutral-300 font-mono break-all">
+              {hexToBech32("npub", pubkey)}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-neutral-400">Account Created</label>
-              <div className="text-neutral-100">
-                {new Date(userInfo.created).toLocaleDateString()}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-neutral-400">Files Uploaded</label>
-              <div className="text-neutral-100">
-                {userInfo.file_count} files
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-neutral-400">Total Storage Used</label>
-              <div className="text-neutral-100">
-                {FormatBytes(userInfo.total_size, 2)}
-              </div>
-            </div>
-            {userInfo.is_admin && (
-              <div>
-                <label className="block text-sm font-medium text-neutral-400">Role</label>
-                <div className="text-yellow-400 font-semibold">Administrator</div>
-              </div>
-            )}
-          </div>
-          
-          {/* Danger Zone */}
-          <div className="mt-6 pt-6 border-t border-neutral-600">
-            <h4 className="text-lg font-semibold mb-4 text-red-400">Danger Zone</h4>
-            <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h5 className="text-sm font-medium text-red-300">Purge User Account</h5>
-                  <p className="text-sm text-red-400/80 mt-1">
-                    Permanently delete all {userInfo.file_count} files for this user ({FormatBytes(userInfo.total_size, 2)})
-                  </p>
-                </div>
-                <button
-                  onClick={handlePurgeUser}
-                  disabled={purging || userInfo.file_count === 0}
-                  className="bg-red-600 hover:bg-red-500 disabled:bg-red-800 disabled:text-red-400 text-white px-4 py-2 rounded font-medium text-sm transition-colors"
-                >
-                  {purging ? "Purging..." : "Purge Account"}
-                </button>
-              </div>
+            <div className="text-neutral-600 font-mono text-xs break-all mt-0.5">
+              {pubkey}
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Quota Information Card */}
-      {(userInfo.quota !== undefined || userInfo.free_quota !== undefined) && (
-        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-neutral-100">Quota Information</h3>
-            <div className="grid gap-4 md:grid-cols-3">
-              {userInfo.free_quota !== undefined && (
-                <div>
-                  <label className="block text-sm font-medium text-neutral-400">Free Quota</label>
-                  <div className="text-neutral-100">
-                    {FormatBytes(userInfo.free_quota, 2)}
-                  </div>
-                </div>
-              )}
-              {userInfo.quota !== undefined && (
-                <div>
-                  <label className="block text-sm font-medium text-neutral-400">Paid Quota</label>
-                  <div className="text-neutral-100">
-                    {FormatBytes(userInfo.quota, 2)}
-                  </div>
-                </div>
-              )}
-              {userInfo.total_available_quota !== undefined && (
-                <div>
-                  <label className="block text-sm font-medium text-neutral-400">Total Available</label>
-                  <div className="text-neutral-100">
-                    {FormatBytes(userInfo.total_available_quota, 2)}
-                  </div>
-                </div>
-              )}
-              {userInfo.paid_until !== undefined && userInfo.paid_until > 0 && (
-                <div className="md:col-span-3">
-                  <label className="block text-sm font-medium text-neutral-400">Paid Until</label>
-                  <div className="text-neutral-100">
-                    {new Date(userInfo.paid_until * 1000).toLocaleDateString()}
-                  </div>
-                </div>
-              )}
+          <div>
+            <label className="text-neutral-500">Created</label>
+            <div className="text-neutral-300">
+              {new Date(userInfo.created).toLocaleDateString()}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Payment History Card */}
-      {userInfo.payments && userInfo.payments.length > 0 && (
-        <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-neutral-100">Payment History</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-neutral-800 border border-neutral-600 rounded-lg">
-                <thead className="bg-neutral-700/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
-                      Date
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
-                      Amount
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-neutral-400 uppercase tracking-wider border-b border-neutral-600">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-600">
-                  {userInfo.payments.map((payment: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-neutral-700/30">
-                      <td className="px-4 py-3 text-sm text-neutral-100">
-                        {new Date(payment.created).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-neutral-100">
-                        {payment.amount}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            payment.is_paid
-                              ? "bg-green-700 text-green-200"
-                              : "bg-yellow-700 text-yellow-200"
-                          }`}
-                        >
-                          {payment.is_paid ? "Paid" : "Pending"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div>
+            <label className="text-neutral-500">Files</label>
+            <div className="text-neutral-300">{userInfo.file_count}</div>
           </div>
-        </div>
-      )}
-
-      {/* Files Card */}
-      <div className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-neutral-100">
-            User Files ({userInfo.files.total} total)
-          </h3>
-          {userInfo.files.files.length > 0 ? (
-            <FileList
-              files={userInfo.files.files}
-              pages={Math.ceil(userInfo.files.total / userInfo.files.count)}
-              page={userInfo.files.page}
-              onPage={(x) => setFilesPage(x)}
-            />
-          ) : (
-            <div className="text-neutral-400 text-center py-8">
-              No files found for this user.
+          <div>
+            <label className="text-neutral-500">Storage</label>
+            <div className="text-neutral-300">{FormatBytes(userInfo.total_size, 2)}</div>
+          </div>
+          {userInfo.is_admin && (
+            <div>
+              <label className="text-neutral-500">Role</label>
+              <div className="text-yellow-400">Admin</div>
             </div>
           )}
         </div>
+        
+        {/* Danger Zone */}
+        <div className="mt-4 pt-3 border-t border-neutral-800">
+          <div className="flex items-center justify-between bg-red-950/30 border border-red-900/50 rounded-sm p-2">
+            <div>
+              <div className="text-xs text-red-400">Purge Account</div>
+              <div className="text-xs text-red-500/70">
+                Delete all {userInfo.file_count} files ({FormatBytes(userInfo.total_size, 2)})
+              </div>
+            </div>
+            <button
+              onClick={handlePurgeUser}
+              disabled={purging || userInfo.file_count === 0}
+              className="bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-400 text-white px-2 py-1 rounded-sm text-xs"
+            >
+              {purging ? "..." : "Purge"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quota */}
+      {(userInfo.quota !== undefined || userInfo.free_quota !== undefined) && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-3">
+          <h3 className="text-sm font-medium mb-3 text-white">Quota</h3>
+          <div className="grid gap-2 md:grid-cols-3 text-xs">
+            {userInfo.free_quota !== undefined && (
+              <div>
+                <label className="text-neutral-500">Free</label>
+                <div className="text-neutral-300">{FormatBytes(userInfo.free_quota, 2)}</div>
+              </div>
+            )}
+            {userInfo.quota !== undefined && (
+              <div>
+                <label className="text-neutral-500">Paid</label>
+                <div className="text-neutral-300">{FormatBytes(userInfo.quota, 2)}</div>
+              </div>
+            )}
+            {userInfo.total_available_quota !== undefined && (
+              <div>
+                <label className="text-neutral-500">Total</label>
+                <div className="text-neutral-300">{FormatBytes(userInfo.total_available_quota, 2)}</div>
+              </div>
+            )}
+            {userInfo.paid_until !== undefined && userInfo.paid_until > 0 && (
+              <div className="md:col-span-3">
+                <label className="text-neutral-500">Paid Until</label>
+                <div className="text-neutral-300">
+                  {new Date(userInfo.paid_until * 1000).toLocaleDateString()}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Payments */}
+      {userInfo.payments && userInfo.payments.length > 0 && (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-3">
+          <h3 className="text-sm font-medium mb-3 text-white">Payments</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs bg-neutral-950 border border-neutral-800 rounded-sm">
+              <thead>
+                <tr className="border-b border-neutral-800">
+                  <th className="px-2 py-1.5 text-left text-neutral-500">Date</th>
+                  <th className="px-2 py-1.5 text-left text-neutral-500">Amount</th>
+                  <th className="px-2 py-1.5 text-left text-neutral-500">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800">
+                {userInfo.payments.map((payment: any, idx: number) => (
+                  <tr key={idx}>
+                    <td className="px-2 py-1.5 text-neutral-300">
+                      {new Date(payment.created).toLocaleDateString()}
+                    </td>
+                    <td className="px-2 py-1.5 text-neutral-300">{payment.amount}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={`px-1 py-0.5 rounded-sm text-xs ${
+                        payment.is_paid
+                          ? "bg-green-950 text-green-400"
+                          : "bg-yellow-950 text-yellow-400"
+                      }`}>
+                        {payment.is_paid ? "Paid" : "Pending"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Files */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-3">
+        <h3 className="text-sm font-medium mb-3 text-white">
+          Files ({userInfo.files.total})
+        </h3>
+        {userInfo.files.files.length > 0 ? (
+          <FileList
+            files={userInfo.files.files}
+            pages={Math.ceil(userInfo.files.total / userInfo.files.count)}
+            page={userInfo.files.page}
+            onPage={(x) => setFilesPage(x)}
+          />
+        ) : (
+          <div className="text-neutral-500 text-xs text-center py-4">
+            No files
+          </div>
+        )}
       </div>
     </div>
   );

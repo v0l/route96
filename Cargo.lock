@@ -3222,6 +3222,7 @@ dependencies = [
  "ffmpeg-rs-raw",
  "futures-util",
  "hex",
+ "http-range-header",
  "indicatif",
  "infer",
  "kamadak-exif",
