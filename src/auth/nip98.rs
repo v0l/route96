@@ -1,5 +1,4 @@
 use axum::{
-    async_trait,
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
@@ -14,7 +13,6 @@ pub struct Nip98Auth {
     pub event: Event,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Nip98Auth
 where
     S: Send + Sync,

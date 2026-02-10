@@ -1,5 +1,4 @@
 use axum::{
-    async_trait,
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
@@ -15,7 +14,6 @@ pub struct BlossomAuth {
     pub event: Event,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for BlossomAuth
 where
     S: Send + Sync,

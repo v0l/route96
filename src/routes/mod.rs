@@ -11,11 +11,11 @@ use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
 use axum::{
-    body::Body,
     extract::{Path, State as AxumState},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
 };
+use axum_extra::response::file_stream::FileStream;
 use log::warn;
 use nostr::Event;
 use serde::Serialize;
@@ -119,47 +119,14 @@ impl Nip94Event {
     }
 }
 
-// Range request support is commented out for now - can be re-enabled later if needed
-// /// Range request handler over file handle
-// struct RangeBody {
-//     file: File,
-//     range_start: u64,
-//     range_end: u64,
-//     current_offset: u64,
-//     poll_complete: bool,
-//     file_size: u64,
-// }
-
 impl IntoResponse for FilePayload {
     fn into_response(self) -> Response {
-        // For now, we'll implement a simpler version
-        // The full range support can be added later if needed
-        let mut headers = HeaderMap::new();
-        
-        headers.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("max-age=31536000, immutable"),
-        );
-        
-        if let Ok(content_type) = HeaderValue::from_str(&self.info.mime_type) {
-            headers.insert(header::CONTENT_TYPE, content_type);
-        }
-        
-        if let Some(name) = &self.info.name {
-            if let Ok(disposition) = HeaderValue::from_str(&format!("inline; filename=\"{}\"", name)) {
-                headers.insert(header::CONTENT_DISPOSITION, disposition);
-            }
-        }
-        
-        headers.insert(
-            header::CONTENT_LENGTH,
-            HeaderValue::from(self.info.size),
-        );
-
         let stream = ReaderStream::new(self.file);
-        let body = Body::from_stream(stream);
+        let file_stream = FileStream::new(stream)
+            .content_size(self.info.size);
         
-        (headers, body).into_response()
+        // FileStream implements IntoResponse, so we can call it  
+        IntoResponse::into_response(file_stream)
     }
 }
 
@@ -221,7 +188,7 @@ async fn delete_file(
     }
 }
 
-pub async fn root() -> Result<Response, StatusCode> {
+pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
     #[cfg(all(debug_assertions, feature = "react-ui"))]
     let index = "./ui_src/dist/index.html";
     #[cfg(all(not(debug_assertions), feature = "react-ui"))]
@@ -230,11 +197,7 @@ pub async fn root() -> Result<Response, StatusCode> {
     let index = "./index.html";
     
     match tokio::fs::read(index).await {
-        Ok(contents) => {
-            let mut headers = HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html"));
-            Ok((headers, contents).into_response())
-        }
+        Ok(contents) => Ok(Html(contents)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

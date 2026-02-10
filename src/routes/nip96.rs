@@ -1,19 +1,21 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::ops::Sub;
 use std::time::Duration;
 
 use axum::{
+    body::Bytes,
     extract::{Multipart, Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete as route_delete, get, post},
     Json, Router,
 };
+use futures_util::stream::Stream;
 use log::error;
 use nostr::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio_util::io::StreamReader;
 
 use crate::auth::nip98::Nip98Auth;
 use crate::db::FileUpload;
@@ -133,7 +135,7 @@ impl Nip96UploadResult {
 }
 
 struct Nip96Form {
-    file_data: Vec<u8>,
+    file_stream: StreamReader<impl Stream<Item = Result<Bytes, axum::Error>> + Unpin, Bytes>,
     expiration: Option<usize>,
     size: u64,
     alt: Option<String>,
@@ -144,15 +146,13 @@ struct Nip96Form {
 
 impl Nip96Form {
     async fn from_multipart(mut multipart: Multipart) -> Result<Self, String> {
-        let mut form = Nip96Form {
-            file_data: Vec::new(),
-            expiration: None,
-            size: 0,
-            alt: None,
-            caption: None,
-            content_type: None,
-            no_transform: None,
-        };
+        let mut file_stream = None;
+        let mut expiration = None;
+        let mut size = 0;
+        let mut alt = None;
+        let mut caption = None;
+        let mut content_type = None;
+        let mut no_transform = None;
 
         while let Some(field) = multipart
             .next_field()
@@ -162,47 +162,53 @@ impl Nip96Form {
             let name = field.name().unwrap_or("").to_string();
             match name.as_str() {
                 "file" => {
-                    form.file_data = field
-                        .bytes()
-                        .await
-                        .map_err(|e| format!("Failed to read file: {}", e))?
-                        .to_vec();
+                    // Convert field to a stream
+                    let stream = field.map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+                    file_stream = Some(StreamReader::new(stream));
                 }
                 "expiration" => {
                     if let Ok(text) = field.text().await {
-                        form.expiration = text.parse().ok();
+                        expiration = text.parse().ok();
                     }
                 }
                 "size" => {
                     if let Ok(text) = field.text().await {
-                        form.size = text.parse().unwrap_or(0);
+                        size = text.parse().unwrap_or(0);
                     }
                 }
                 "alt" => {
                     if let Ok(text) = field.text().await {
-                        form.alt = Some(text);
+                        alt = Some(text);
                     }
                 }
                 "caption" => {
                     if let Ok(text) = field.text().await {
-                        form.caption = Some(text);
+                        caption = Some(text);
                     }
                 }
                 "content_type" => {
                     if let Ok(text) = field.text().await {
-                        form.content_type = Some(text);
+                        content_type = Some(text);
                     }
                 }
                 "no_transform" => {
                     if let Ok(text) = field.text().await {
-                        form.no_transform = text.parse::<bool>().ok();
+                        no_transform = text.parse::<bool>().ok();
                     }
                 }
                 _ => {}
             }
         }
 
-        Ok(form)
+        Ok(Nip96Form {
+            file_stream: file_stream.ok_or_else(|| "Missing file field".to_string())?,
+            expiration,
+            size,
+            alt,
+            caption,
+            content_type,
+            no_transform,
+        })
     }
 }
 
@@ -300,7 +306,7 @@ async fn upload(
     let upload = match state
         .fs
         .put(
-            Cursor::new(form.file_data),
+            form.file_stream,
             content_type,
             !form.no_transform.unwrap_or(false),
         )

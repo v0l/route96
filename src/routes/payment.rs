@@ -17,8 +17,7 @@ use std::sync::Arc;
 
 pub fn payment_routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/payment", get(get_payment))
-        .route("/payment", post(req_payment))
+        .route("/payment", get(get_payment).post(req_payment))
 }
 
 #[derive(Deserialize, Serialize)]

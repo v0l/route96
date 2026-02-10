@@ -62,28 +62,21 @@ struct MirrorRequest {
     pub url: String,
 }
 
-#[cfg(feature = "media-compression")]
 pub fn blossom_routes() -> Router<Arc<AppState>> {
-    Router::new()
+    let router = Router::new()
         .route("/:sha256", delete(delete_blob))
         .route("/list/:pubkey", get(list_files))
         .route("/upload", head(upload_head))
         .route("/upload", put(upload))
-        .route("/media", head(head_media))
-        .route("/media", put(upload_media))
         .route("/mirror", put(mirror))
-        .route("/report", put(report_file))
-}
+        .route("/report", put(report_file));
 
-#[cfg(not(feature = "media-compression"))]
-pub fn blossom_routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/:sha256", delete(delete_blob))
-        .route("/list/:pubkey", get(list_files))
-        .route("/upload", head(upload_head))
-        .route("/upload", put(upload))
-        .route("/mirror", put(mirror))
-        .route("/report", put(report_file))
+    #[cfg(feature = "media-compression")]
+    let router = router
+        .route("/media", head(head_media))
+        .route("/media", put(upload_media));
+
+    router
 }
 
 /// Generic holder response, mostly for errors
