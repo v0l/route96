@@ -1,12 +1,12 @@
 use log::{error, info, warn};
+use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Duration};
-use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::time::{Duration, sleep};
 
 #[derive(Clone, Default)]
 pub struct Whitelist {
@@ -46,17 +46,18 @@ impl Whitelist {
             // initial load
             if let Ok(md) = tokio::fs::metadata(&path).await
                 && let Ok(modified) = md.modified()
-                    && let Ok(contents) = tokio::fs::read_to_string(&path).await {
-                        let set: HashSet<String> = contents
-                            .lines()
-                            .map(|l| l.trim())
-                            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                            .map(|s| s.to_string())
-                            .collect();
-                        this.replace_all(Some(set));
-                        last_modified = Some(modified);
-                        info!("Loaded whitelist from {}", path.display());
-                    }
+                && let Ok(contents) = tokio::fs::read_to_string(&path).await
+            {
+                let set: HashSet<String> = contents
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(|s| s.to_string())
+                    .collect();
+                this.replace_all(Some(set));
+                last_modified = Some(modified);
+                info!("Loaded whitelist from {}", path.display());
+            }
             // Event-driven watching using notify; fallback to polling if it fails
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             let mut watcher = match RecommendedWatcher::new(
@@ -69,7 +70,10 @@ impl Whitelist {
             ) {
                 Ok(w) => w,
                 Err(e) => {
-                    warn!("Falling back to polling: failed to create file watcher: {}", e);
+                    warn!(
+                        "Falling back to polling: failed to create file watcher: {}",
+                        e
+                    );
                     return fallback_polling(this, path, last_modified, shutdown_rx).await;
                 }
             };
@@ -80,10 +84,17 @@ impl Whitelist {
                     return fallback_polling(this, path, last_modified, shutdown_rx).await;
                 }
             };
-            let watch_path = path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone());
+            let watch_path = path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or(path.clone());
 
             if let Err(e) = watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
-                warn!("Falling back to polling: failed to watch {}: {}", path.display(), e);
+                warn!(
+                    "Falling back to polling: failed to watch {}: {}",
+                    path.display(),
+                    e
+                );
                 return fallback_polling(this, path, last_modified, shutdown_rx).await;
             }
             let mut pending_change = false;
@@ -195,5 +206,3 @@ async fn fallback_polling(
         }
     }
 }
-
-

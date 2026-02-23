@@ -7,7 +7,7 @@ use nostr::serde_json;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -75,16 +75,16 @@ impl Analytics for PlausibleAnalytics {
     fn track(&self, req: &Request) -> Result<(), Error> {
         let uri = req.uri();
         let headers = req.headers();
-        
+
         let host = headers
             .get("host")
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
-        
+
         if host.is_none() {
             return Ok(()); // ignore request without host
         }
-        
+
         Ok(self.tx.send(Event {
             name: "pageview".to_string(),
             domain: host.unwrap(),

@@ -101,7 +101,10 @@ where
         });
 
         if !method_matched {
-            return Err((StatusCode::UNAUTHORIZED, "Method tag does not match request method"));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Method tag does not match request method",
+            ));
         }
 
         event

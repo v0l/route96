@@ -1,8 +1,33 @@
-# AGENTS.md - Route96 Development Guide
+# AGENTS.md - Coding Agent Guidelines for Route96
+
+This file is an index. Load only the specific doc(s) relevant to your task to minimize context usage.
+
+**Always load [agents/common.md](agents/common.md) first** -- it contains essential guidelines for task sizing, git commits, and git push that apply to all tasks.
+
+## Generic Docs
+
+These docs apply to all projects using this agent structure:
+
+| Doc | When to load |
+|---|---|
+| [agents/bug-fixes.md](agents/bug-fixes.md) | Resolving bugs (includes regression test requirement) |
+| [agents/coverage.md](agents/coverage.md) | Any edit that adds or modifies functions (100% function coverage required) |
+| [agents/incremental-work.md](agents/incremental-work.md) | Managing a work file for a multi-increment task |
+
+### Language-Specific Docs
+
+Load the appropriate language-specific doc alongside the generic one:
+
+| Doc | When to load |
+|---|---|
+| [agents/rust/coverage.md](agents/rust/coverage.md) | Rust backend: coverage tooling commands |
+| [agents/typescript/coverage.md](agents/typescript/coverage.md) | TypeScript frontend: coverage tooling commands |
+
+## Project-Specific Docs
 
 Route96 is a decentralized blob storage server with Nostr integration, supporting NIP-96 and Blossom protocols.
 
-## Project Structure
+### Project Structure
 
 ```
 route96/
@@ -23,9 +48,9 @@ route96/
 └── migrations/             # SQL migration files
 ```
 
-## Build Commands
+### Build Commands
 
-### Rust Backend
+#### Rust Backend
 ```bash
 cargo build                 # Debug build
 cargo build -r              # Release build
@@ -33,7 +58,7 @@ cargo build --features "blossom,payments,media-compression"
 cargo run -- --config config.yaml
 ```
 
-### Feature Flags
+#### Feature Flags
 - `nip96` (default) - NIP-96 protocol (requires media-compression)
 - `blossom` (default) - Blossom protocol
 - `analytics` (default) - Plausible analytics
@@ -42,14 +67,14 @@ cargo run -- --config config.yaml
 - `labels` - AI content labeling (requires media-compression)
 - `payments` - Lightning payment integration
 
-### TypeScript Frontend (ui_src/)
+#### TypeScript Frontend (ui_src/)
 ```bash
 yarn           # Install dependencies
 yarn dev       # Development server
 yarn build     # Production build (tsc -b && vite build)
 ```
 
-## Testing
+### Testing
 
 ```bash
 cargo test                              # Run all tests
@@ -59,9 +84,9 @@ cargo test -- --nocapture               # Show test output
 cargo test --features "blossom"         # Test specific features
 ```
 
-## Linting and Formatting
+### Linting and Formatting
 
-### Rust
+#### Rust
 ```bash
 cargo fmt                   # Format code
 cargo fmt --check           # Check formatting
@@ -69,13 +94,13 @@ cargo clippy                # Lint
 cargo clippy --all-features
 ```
 
-### TypeScript (ui_src/)
+#### TypeScript (ui_src/)
 ```bash
 yarn prettier --check src/
 yarn prettier --write src/
 ```
 
-## Rust Code Style
+### Rust Code Style
 
 **Naming:** `snake_case` functions/variables, `PascalCase` types, `SCREAMING_SNAKE_CASE` constants
 
@@ -110,7 +135,7 @@ pub mod payments;
 
 **Async:** Use Tokio runtime; prefer `tokio::fs` over `std::fs` in async contexts
 
-## TypeScript Code Style
+### TypeScript Code Style
 
 **Naming:** `camelCase` variables/functions, `PascalCase` components/classes
 
@@ -123,13 +148,13 @@ import { Blossom } from "../upload/blossom";
 
 **Components:** Functional components with hooks, TypeScript interfaces for props
 
-## Database
+### Database
 
 - MySQL/MariaDB with SQLx
 - Migrations in `migrations/` (auto-applied via `sqlx::migrate!`)
 - Connection: `mysql://user:pass@localhost:3306/route96`
 
-## Configuration
+### Configuration
 
 Runtime config via `config.yaml`:
 ```yaml
@@ -140,12 +165,12 @@ max_upload_bytes: 104857600
 public_url: "https://your-domain.com"
 ```
 
-## Environment Variables
+### Environment Variables
 
 - `RUST_LOG` - Logging level (`info`, `debug`)
 - `APP_*` - Override config values (e.g., `APP_DATABASE`)
 
-## Key Dependencies
+### Key Dependencies
 
 **Rust:** axum, tokio, sqlx (MySQL), nostr, serde, anyhow
 **TypeScript:** React 19, Vite 7, Tailwind CSS 4, @snort/system

@@ -3,10 +3,10 @@ use crate::db::Payment;
 use crate::payments::{Currency, PaymentAmount, PaymentInterval, PaymentUnit};
 use crate::routes::AppState;
 use axum::{
+    Json, Router,
     extract::State as AxumState,
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use chrono::{Months, Utc};
 use fedimint_tonic_lnd::lnrpc::Invoice;
@@ -16,8 +16,7 @@ use std::ops::{Add, Deref};
 use std::sync::Arc;
 
 pub fn payment_routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/payment", get(get_payment).post(req_payment))
+    Router::new().route("/payment", get(get_payment).post(req_payment))
 }
 
 #[derive(Deserialize, Serialize)]
@@ -83,31 +82,24 @@ async fn req_payment(
             return Err((
                 StatusCode::BAD_REQUEST,
                 "Currency not supported".to_string(),
-            ))
+            ));
         }
     };
 
     let amount = btc_amount * req.units * req.quantity as f32;
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let uid = state
-        .db
-        .upsert_user(&pubkey_vec)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to get user account".to_string(),
-            )
-        })?;
-
-    let lnd_client = state
-        .lnd
-        .as_ref()
-        .ok_or((
+    let uid = state.db.upsert_user(&pubkey_vec).await.map_err(|_| {
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "LND client not configured".to_string(),
-        ))?;
+            "Failed to get user account".to_string(),
+        )
+    })?;
+
+    let lnd_client = state.lnd.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "LND client not configured".to_string(),
+    ))?;
 
     let mut lnd = lnd_client.deref().clone();
     let c = lnd.lightning();

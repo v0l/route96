@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info};
+use pretty_env_logger::env_logger;
 use route96::db::{Database, FileUpload};
 use route96::filesystem::{FileStore, FileSystemResult};
 use route96::processing::probe_file;
@@ -12,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::SystemTime;
-use pretty_env_logger::env_logger;
 use tokio::sync::Semaphore;
 
 #[derive(Parser, Debug)]
@@ -53,7 +53,9 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     if std::env::var("RUST_LOG").is_err() {
-        unsafe { std::env::set_var("RUST_LOG", "info"); }
+        unsafe {
+            std::env::set_var("RUST_LOG", "info");
+        }
     }
     env_logger::init();
 
@@ -96,7 +98,7 @@ async fn main() -> Result<(), Error> {
                     Ok(())
                 })
             })
-                .await?;
+            .await?;
         }
         Commands::Import { from, probe_media } => {
             let fs = FileStore::new(settings.clone());
@@ -133,7 +135,7 @@ async fn main() -> Result<(), Error> {
                     Ok(())
                 })
             })
-                .await?;
+            .await?;
         }
         Commands::DatabaseImport { dry_run } => {
             let fs = FileStore::new(settings.clone());
@@ -184,7 +186,7 @@ async fn main() -> Result<(), Error> {
                     Ok(())
                 })
             })
-                .await?;
+            .await?;
         }
     }
     Ok(())

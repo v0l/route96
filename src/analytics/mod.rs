@@ -1,12 +1,9 @@
 use anyhow::Error;
-use axum::{
-    extract::Request,
-    response::Response,
-};
+use axum::{extract::Request, response::Response};
 use log::warn;
 use std::sync::Arc;
-use tower::{Layer, Service};
 use std::task::{Context, Poll};
+use tower::{Layer, Service};
 
 pub mod plausible;
 
@@ -54,7 +51,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -62,7 +61,7 @@ where
 
     fn call(&mut self, req: Request) -> Self::Future {
         let analytics = self.analytics.clone();
-        
+
         if let Err(e) = analytics.track(&req) {
             warn!("Failed to track! {}", e);
         }

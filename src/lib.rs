@@ -4,6 +4,8 @@ pub mod auth;
 pub mod background;
 pub mod cors;
 pub mod db;
+#[cfg(feature = "blossom")]
+pub mod exif_validator;
 pub mod filesystem;
 #[cfg(feature = "payments")]
 pub mod payments;
@@ -11,10 +13,8 @@ pub mod payments;
 pub mod processing;
 pub mod routes;
 pub mod settings;
-pub mod whitelist;
 pub mod void_file;
-#[cfg(feature = "blossom")]
-pub mod exif_validator;
+pub mod whitelist;
 
 pub fn can_compress(mime_type: &str) -> bool {
     mime_type.starts_with("image/")

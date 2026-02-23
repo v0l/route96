@@ -12,11 +12,11 @@ use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
 use axum::{
     extract::{Path, State as AxumState},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use axum_extra::response::file_stream::FileStream;
-use http_range_header::{parse_range_header, EndPosition, StartPosition};
+use http_range_header::{EndPosition, StartPosition, parse_range_header};
 use log::warn;
 use nostr::Event;
 use serde::Serialize;
@@ -123,32 +123,38 @@ impl Nip94Event {
     }
 }
 
-const MAX_UNBOUNDED_RANGE: u64 = 1024 * 1024;
+/// Maximum size for unbounded range requests (8 MiB)
+const MAX_UNBOUNDED_RANGE: u64 = 8 * 1024 * 1024;
+/// Chunk size for streaming file responses (64 KiB)
+const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 
 /// Set common headers for file responses
 fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        info.mime_type.parse().unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+        info.mime_type
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         "max-age=31536000, immutable".parse().unwrap(),
     );
-    response.headers_mut().insert(
-        header::ACCEPT_RANGES,
-        "bytes".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
     if let Some(name) = &info.name {
         if let Ok(disposition) = format!("inline; filename=\"{}\"", name).parse() {
-            response.headers_mut().insert(header::CONTENT_DISPOSITION, disposition);
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, disposition);
         }
     }
 }
 
 impl IntoResponse for FilePayload {
     fn into_response(self) -> Response {
-        let stream = ReaderStream::new(self.file);
+        let stream = ReaderStream::with_capacity(self.file, STREAM_CHUNK_SIZE);
         let file_stream = FileStream::new(stream).content_size(self.info.size);
         let mut response = file_stream.into_response();
         set_file_headers(&mut response, &self.info);
@@ -221,7 +227,7 @@ pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
     let index = "./ui/index.html";
     #[cfg(not(feature = "react-ui"))]
     let index = "./index.html";
-    
+
     match tokio::fs::read(index).await {
         Ok(contents) => Ok(Html(contents)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -292,9 +298,7 @@ pub async fn get_blob(
     let file_path = state.fs.get(&id);
 
     // Check for Range header and handle range requests
-    let range_header = headers
-        .get(header::RANGE)
-        .and_then(|h| h.to_str().ok());
+    let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
 
     // Only use range response for files > 1MiB
     if info.size >= MAX_UNBOUNDED_RANGE {
@@ -307,7 +311,9 @@ pub async fn get_blob(
     }
 
     // Full file response
-    let file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    let file = File::open(&file_path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     let payload = FilePayload { file, info };
 
     Ok(payload.into_response())
@@ -320,12 +326,16 @@ async fn build_range_response(
     start: u64,
     end: u64,
 ) -> Result<Response, StatusCode> {
-    let mut file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
-    file.seek(SeekFrom::Start(start)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut file = File::open(&file_path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    file.seek(SeekFrom::Start(start))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let range_len = end - start + 1;
     let limited_reader = file.take(range_len);
-    let stream = ReaderStream::new(limited_reader);
+    let stream = ReaderStream::with_capacity(limited_reader, STREAM_CHUNK_SIZE);
     let file_stream = FileStream::new(stream);
 
     let mut response = file_stream.into_range_response(start, end, info.size);
