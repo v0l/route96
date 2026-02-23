@@ -131,6 +131,8 @@ impl FileStore {
                 blur_hash: None,
                 duration,
                 bitrate,
+                #[cfg(feature = "labels")]
+                labels: vec![],
             }
         };
 

@@ -17,7 +17,10 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/admin/self", get(admin_get_self))
         .route("/admin/files", get(admin_list_files))
         .route("/admin/reports", get(admin_list_reports))
-        .route("/admin/reports/{report_id}", delete(admin_acknowledge_report))
+        .route(
+            "/admin/reports/{report_id}",
+            delete(admin_acknowledge_report),
+        )
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
         .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
 }
@@ -502,7 +505,10 @@ impl Database {
             .try_get(0)?;
 
         let mut res = Vec::with_capacity(results.len());
-        for upload in results.into_iter() {
+        #[allow(unused_mut)]
+        for mut upload in results.into_iter() {
+            #[cfg(feature = "labels")]
+            self.populate_labels(&mut upload).await?;
             let upd = self.get_file_owners(&upload.id).await?;
             res.push((upload, upd));
         }

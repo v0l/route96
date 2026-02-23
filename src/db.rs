@@ -147,14 +147,14 @@ impl Database {
                 .try_get(0)?,
             Some(res) => res.try_get(0)?,
         };
-        
+
         // Make the first user (ID 1) an admin
         if user_id == 1 {
             sqlx::query("update users set is_admin = 1 where id = 1")
                 .execute(&self.pool)
                 .await?;
         }
-        
+
         Ok(user_id)
     }
 
@@ -231,10 +231,16 @@ impl Database {
     }
 
     pub async fn get_file(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
-        sqlx::query_as("select * from uploads where id = ?")
+        #[allow(unused_mut)]
+        let mut result: Option<FileUpload> = sqlx::query_as("select * from uploads where id = ?")
             .bind(file)
             .fetch_optional(&self.pool)
-            .await
+            .await?;
+        #[cfg(feature = "labels")]
+        if let Some(ref mut f) = result {
+            self.populate_labels(f).await?;
+        }
+        Ok(result)
     }
 
     pub async fn get_file_owners(&self, file: &Vec<u8>) -> Result<Vec<User>, Error> {
@@ -250,13 +256,24 @@ impl Database {
 
     #[cfg(feature = "labels")]
     pub async fn get_file_labels(&self, file: &Vec<u8>) -> Result<Vec<FileLabel>, Error> {
-        sqlx::query_as(
-            "select upload_labels.* from uploads, upload_labels \
-        where uploads.id = ? and uploads.id = upload_labels.file",
-        )
-        .bind(file)
-        .fetch_all(&self.pool)
-        .await
+        sqlx::query_as("select * from upload_labels where file = ?")
+            .bind(file)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    #[cfg(feature = "labels")]
+    pub async fn populate_labels(&self, file: &mut FileUpload) -> Result<(), Error> {
+        file.labels = self.get_file_labels(&file.id).await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "labels")]
+    pub async fn populate_labels_vec(&self, files: &mut Vec<FileUpload>) -> Result<(), Error> {
+        for file in files.iter_mut() {
+            self.populate_labels(file).await?;
+        }
+        Ok(())
     }
 
     pub async fn delete_file_owner(&self, file: &Vec<u8>, owner: u64) -> Result<(), Error> {
@@ -290,7 +307,8 @@ impl Database {
         offset: u32,
         limit: u32,
     ) -> Result<(Vec<FileUpload>, i64), Error> {
-        let results: Vec<FileUpload> = sqlx::query_as(
+        #[allow(unused_mut)]
+        let mut results: Vec<FileUpload> = sqlx::query_as(
             "select uploads.* from uploads, users, user_uploads \
             where users.pubkey = ? \
             and users.id = user_uploads.user_id \
@@ -314,6 +332,9 @@ impl Database {
         .await?
         .try_get(0)?;
 
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut results).await?;
+
         Ok((results, count))
     }
 
@@ -332,7 +353,12 @@ impl Database {
     }
 
     /// Add a new report to the database
-    pub async fn add_report(&self, file_id: &[u8], reporter_id: u64, event_json: &str) -> Result<(), Error> {
+    pub async fn add_report(
+        &self,
+        file_id: &[u8],
+        reporter_id: u64,
+        event_json: &str,
+    ) -> Result<(), Error> {
         sqlx::query("insert into reports (file_id, reporter_id, event_json) values (?, ?, ?)")
             .bind(file_id)
             .bind(reporter_id)
@@ -351,7 +377,7 @@ impl Database {
             .bind(offset)
             .fetch_all(&self.pool)
             .await?;
-        
+
         let count: i64 = sqlx::query("select count(id) from reports where reviewed = false")
             .fetch_one(&self.pool)
             .await?
@@ -422,7 +448,7 @@ impl Database {
         // If user upgrades from 5GB to 10GB, their remaining time gets halved
         // If user pays for 1GB on a 5GB plan, they get 1/5 of the normal time
         let current_user = self.get_user_by_id(payment.user_id).await?;
-        
+
         if let Some(paid_until) = current_user.paid_until {
             if paid_until > chrono::Utc::now() {
                 // User has active subscription - calculate fractional time extension
@@ -431,12 +457,12 @@ impl Database {
                 } else {
                     1.0 // If no existing quota, treat as 100%
                 };
-                
+
                 let adjusted_days = (payment.days_value as f64 * time_fraction) as u64;
-                
+
                 // Extend subscription time and upgrade quota if larger
                 let new_quota_size = std::cmp::max(current_user.paid_size, payment.size_value);
-                
+
                 sqlx::query("update users set paid_until = TIMESTAMPADD(DAY, ?, paid_until), paid_size = ? where id = ?")
                     .bind(adjusted_days)
                     .bind(new_quota_size)
@@ -468,14 +494,19 @@ impl Database {
     }
 
     /// Check if user has sufficient quota for an upload
-    pub async fn check_user_quota(&self, pubkey: &Vec<u8>, upload_size: u64, free_quota_bytes: u64) -> Result<bool, Error> {
+    pub async fn check_user_quota(
+        &self,
+        pubkey: &Vec<u8>,
+        upload_size: u64,
+        free_quota_bytes: u64,
+    ) -> Result<bool, Error> {
         // Get or create user
         let user_id = self.upsert_user(pubkey).await?;
-        
+
         // Get user's current storage usage
-        let user_stats = self.get_user_stats(user_id).await.unwrap_or(UserStats { 
-            file_count: 0, 
-            total_size: 0 
+        let user_stats = self.get_user_stats(user_id).await.unwrap_or(UserStats {
+            file_count: 0,
+            total_size: 0,
         });
 
         // Get user's paid quota

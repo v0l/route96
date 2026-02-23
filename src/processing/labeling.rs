@@ -3,14 +3,18 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Error, Result};
-use candle_core::{DType, Device, IndexOp, Tensor, D};
+use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::{av_frame_free, av_packet_free};
 use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
+use log::debug;
 use nostr::serde_json;
 use serde::Deserialize;
+
+/// Minimum confidence threshold for a label to be included
+const MIN_CONFIDENCE: f32 = 0.1;
 
 #[derive(Deserialize)]
 struct MyVitConfig {
@@ -33,13 +37,13 @@ pub fn label_frame(frame: &Path, model: PathBuf, config: PathBuf) -> Result<Hash
             .to_vec1::<f32>()?;
         let mut prs = prs.iter().enumerate().collect::<Vec<_>>();
         prs.sort_by(|(_, p1), (_, p2)| p2.total_cmp(p1));
-        let res = prs
+        let res: HashMap<String, f32> = prs
             .iter()
-            //.filter(|&(_c, q)| **q >= 0.1)
+            .filter(|&(_c, q)| **q >= MIN_CONFIDENCE)
             .take(5)
             .map(|&(c, q)| (label_config.id2label[&c].to_string(), *q))
             .collect();
-        println!("prs: {:?}", res);
+        debug!("label results: {:?}", res);
         Ok(res)
     }
 }
@@ -83,7 +87,6 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
 unsafe fn load_frame_224(path: &Path) -> Result<Tensor> {
     let pic = load_image(path, 224, 224)?;
 
-    std::fs::write("frame_224.raw", &pic)?;
     let d = Device::cuda_if_available(0)?;
     let data = Tensor::from_vec(pic, (224, 224, 3), &d)?.permute((2, 0, 1))?;
     let mean = Tensor::new(&[0.485f32, 0.456, 0.406], &d)?.reshape((3, 1, 1))?;
