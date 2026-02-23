@@ -174,6 +174,8 @@ async fn main() -> Result<(), Error> {
                                 alt: None,
                                 duration: None,
                                 bitrate: None,
+                                #[cfg(feature = "labels")]
+                                labels: vec![],
                             };
                             db.add_file(&entry, None).await.context("db add_file")?;
                         } else {

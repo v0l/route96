@@ -11,9 +11,9 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "react-ui", "r96util"]
+default = ["nip96", "blossom", "analytics", "react-ui", "r96util", "labels"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
-labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers"]
+labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:hf-hub"]
 nip96 = ["media-compression"]
 blossom = []
 analytics = []
@@ -52,9 +52,11 @@ http-range-header = "0.4"
 
 libc = { version = "0.2", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "f6dc45ecea44b235476c4f2114f15ce935ab7201", optional = true }
-candle-core = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-nn = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", tag = "0.8.1", optional = true }
+candle-core = { version = "0.9", optional = true }
+candle-nn = { version = "0.9", optional = true }
+candle-transformers = { version = "0.9", optional = true }
+hf-hub = { version = "0.5", optional = true }
 walkdir = { version = "2.5", optional = true }
 indicatif = { version = "0.18", optional = true }
 payments-rs = { git = "https://github.com/v0l/payments-rs.git", optional = true, rev = "60b0fbf3838385439fbd08d43565fb1d9ab810fb" }
+

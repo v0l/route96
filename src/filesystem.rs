@@ -2,7 +2,7 @@
 use crate::db::FileLabel;
 
 #[cfg(feature = "labels")]
-use crate::processing::labeling::label_frame;
+use crate::processing::labeling::{label_frame, label_video};
 #[cfg(feature = "media-compression")]
 use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
@@ -121,6 +121,22 @@ impl FileStore {
                     None,
                 )
             };
+            #[cfg(feature = "labels")]
+            let labels = if mime_type.starts_with("video/") {
+                let mp = self.settings.vit_model.as_ref();
+                label_video(
+                    &temp_file,
+                    mp.map(|m| m.model.clone()),
+                    mp.map(|m| m.config.clone()),
+                )
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(label, _)| FileLabel::new(label, "vit224".to_string()))
+                .collect()
+            } else {
+                vec![]
+            };
+
             NewFileResult {
                 path: temp_file,
                 id: hash,
@@ -132,7 +148,7 @@ impl FileStore {
                 duration,
                 bitrate,
                 #[cfg(feature = "labels")]
-                labels: vec![],
+                labels,
             }
         };
 
@@ -218,17 +234,16 @@ impl FileStore {
     async fn compress_file(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
         #[cfg(feature = "labels")]
-        let labels = if let Some(mp) = &self.settings.vit_model {
+        let labels = {
+            let mp = self.settings.vit_model.as_ref();
             label_frame(
                 &compressed_result.result,
-                mp.model.clone(),
-                mp.config.clone(),
+                mp.map(|m| m.model.clone()),
+                mp.map(|m| m.config.clone()),
             )?
             .iter()
             .map(|l| FileLabel::new(l.0.clone(), "vit224".to_string()))
             .collect()
-        } else {
-            vec![]
         };
         let hash = FileStore::hash_file(&compressed_result.result).await?;
 
