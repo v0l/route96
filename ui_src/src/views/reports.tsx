@@ -37,7 +37,8 @@ export default function ReportList({
               "rounded-l-sm": x === start,
               "rounded-r-sm": x + 1 === n,
               "bg-white text-black": page === x,
-              "bg-neutral-900 text-neutral-300 hover:bg-neutral-800": page !== x,
+              "bg-neutral-900 text-neutral-300 hover:bg-neutral-800":
+                page !== x,
             },
           )}
         >
@@ -104,9 +105,7 @@ export default function ReportList({
 
               return (
                 <tr key={report.id} className="hover:bg-neutral-800/50">
-                  <td className="px-2 py-1.5 text-neutral-300">
-                    {report.id}
-                  </td>
+                  <td className="px-2 py-1.5 text-neutral-300">{report.id}</td>
                   <td className="px-2 py-1.5 font-mono text-neutral-500">
                     {report.file_id.substring(0, 8)}...
                   </td>
@@ -130,13 +129,13 @@ export default function ReportList({
                     <div className="flex gap-1">
                       <button
                         onClick={() => onAcknowledge?.(report.id)}
-                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-0.5 rounded-sm text-xs"
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
                       >
                         Ack
                       </button>
                       <button
                         onClick={() => onDeleteFile?.(report.file_id)}
-                        className="bg-red-600 hover:bg-red-500 text-white px-2 py-0.5 rounded-sm text-xs"
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
                       >
                         Del
                       </button>

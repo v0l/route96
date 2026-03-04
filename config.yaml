@@ -20,10 +20,31 @@ public_url: "http://localhost:8000"
 # If set, the server auto-reloads changes about every 10 seconds
 # whitelist_file: "./whitelist.txt"
 
-# (Optional) Path for ViT(224) image model (https://huggingface.co/google/vit-base-patch16-224)
-# vit_model:
-#   model: "falcon_nsfw.safetensors"
-#   config: "falcon_nsfw.json"
+# Directory where HuggingFace model files are cached.
+# Defaults to <storage_dir>/models when not set.
+# models_dir: "./data/models"
+
+# Label models to run on every uploaded file.
+# Each model downloads from HuggingFace into models_dir on first use.
+# Multiple models can be listed; their results are merged.
+label_models:
+  - hf_repo: "google/vit-base-patch16-224"
+    name: "vit224"
+  - hf_repo: "Falconsai/nsfw_image_detection"
+    name: "nsfw"
+    label_exclude:
+      - "normal"
+  - hf_repo: "dima806/fairface_age_image_detection"
+    name: "age"
+    min_confidence: 0.3
+
+# Label terms that trigger automatic moderation flagging.
+# Any file whose AI labels contain one of these substrings (case-insensitive)
+# will have its review_state set to LabelFlagged.
+label_flag_terms:
+  - "nsfw"
+  - "nipple"
+  - "brassiere"
 
 # (Optional) Analytics support
 # plausible_url: "https://plausible.com/"

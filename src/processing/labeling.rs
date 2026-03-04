@@ -8,19 +8,16 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
 use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
-use hf_hub::api::sync::Api;
+use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info};
 use nostr::serde_json;
 use serde::Deserialize;
 
 /// Minimum confidence threshold for a label to be included
-const MIN_CONFIDENCE: f32 = 0.1;
+pub const MIN_CONFIDENCE: f32 = 0.25;
 
 /// Maximum number of frames to sample from a video (1 per second, up to 60s)
 const MAX_VIDEO_FRAMES: usize = 60;
-
-/// Default HuggingFace model repo for ViT-224
-const DEFAULT_HF_REPO: &str = "google/vit-base-patch16-224";
 
 #[derive(Deserialize)]
 struct MyVitConfig {
@@ -28,16 +25,17 @@ struct MyVitConfig {
 }
 
 /// A loaded ViT model ready for inference
-struct VitModel {
+pub struct VitModel {
     model: vit::Model,
     label_config: MyVitConfig,
     device: Device,
 }
 
 impl VitModel {
-    /// Load model from explicit file paths
-    fn load(model_path: PathBuf, config_path: PathBuf) -> Result<Self> {
-        let device = Device::Cpu;
+    /// Load model files from explicit paths.
+    fn load(model_path: PathBuf, config_path: PathBuf, device: Device) -> Result<Self> {
+        candle_core::cuda::set_gemm_reduced_precision_f32(true);
+        info!("Loading ViT model {:?} on {:?}", model_path, &device);
         let vb =
             unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
         let config_data = std::fs::read(config_path)?;
@@ -51,21 +49,46 @@ impl VitModel {
         })
     }
 
-    /// Download model from HuggingFace and load it
-    fn from_hf() -> Result<Self> {
-        info!(
-            "Downloading ViT model from HuggingFace: {}",
-            DEFAULT_HF_REPO
-        );
-        let api = Api::new()?;
-        let repo = api.model(DEFAULT_HF_REPO.to_string());
-        let model_path = repo.get("model.safetensors")?;
-        let config_path = repo.get("config.json")?;
-        Self::load(model_path, config_path)
+    /// Load (or download) a model from HuggingFace, caching files under `models_dir/<hf_repo>`.
+    ///
+    /// `models_dir` is the root directory for all cached models.
+    /// `hf_repo` is a HuggingFace repo id such as `"google/vit-base-patch16-224"`.
+    pub fn load_from_dir(models_dir: &Path, hf_repo: &str, device: Device) -> Result<Self> {
+        // Replace `/` in the repo id so it is safe to use as a directory name.
+        let cache_subdir = hf_repo.replace('/', "--");
+        let model_dir = models_dir.join(&cache_subdir);
+        std::fs::create_dir_all(&model_dir)?;
+
+        let model_path = model_dir.join("model.safetensors");
+        let config_path = model_dir.join("config.json");
+
+        if !model_path.exists() || !config_path.exists() {
+            info!("Downloading ViT model '{}' into {:?}", hf_repo, model_dir);
+            let api: Api = ApiBuilder::new()
+                .with_cache_dir(models_dir.to_path_buf())
+                .build()?;
+            let repo = api.model(hf_repo.to_string());
+            let dl_model = repo.get("model.safetensors")?;
+            let dl_config = repo.get("config.json")?;
+            // Copy from the hf-hub cache location into our named directory so
+            // subsequent loads are path-stable.
+            std::fs::copy(&dl_model, &model_path)?;
+            std::fs::copy(&dl_config, &config_path)?;
+        }
+
+        Self::load(model_path, config_path, device)
     }
 
-    /// Run inference on a 224x224 RGB tensor, returns top labels above threshold
-    fn classify(&self, image: &Tensor) -> Result<HashMap<String, f32>> {
+    /// Normalise a raw label string from the model's id2label map.
+    /// Many ImageNet-style labels contain comma-separated synonyms
+    /// (e.g. `"miniskirt, mini"`); keep only the first token so stored
+    /// values are clean single terms that can be queried by exact match.
+    fn normalise_label(raw: &str) -> String {
+        raw.split(',').next().unwrap_or(raw).trim().to_string()
+    }
+
+    /// Run inference on a 224x224 RGB tensor, returns top labels above `min_confidence`.
+    fn classify(&self, image: &Tensor, min_confidence: f32) -> Result<HashMap<String, f32>> {
         let image = image.to_device(&self.device)?;
         let logits = self.model.forward(&image.unsqueeze(0)?)?;
         let prs = candle_nn::ops::softmax(&logits, D::Minus1)?
@@ -75,60 +98,60 @@ impl VitModel {
         prs.sort_by(|(_, p1), (_, p2)| p2.total_cmp(p1));
         let res: HashMap<String, f32> = prs
             .iter()
-            .filter(|&(_c, q)| **q >= MIN_CONFIDENCE)
+            .filter(|&(_c, q)| **q >= min_confidence)
             .take(5)
-            .map(|&(c, q)| (self.label_config.id2label[&c].to_string(), *q))
+            .map(|&(c, q)| (Self::normalise_label(&self.label_config.id2label[&c]), *q))
             .collect();
         Ok(res)
     }
 }
 
-/// Label a single image file using the ViT model.
-///
-/// If `model` and `config` are `None`, the model is automatically downloaded
-/// from HuggingFace (`google/vit-base-patch16-224`).
-pub fn label_frame(
-    frame: &Path,
-    model: Option<PathBuf>,
-    config: Option<PathBuf>,
-) -> Result<HashMap<String, f32>> {
-    let vit = match (model.as_ref(), config.as_ref()) {
-        (Some(m), Some(c)) => VitModel::load(m.clone(), c.clone())?,
-        _ => VitModel::from_hf()?,
-    };
-    let image = unsafe { load_frame_224(frame)? };
-    let res = vit.classify(&image)?;
-    debug!("label results: {:?}", res);
-    Ok(res)
+impl VitModel {
+    /// Run this model against a file on disk.
+    /// Videos are sampled at 1 frame/second; images are classified directly.
+    /// `min_confidence` overrides the global `MIN_CONFIDENCE` default.
+    pub fn run(
+        &self,
+        path: &Path,
+        mime_type: &str,
+        min_confidence: f32,
+    ) -> Result<HashMap<String, f32>> {
+        if mime_type.starts_with("video/") {
+            let frames = unsafe { extract_video_frames(path, &self.device)? };
+            classify_frames(self, &frames, min_confidence)
+        } else {
+            let image = unsafe { load_frame_224(path, &self.device)? };
+            self.classify(&image, min_confidence)
+        }
+    }
 }
 
-/// Label a video file by sampling 1 frame per second for up to 60 seconds.
-///
-/// If `model` and `config` are `None`, the model is automatically downloaded
-/// from HuggingFace (`google/vit-base-patch16-224`).
-///
-/// Returns aggregated labels: for each label seen across sampled frames,
-/// the confidence is the average score across all frames where it appeared.
-pub fn label_video(
-    video: &Path,
-    model: Option<PathBuf>,
-    config: Option<PathBuf>,
+/// Convenience function: load a model from disk/HF and label one file.
+/// Prefer loading models once with [`VitModel::load_from_dir`] and calling
+/// [`VitModel::run`] directly when processing multiple files.
+pub fn label_file(
+    path: &Path,
+    mime_type: &str,
+    models_dir: &Path,
+    hf_repo: &str,
 ) -> Result<HashMap<String, f32>> {
-    let vit = match (model.as_ref(), config.as_ref()) {
-        (Some(m), Some(c)) => VitModel::load(m.clone(), c.clone())?,
-        _ => VitModel::from_hf()?,
-    };
-    let frames = unsafe { extract_video_frames(video)? };
+    let device = Device::cuda_if_available(0)?;
+    VitModel::load_from_dir(models_dir, hf_repo, device)?.run(path, mime_type, MIN_CONFIDENCE)
+}
 
+/// Classify a sequence of pre-decoded frame tensors, averaging scores per label.
+fn classify_frames(
+    vit: &VitModel,
+    frames: &[Tensor],
+    min_confidence: f32,
+) -> Result<HashMap<String, f32>> {
     if frames.is_empty() {
         return Ok(HashMap::new());
     }
 
-    // Accumulate (total_score, count) per label across all frames
     let mut label_acc: HashMap<String, (f32, u32)> = HashMap::new();
-
-    for tensor in &frames {
-        match vit.classify(tensor) {
+    for tensor in frames {
+        match vit.classify(tensor, min_confidence) {
             Ok(labels) => {
                 for (label, score) in labels {
                     let entry = label_acc.entry(label).or_insert((0.0, 0));
@@ -137,28 +160,23 @@ pub fn label_video(
                 }
             }
             Err(e) => {
-                debug!("Failed to classify video frame: {}", e);
+                debug!("Failed to classify frame: {}", e);
             }
         }
     }
 
-    // Average the scores and filter by threshold
     let result: HashMap<String, f32> = label_acc
         .into_iter()
         .map(|(label, (total, count))| (label, total / count as f32))
-        .filter(|(_, avg)| *avg >= MIN_CONFIDENCE)
+        .filter(|(_, avg)| *avg >= min_confidence)
         .collect();
 
-    debug!(
-        "video label results ({} frames sampled): {:?}",
-        frames.len(),
-        result
-    );
+    debug!("{} frames sampled", frames.len());
     Ok(result)
 }
 
-/// Extract up to MAX_VIDEO_FRAMES frames from a video, one per second
-unsafe fn extract_video_frames(path: &Path) -> Result<Vec<Tensor>> {
+/// Extract up to MAX_VIDEO_FRAMES frames from a video, one per second.
+unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>> {
     let mut demux = Demuxer::new(path.to_str().unwrap())?;
     let info = unsafe { demux.probe_input()? };
     let video_stream = info
@@ -182,7 +200,6 @@ unsafe fn extract_video_frames(path: &Path) -> Result<Vec<Tensor>> {
             None => break, // EOF
         };
 
-        // Skip packets from other streams
         if pkt.stream_index != stream_index {
             continue;
         }
@@ -191,16 +208,14 @@ unsafe fn extract_video_frames(path: &Path) -> Result<Vec<Tensor>> {
         for (frame, _) in decoded {
             let pts_sec = frame.pts as f64 * time_base_num / time_base_den;
 
-            // Stop after 60 seconds
             if pts_sec >= MAX_VIDEO_FRAMES as f64 {
                 return Ok(frames);
             }
 
-            // Sample 1 frame per second
             if pts_sec >= next_sample_sec {
                 next_sample_sec = pts_sec.floor() + 1.0;
 
-                match unsafe { frame_to_tensor(&frame, &mut scaler) } {
+                match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                     Ok(tensor) => frames.push(tensor),
                     Err(e) => {
                         debug!("Failed to convert video frame at {:.1}s: {}", pts_sec, e);
@@ -221,20 +236,21 @@ unsafe fn extract_video_frames(path: &Path) -> Result<Vec<Tensor>> {
         if pts_sec >= MAX_VIDEO_FRAMES as f64 || frames.len() >= MAX_VIDEO_FRAMES {
             break;
         }
-        if pts_sec >= next_sample_sec {
-            if let Ok(tensor) = unsafe { frame_to_tensor(&frame, &mut scaler) } {
-                frames.push(tensor);
-            }
+        if pts_sec >= next_sample_sec
+            && let Ok(tensor) = unsafe { frame_to_tensor(&frame, &mut scaler, device) }
+        {
+            frames.push(tensor);
         }
     }
 
     Ok(frames)
 }
 
-/// Scale a decoded video frame to 224x224 RGB and convert to a normalized tensor
+/// Scale a decoded video frame to 224x224 RGB and convert to a normalized tensor.
 unsafe fn frame_to_tensor(
     frame: &ffmpeg_rs_raw::AvFrameRef,
     scaler: &mut Scaler,
+    device: &Device,
 ) -> Result<Tensor> {
     let scaled = scaler.process_frame(frame, 224, 224, AV_PIX_FMT_RGB24)?;
     let width = 224usize;
@@ -242,24 +258,22 @@ unsafe fn frame_to_tensor(
 
     let mut dst_vec = Vec::with_capacity(3 * width * height);
     for row in 0..height {
-        let line_size = (*scaled).linesize[0] as usize;
+        let line_size = scaled.linesize[0] as usize;
         let row_offset = line_size * row;
-        let row_slice =
-            unsafe { slice::from_raw_parts((*scaled).data[0].add(row_offset), 3 * width) };
+        let row_slice = unsafe { slice::from_raw_parts(scaled.data[0].add(row_offset), 3 * width) };
         dst_vec.extend_from_slice(row_slice);
     }
 
-    let d = Device::cuda_if_available(0)?;
-    let data = Tensor::from_vec(dst_vec, (224, 224, 3), &d)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], &d)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.229f32, 0.224, 0.225], &d)?.reshape((3, 1, 1))?;
+    let data = Tensor::from_vec(dst_vec, (224, 224, 3), device)?.permute((2, 0, 1))?;
+    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], device)?.reshape((3, 1, 1))?;
+    let std = Tensor::new(&[0.229f32, 0.224, 0.225], device)?.reshape((3, 1, 1))?;
     let res = (data.to_dtype(DType::F32)? / 255.)?
         .broadcast_sub(&mean)?
         .broadcast_div(&std)?;
     Ok(res)
 }
 
-/// Load an image from disk into RGB pixel buffer
+/// Load an image from disk, decode and scale it to `width × height` RGB pixels.
 unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>> {
     let mut demux = Demuxer::new(path_buf.to_str().unwrap())?;
     let info = unsafe { demux.probe_input()? };
@@ -270,7 +284,6 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
     let mut decoder = Decoder::new();
     decoder.setup_decoder(image_stream, None)?;
 
-    // TODO: crop image square
     let mut scaler = Scaler::new();
     while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
         let pkt = match pkt {
@@ -284,11 +297,10 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
             let mut dst_vec = Vec::with_capacity(3 * width * height);
 
             for row in 0..height {
-                let line_size = (*new_frame).linesize[0] as usize;
+                let line_size = new_frame.linesize[0] as usize;
                 let row_offset = line_size * row;
-                let row_slice = unsafe {
-                    slice::from_raw_parts((*new_frame).data[0].add(row_offset), 3 * width)
-                };
+                let row_slice =
+                    unsafe { slice::from_raw_parts(new_frame.data[0].add(row_offset), 3 * width) };
                 dst_vec.extend_from_slice(row_slice);
             }
             return Ok(dst_vec);
@@ -298,13 +310,12 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
 }
 
 // https://github.com/huggingface/candle/blob/main/candle-examples/src/imagenet.rs
-unsafe fn load_frame_224(path: &Path) -> Result<Tensor> {
+unsafe fn load_frame_224(path: &Path, device: &Device) -> Result<Tensor> {
     let pic = unsafe { load_image(path, 224, 224)? };
 
-    let d = Device::cuda_if_available(0)?;
-    let data = Tensor::from_vec(pic, (224, 224, 3), &d)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], &d)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.229f32, 0.224, 0.225], &d)?.reshape((3, 1, 1))?;
+    let data = Tensor::from_vec(pic, (224, 224, 3), device)?.permute((2, 0, 1))?;
+    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], device)?.reshape((3, 1, 1))?;
+    let std = Tensor::new(&[0.229f32, 0.224, 0.225], device)?.reshape((3, 1, 1))?;
     let res = (data.to_dtype(DType::F32)? / 255.)?
         .broadcast_sub(&mean)?
         .broadcast_div(&std)?;
@@ -319,6 +330,7 @@ mod tests {
 
     const BBB_URL: &str =
         "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4";
+    const DEFAULT_HF_REPO: &str = "google/vit-base-patch16-224";
 
     static DOWNLOAD_VIDEO: Once = Once::new();
 
@@ -353,10 +365,14 @@ mod tests {
         path
     }
 
+    fn test_models_dir() -> PathBuf {
+        std::env::temp_dir().join("route96_test_models")
+    }
+
     #[test]
     fn test_extract_frames_from_real_video() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video).unwrap() };
+        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
 
         // 5-second clip at 24fps should yield 5 frames (one at 0s, 1s, 2s, 3s, 4s)
         assert_eq!(frames.len(), 5, "expected 5 frames from a 5s video clip");
@@ -371,7 +387,7 @@ mod tests {
     #[test]
     fn test_tensor_values_normalized() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video).unwrap() };
+        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
         assert!(!frames.is_empty(), "should extract at least 1 frame");
 
         for (i, frame) in frames.iter().enumerate() {
@@ -394,14 +410,13 @@ mod tests {
     #[test]
     fn test_frames_differ_between_seconds() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video).unwrap() };
+        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
         assert!(
             frames.len() >= 2,
             "need at least 2 frames to compare, got {}",
             frames.len()
         );
 
-        // Frames from different seconds of a real video should not be identical
         let f0 = frames[0].flatten_all().unwrap().to_vec1::<f32>().unwrap();
         let f1 = frames[1].flatten_all().unwrap().to_vec1::<f32>().unwrap();
         assert_eq!(f0.len(), f1.len());
@@ -414,13 +429,13 @@ mod tests {
     }
 
     #[test]
-    fn test_label_video_with_model() {
+    fn test_label_file_video_with_model() {
         let video = get_test_video();
-        let labels = label_video(&video, None, None).unwrap();
+        let models_dir = test_models_dir();
+        let labels = label_file(&video, "video/mp4", &models_dir, DEFAULT_HF_REPO).unwrap();
 
         assert!(!labels.is_empty(), "should produce at least one label");
 
-        // All confidence scores should be between 0 and 1
         for (label, score) in &labels {
             assert!(
                 *score >= MIN_CONFIDENCE && *score <= 1.0,
@@ -431,5 +446,22 @@ mod tests {
         }
 
         println!("Video labels: {:?}", labels);
+    }
+
+    #[test]
+    fn test_load_from_dir_caches_model() {
+        let models_dir = test_models_dir();
+        // First load (may download)
+        VitModel::load_from_dir(&models_dir, DEFAULT_HF_REPO, Device::Cpu)
+            .expect("first load should succeed");
+
+        let cache_path = models_dir
+            .join(DEFAULT_HF_REPO.replace('/', "--"))
+            .join("model.safetensors");
+        assert!(cache_path.exists(), "model should be cached on disk");
+
+        // Second load should hit the cache (no network needed)
+        VitModel::load_from_dir(&models_dir, DEFAULT_HF_REPO, Device::Cpu)
+            .expect("second load from cache should succeed");
     }
 }

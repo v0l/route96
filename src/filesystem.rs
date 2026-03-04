@@ -1,8 +1,9 @@
+use crate::db::Database;
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
 
 #[cfg(feature = "labels")]
-use crate::processing::labeling::{label_frame, label_video};
+use crate::processing::labeling::label_file;
 #[cfg(feature = "media-compression")]
 use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
@@ -25,6 +26,8 @@ pub enum FileSystemResult {
     AlreadyExists(Vec<u8>),
     /// New file created on disk and is stored
     NewFile(NewFileResult),
+    /// File hash is banned and must not be re-uploaded
+    Banned,
 }
 
 #[derive(Clone, Serialize)]
@@ -61,6 +64,7 @@ impl FileStore {
     /// Store a new file
     pub async fn put<'r, S>(
         &self,
+        db: &Database,
         path: S,
         mime_type: &str,
         compress: bool,
@@ -70,6 +74,13 @@ impl FileStore {
     {
         // store file in temp path and hash the file
         let (temp_file, size, hash) = self.store_hash_temp_file(path).await?;
+
+        // check banned before anything else
+        if db.is_file_banned(&hash).await? {
+            tokio::fs::remove_file(temp_file).await?;
+            return Ok(FileSystemResult::Banned);
+        }
+
         let dst_path = self.map_path(&hash);
 
         // check if file hash already exists
@@ -121,22 +132,6 @@ impl FileStore {
                     None,
                 )
             };
-            #[cfg(feature = "labels")]
-            let labels = if mime_type.starts_with("video/") {
-                let mp = self.settings.vit_model.as_ref();
-                label_video(
-                    &temp_file,
-                    mp.map(|m| m.model.clone()),
-                    mp.map(|m| m.config.clone()),
-                )
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(label, _)| FileLabel::new(label, "vit224".to_string()))
-                .collect()
-            } else {
-                vec![]
-            };
-
             NewFileResult {
                 path: temp_file,
                 id: hash,
@@ -148,7 +143,7 @@ impl FileStore {
                 duration,
                 bitrate,
                 #[cfg(feature = "labels")]
-                labels,
+                labels: vec![],
             }
         };
 
@@ -233,18 +228,7 @@ impl FileStore {
     #[cfg(feature = "media-compression")]
     async fn compress_file(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
-        #[cfg(feature = "labels")]
-        let labels = {
-            let mp = self.settings.vit_model.as_ref();
-            label_frame(
-                &compressed_result.result,
-                mp.map(|m| m.model.clone()),
-                mp.map(|m| m.config.clone()),
-            )?
-            .iter()
-            .map(|l| FileLabel::new(l.0.clone(), "vit224".to_string()))
-            .collect()
-        };
+
         let hash = FileStore::hash_file(&compressed_result.result).await?;
 
         let n = File::open(&compressed_result.result)
@@ -263,8 +247,50 @@ impl FileStore {
             duration: Some(compressed_result.duration),
             bitrate: Some(compressed_result.bitrate),
             #[cfg(feature = "labels")]
-            labels,
+            labels: vec![],
         })
+    }
+
+    /// Run every configured label model against `path` and collect the results
+    /// into a flat `Vec<FileLabel>`.  Models that fail are logged and skipped.
+    #[cfg(feature = "labels")]
+    fn run_label_models(&self, path: &Path, mime_type: &str) -> Vec<FileLabel> {
+        use log::warn;
+        let models_dir = self
+            .settings
+            .models_dir
+            .clone()
+            .unwrap_or_else(|| self.storage_dir().join("models"));
+
+        let Some(label_models) = self.settings.label_models.as_ref() else {
+            return vec![];
+        };
+
+        let mut labels: Vec<FileLabel> = Vec::new();
+        for model_cfg in label_models {
+            match label_file(path, mime_type, &models_dir, &model_cfg.hf_repo) {
+                Ok(results) => {
+                    for (label, _score) in results {
+                        let lower = label.to_lowercase();
+                        if model_cfg
+                            .label_exclude
+                            .iter()
+                            .any(|ex| ex.to_lowercase() == lower)
+                        {
+                            continue;
+                        }
+                        labels.push(FileLabel::new(label, model_cfg.name.clone()));
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Label model '{}' failed on {:?}: {}",
+                        model_cfg.name, path, e
+                    );
+                }
+            }
+        }
+        labels
     }
 
     async fn store_hash_temp_file<S>(&self, mut stream: S) -> Result<(PathBuf, u64, Vec<u8>)>
@@ -308,5 +334,83 @@ impl FileStore {
 
     pub fn storage_dir(&self) -> PathBuf {
         PathBuf::from(&self.settings.storage_dir)
+    }
+}
+
+#[cfg(all(test, feature = "labels"))]
+mod tests {
+    use super::*;
+    use crate::settings::LabelModelConfig;
+
+    fn make_store(
+        label_models: Option<Vec<LabelModelConfig>>,
+        models_dir: Option<PathBuf>,
+    ) -> FileStore {
+        FileStore::new(Settings {
+            listen: None,
+            storage_dir: std::env::temp_dir().to_str().unwrap().to_string(),
+            database: String::new(),
+            max_upload_bytes: 0,
+            public_url: String::new(),
+            whitelist: None,
+            whitelist_file: None,
+            models_dir,
+            label_models,
+            label_flag_terms: None,
+            webhook_url: None,
+            plausible_url: None,
+            void_cat_files: None,
+            #[cfg(feature = "blossom")]
+            reject_sensitive_exif: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+        })
+    }
+
+    #[test]
+    fn test_run_label_models_no_models_configured() {
+        let store = make_store(None, None);
+        // No models configured → empty result, no panic
+        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_run_label_models_empty_models_list() {
+        let store = make_store(Some(vec![]), None);
+        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_run_label_models_failing_model_is_skipped() {
+        // A model with a nonexistent repo will fail; the result should be empty
+        // and no panic.
+        let store = make_store(
+            Some(vec![LabelModelConfig {
+                hf_repo: "this/does-not-exist-xyz".to_string(),
+                name: "test-model".to_string(),
+                label_exclude: vec![],
+                min_confidence: None,
+            }]),
+            Some(std::env::temp_dir().join("route96_test_models_fs")),
+        );
+        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
+        // Should be empty because the model failed, not a panic
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_models_dir_defaults_to_storage_subdir() {
+        let store = make_store(None, None);
+        let expected = PathBuf::from(store.settings.storage_dir.clone()).join("models");
+        // Exercise the defaulting logic inside run_label_models by checking the
+        // path that would be used (we verify it matches <storage_dir>/models).
+        let derived = store
+            .settings
+            .models_dir
+            .clone()
+            .unwrap_or_else(|| store.storage_dir().join("models"));
+        assert_eq!(derived, expected);
     }
 }

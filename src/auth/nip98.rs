@@ -4,7 +4,7 @@ use axum::{
 };
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
-use log::info;
+use log::debug;
 use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
 use url::Url;
 
@@ -111,7 +111,7 @@ where
             .verify()
             .map_err(|_| (StatusCode::UNAUTHORIZED, "Event signature invalid"))?;
 
-        info!("{}", event.as_json());
+        debug!("{}", event.as_json());
 
         let content_type = parts
             .headers

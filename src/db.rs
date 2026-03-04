@@ -1,8 +1,26 @@
+use crate::comma_separated::CommaSeparated;
 use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
 use sqlx::{Error, Executor, FromRow, Row};
+
+/// Review/moderation state for an uploaded file.
+///
+/// Stored as a `TINYINT UNSIGNED` in MySQL (0–3).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[repr(u16)]
+pub enum ReviewState {
+    /// No review needed (default). Value = 0.
+    #[default]
+    None = 0,
+    /// Auto-flagged because AI labels matched a configured term. Value = 1.
+    LabelFlagged = 1,
+    /// Flagged because a user submitted a report. Value = 2.
+    Reported = 2,
+    /// An admin has reviewed the file and cleared it. Value = 3.
+    Reviewed = 3,
+}
 
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
@@ -29,6 +47,13 @@ pub struct FileUpload {
     pub duration: Option<f32>,
     /// Average bitrate in bits/s
     pub bitrate: Option<u32>,
+    /// Moderation review state
+    pub review_state: ReviewState,
+    /// When true the file has been admin-deleted and re-uploads must be rejected.
+    pub banned: bool,
+    /// Comma-separated list of model names that have already labeled this file.
+    #[cfg(feature = "labels")]
+    pub labeled_by: CommaSeparated<String>,
 
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
@@ -49,6 +74,10 @@ impl From<&NewFileResult> for FileUpload {
             alt: None,
             duration: value.duration,
             bitrate: value.bitrate,
+            review_state: ReviewState::None,
+            banned: false,
+            #[cfg(feature = "labels")]
+            labeled_by: CommaSeparated::default(),
             #[cfg(feature = "labels")]
             labels: value.labels.clone(),
         }
@@ -175,7 +204,7 @@ impl Database {
     pub async fn get_user_stats(&self, id: u64) -> Result<UserStats, Error> {
         sqlx::query_as(
             "select cast(count(user_uploads.file) as unsigned integer) as file_count, \
-        cast(sum(uploads.size) as unsigned integer) as total_size \
+        cast(coalesce(sum(uploads.size), 0) as unsigned integer) as total_size \
         from user_uploads,uploads \
         where user_uploads.user_id = ? \
         and user_uploads.file = uploads.id",
@@ -196,7 +225,7 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate) values(?,?,?,?,?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate,review_state,banned,labeled_by) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -207,7 +236,15 @@ impl Database {
             .bind(&file.alt)
             .bind(file.created)
             .bind(file.duration)
-            .bind(file.bitrate);
+            .bind(file.bitrate)
+            .bind(&file.review_state)
+            .bind(file.banned)
+            .bind({
+                #[cfg(feature = "labels")]
+                { &file.labeled_by }
+                #[cfg(not(feature = "labels"))]
+                { &CommaSeparated::<String>::default() }
+            });
         tx.execute(q).await?;
 
         if let Some(uid) = user_id {
@@ -228,6 +265,26 @@ impl Database {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Determine the review state for a file based on its labels and the configured flag terms.
+    ///
+    /// Returns `ReviewState::LabelFlagged` if any label name contains one of the flag terms
+    /// (case-insensitive substring match). Otherwise returns `ReviewState::None`.
+    #[cfg(feature = "labels")]
+    pub fn review_state_for_labels(labels: &[FileLabel], flag_terms: &[String]) -> ReviewState {
+        if flag_terms.is_empty() {
+            return ReviewState::None;
+        }
+        for label in labels {
+            let lower = label.label.to_lowercase();
+            for term in flag_terms {
+                if lower.contains(&term.to_lowercase()) {
+                    return ReviewState::LabelFlagged;
+                }
+            }
+        }
+        ReviewState::None
     }
 
     pub async fn get_file(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
@@ -301,6 +358,33 @@ impl Database {
         Ok(())
     }
 
+    /// Mark a file as banned: removes all ownership records and sets `banned = true`.
+    /// The row is intentionally kept so re-uploads of the same hash are rejected.
+    pub async fn ban_file(&self, file: &[u8]) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("delete from user_uploads where file = ?")
+            .bind(file)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("update uploads set banned = true where id = ?")
+            .bind(file)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Returns true if the file hash exists and has been banned.
+    pub async fn is_file_banned(&self, file: &[u8]) -> Result<bool, Error> {
+        let row = sqlx::query("select banned from uploads where id = ?")
+            .bind(file)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row
+            .map(|r| r.try_get::<bool, _>(0).unwrap_or(false))
+            .unwrap_or(false))
+    }
+
     pub async fn list_files(
         &self,
         pubkey: &Vec<u8>,
@@ -313,6 +397,7 @@ impl Database {
             where users.pubkey = ? \
             and users.id = user_uploads.user_id \
             and user_uploads.file = uploads.id \
+            and uploads.banned = false \
             order by uploads.created desc \
             limit ? offset ?",
         )
@@ -400,6 +485,71 @@ impl Database {
     pub async fn mark_report_reviewed(&self, report_id: u64) -> Result<(), Error> {
         sqlx::query("update reports set reviewed = true where id = ?")
             .bind(report_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Insert a single label for a file (ignores duplicates).
+    #[cfg(feature = "labels")]
+    pub async fn add_file_label(&self, file_id: &[u8], label: &FileLabel) -> Result<(), Error> {
+        sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
+            .bind(file_id)
+            .bind(&label.label)
+            .bind(&label.model)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Append `model_name` to the `labeled_by` column for a file, ensuring it
+    /// is not added twice.
+    #[cfg(feature = "labels")]
+    pub async fn add_labeled_by(&self, file_id: &[u8], model_name: &str) -> Result<(), Error> {
+        // Read current value, append if not already present, then write back.
+        let row: Option<(CommaSeparated<String>,)> =
+            sqlx::query_as("select labeled_by from uploads where id = ?")
+                .bind(file_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        let mut labeled_by = row.map(|(v,)| v).unwrap_or_default();
+        if !labeled_by.iter().any(|m| m == model_name) {
+            labeled_by.push(model_name.to_string());
+            sqlx::query("update uploads set labeled_by = ? where id = ?")
+                .bind(&labeled_by)
+                .bind(file_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Return image/video uploads not yet labeled by `model_name`.
+    #[cfg(feature = "labels")]
+    pub async fn get_files_missing_labels(
+        &self,
+        model_name: &str,
+    ) -> Result<Vec<FileUpload>, Error> {
+        sqlx::query_as(
+            "select * from uploads \
+             where (mime_type like 'image/%' or mime_type like 'video/%') \
+             and not find_in_set(?, labeled_by)",
+        )
+        .bind(model_name)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Update the review state of a file.
+    pub async fn set_file_review_state(
+        &self,
+        file_id: &[u8],
+        state: ReviewState,
+    ) -> Result<(), Error> {
+        sqlx::query("update uploads set review_state = ? where id = ?")
+            .bind(state)
+            .bind(file_id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -525,5 +675,91 @@ impl Database {
 
         // Check if upload would exceed quota
         Ok(user_stats.total_size + upload_size <= available_quota)
+    }
+}
+
+#[cfg(all(test, feature = "labels"))]
+mod tests {
+    use super::*;
+
+    fn make_label(label: &str) -> FileLabel {
+        FileLabel::new(label.to_string(), "vit224".to_string())
+    }
+
+    #[test]
+    fn test_review_state_no_labels_no_terms() {
+        let state = Database::review_state_for_labels(&[], &[]);
+        assert_eq!(state, ReviewState::None);
+    }
+
+    #[test]
+    fn test_review_state_labels_but_no_terms() {
+        let labels = vec![make_label("cat"), make_label("dog")];
+        let state = Database::review_state_for_labels(&labels, &[]);
+        assert_eq!(state, ReviewState::None);
+    }
+
+    #[test]
+    fn test_review_state_no_labels_with_terms() {
+        let terms = vec!["nsfw".to_string(), "violence".to_string()];
+        let state = Database::review_state_for_labels(&[], &terms);
+        assert_eq!(state, ReviewState::None);
+    }
+
+    #[test]
+    fn test_review_state_exact_match() {
+        let labels = vec![make_label("nsfw")];
+        let terms = vec!["nsfw".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::LabelFlagged);
+    }
+
+    #[test]
+    fn test_review_state_substring_match() {
+        let labels = vec![make_label("explicit_nsfw_content")];
+        let terms = vec!["nsfw".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::LabelFlagged);
+    }
+
+    #[test]
+    fn test_review_state_case_insensitive_label() {
+        let labels = vec![make_label("NSFW")];
+        let terms = vec!["nsfw".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::LabelFlagged);
+    }
+
+    #[test]
+    fn test_review_state_case_insensitive_term() {
+        let labels = vec![make_label("nsfw")];
+        let terms = vec!["NSFW".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::LabelFlagged);
+    }
+
+    #[test]
+    fn test_review_state_no_match() {
+        let labels = vec![make_label("cat"), make_label("landscape")];
+        let terms = vec!["nsfw".to_string(), "violence".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::None);
+    }
+
+    #[test]
+    fn test_review_state_multiple_labels_one_matches() {
+        let labels = vec![
+            make_label("cat"),
+            make_label("nudity"),
+            make_label("landscape"),
+        ];
+        let terms = vec!["nudity".to_string()];
+        let state = Database::review_state_for_labels(&labels, &terms);
+        assert_eq!(state, ReviewState::LabelFlagged);
+    }
+
+    #[test]
+    fn test_review_state_default_is_none() {
+        assert_eq!(ReviewState::default(), ReviewState::None);
     }
 }

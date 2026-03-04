@@ -74,9 +74,14 @@ export class Route96 {
     return data;
   }
 
-  async listFiles(page = 0, count = 10, mime: string | undefined) {
+  async listFiles(
+    page = 0,
+    count = 10,
+    mime: string | undefined,
+    label: string | undefined = undefined,
+  ) {
     const rsp = await this.#req(
-      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}`,
+      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}${label ? `&label=${encodeURIComponent(label)}` : ""}`,
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);
@@ -121,51 +126,71 @@ export class Route96 {
     return data;
   }
 
+  async listPendingReview(page = 0, count = 50) {
+    const rsp = await this.#req(
+      `admin/files/review?page=${page}&count=${count}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponseFileList>(rsp);
+    return {
+      ...data,
+      ...data.data,
+      files: data.data.files,
+    };
+  }
+
+  async reviewFile(fileId: string) {
+    const rsp = await this.#req(`admin/files/${fileId}/review`, "PATCH");
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async deleteReviewFile(fileId: string) {
+    const rsp = await this.#req(`admin/files/${fileId}/review`, "DELETE");
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
   async getPaymentInfo() {
     const rsp = await this.#req("payment", "GET");
     if (rsp.ok) {
       return (await rsp.json()) as PaymentInfo;
-    } else {
-      const text = await rsp.text();
-      try {
-        const obj = JSON.parse(text) as AdminResponseBase;
-        throw new Error(obj.message);
-      } catch {
-        throw new Error(`Payment info failed: ${text}`);
-      }
     }
+    throw new Error(
+      rsp.headers.get("X-Reason") ||
+        (await rsp.text()) ||
+        `${rsp.status} ${rsp.statusText}`,
+    );
   }
 
   async requestPayment(request: PaymentRequest) {
     const rsp = await this.#req("payment", "POST", JSON.stringify(request));
     if (rsp.ok) {
       return (await rsp.json()) as PaymentResponse;
-    } else {
-      const text = await rsp.text();
-      try {
-        const obj = JSON.parse(text) as AdminResponseBase;
-        throw new Error(obj.message);
-      } catch {
-        throw new Error(`Payment request failed: ${text}`);
-      }
     }
+    throw new Error(
+      rsp.headers.get("X-Reason") ||
+        (await rsp.text()) ||
+        `${rsp.status} ${rsp.statusText}`,
+    );
   }
 
   async #handleResponse<T extends AdminResponseBase>(rsp: Response) {
     if (rsp.ok) {
       return (await rsp.json()) as T;
-    } else {
-      const text = await rsp.text();
-      try {
-        const obj = JSON.parse(text) as AdminResponseBase;
-        throw new Error(obj.message);
-      } catch {
-        throw new Error(`Upload failed: ${text}`);
-      }
     }
+    throw new Error(
+      rsp.headers.get("X-Reason") ||
+        (await rsp.text()) ||
+        `${rsp.status} ${rsp.statusText}`,
+    );
   }
 
-  async #req(path: string, method: "GET" | "POST" | "DELETE", body?: BodyInit) {
+  async #req(
+    path: string,
+    method: "GET" | "POST" | "DELETE" | "PATCH",
+    body?: BodyInit,
+  ) {
     throwIfOffline();
     const auth = async (url: string, method: string) => {
       const auth = await this.publisher.generic((eb) => {

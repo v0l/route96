@@ -30,12 +30,12 @@ export class ProgressTracker {
   update(bytesUploaded: number): UploadProgress {
     const now = Date.now();
     const timeDiff = now - this.lastUpdateTime;
-    
+
     // Calculate instantaneous speed
     if (timeDiff > 0) {
       const bytesDiff = bytesUploaded - this.bytesUploaded;
       const instantSpeed = (bytesDiff / timeDiff) * 1000; // bytes per second
-      
+
       // Keep a rolling average of speed samples
       this.speedSamples.push(instantSpeed);
       if (this.speedSamples.length > this.maxSamples) {
@@ -47,13 +47,16 @@ export class ProgressTracker {
     this.lastUpdateTime = now;
 
     // Calculate average speed
-    const averageSpeed = this.speedSamples.length > 0 
-      ? this.speedSamples.reduce((sum, speed) => sum + speed, 0) / this.speedSamples.length
-      : 0;
+    const averageSpeed =
+      this.speedSamples.length > 0
+        ? this.speedSamples.reduce((sum, speed) => sum + speed, 0) /
+          this.speedSamples.length
+        : 0;
 
     // Calculate estimated time remaining
     const remainingBytes = this.totalBytes - bytesUploaded;
-    const estimatedTimeRemaining = averageSpeed > 0 ? remainingBytes / averageSpeed : 0;
+    const estimatedTimeRemaining =
+      averageSpeed > 0 ? remainingBytes / averageSpeed : 0;
 
     return {
       percentage: (bytesUploaded / this.totalBytes) * 100,
@@ -69,26 +72,26 @@ export class ProgressTracker {
 // Utility function to format speed for display
 export function formatSpeed(bytesPerSecond: number): string {
   if (bytesPerSecond === 0) return "0 B/s";
-  
+
   const units = ["B/s", "KB/s", "MB/s", "GB/s"];
   let value = bytesPerSecond;
   let unitIndex = 0;
-  
+
   while (value >= 1024 && unitIndex < units.length - 1) {
     value /= 1024;
     unitIndex++;
   }
-  
+
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 // Utility function to format time for display
 export function formatTime(seconds: number): string {
   if (seconds === 0 || !isFinite(seconds)) return "--";
-  
+
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
-  
+
   if (minutes > 0) {
     return `${minutes}m ${remainingSeconds}s`;
   } else {
@@ -106,7 +109,7 @@ export function uploadWithProgress(
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    
+
     // Determine total size
     let totalSize = 0;
     if (body instanceof File) {
@@ -117,7 +120,7 @@ export function uploadWithProgress(
       for (const [, value] of formData.entries()) {
         if (value instanceof File) {
           totalSize += value.size;
-        } else if (typeof value === 'string') {
+        } else if (typeof value === "string") {
           totalSize += new Blob([value]).size;
         }
       }
@@ -127,7 +130,7 @@ export function uploadWithProgress(
 
     // Set up progress tracking
     if (onProgress && totalSize > 0) {
-      xhr.upload.addEventListener('progress', (event) => {
+      xhr.upload.addEventListener("progress", (event) => {
         if (event.lengthComputable) {
           const progress = tracker.update(event.loaded);
           onProgress(progress);
@@ -136,7 +139,7 @@ export function uploadWithProgress(
     }
 
     // Set up response handling
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener("load", () => {
       const response = new Response(xhr.response, {
         status: xhr.status,
         statusText: xhr.statusText,
@@ -145,17 +148,18 @@ export function uploadWithProgress(
       resolve(response);
     });
 
-    xhr.addEventListener('error', () => {
-      reject(new Error('Network error'));
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network error"));
     });
 
-    xhr.addEventListener('abort', () => {
-      reject(new Error('Upload aborted'));
+    xhr.addEventListener("abort", () => {
+      reject(new Error("Upload aborted"));
     });
 
     // Configure request
     xhr.open(method, url);
-    
+    xhr.responseType = "text";
+
     // Set headers
     for (const [key, value] of Object.entries(headers)) {
       xhr.setRequestHeader(key, value);
@@ -169,16 +173,16 @@ export function uploadWithProgress(
 // Helper function to parse response headers
 function parseHeaders(headerString: string): Headers {
   const headers = new Headers();
-  const lines = headerString.trim().split('\r\n');
-  
+  const lines = headerString.trim().split("\r\n");
+
   for (const line of lines) {
-    const colonIndex = line.indexOf(':');
+    const colonIndex = line.indexOf(":");
     if (colonIndex > 0) {
       const name = line.substring(0, colonIndex).trim();
       const value = line.substring(colonIndex + 1).trim();
       headers.append(name, value);
     }
   }
-  
+
   return headers;
 }

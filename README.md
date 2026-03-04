@@ -19,15 +19,21 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - **Image & Video Compression** - Automatic WebP conversion and optimization
 - **Thumbnail Generation** - Auto-generated thumbnails for images and videos
 - **Blurhash Calculation** - Progressive image loading with blur previews
-- **AI Content Labeling** - Automated tagging using [ViT-224](https://huggingface.co/google/vit-base-patch16-224) model
+- **AI Content Labeling** - Automated tagging using configurable HuggingFace ViT models
 - **Media Metadata** - Automatic extraction of dimensions, duration, bitrate
 - **Range Request Support** - RFC 7233 compliant partial content delivery
+
+### Content Moderation
+- **Automated Flagging** - Files are automatically flagged (`LabelFlagged`) when AI labels match configured terms
+- **User Reports** - Community-driven reporting via NIP-56; flagged files get `Reported` state
+- **Review Queue** - Admin API to list all files pending review (`LabelFlagged` or `Reported`)
+- **Admin Actions** - Mark files as reviewed or hard-delete them directly from the queue
+- **Background Labeling** - Retroactively labels existing uploads that were missed at upload time
 
 ### Security & Administration
 - **Nostr Authentication** - Cryptographic identity with kind 24242 events
 - **Whitelist Support** - Restrict uploads to approved public keys
 - **Quota Management** - Per-user storage limits with payment integration
-- **Content Reporting** - Community-driven moderation via NIP-56 reports
 - **Admin Dashboard** - Web interface for content and user management
 - **CORS Support** - Full cross-origin resource sharing compliance
 - **EXIF Privacy Protection** - Optional rejection of images with sensitive metadata (GPS, device info)
@@ -40,8 +46,7 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 
 ### Analytics & Monitoring
 - **Plausible Integration** - Privacy-focused usage analytics
-- **Comprehensive Logging** - Detailed operation tracking
-- **Health Monitoring** - Service status and performance metrics
+- **Comprehensive Logging** - Detailed operation tracking with per-label confidence scores
 
 ## API Endpoints
 
@@ -62,12 +67,21 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - `DELETE /nip96/<sha256>` - Delete with Nostr auth
 
 ### Admin Interface
-- `GET /admin/*` - Web dashboard for content management
-- Admin API endpoints for reports and user management
+- `GET /admin/self` - Current user info and quota
+- `GET /admin/files` - List all files (paginated, filterable by MIME type)
+- `GET /admin/files/review` - List files pending moderation review
+- `PATCH /admin/files/<sha256>/review` - Mark a file as reviewed (clears flag)
+- `DELETE /admin/files/<sha256>/review` - Delete a flagged file from disk and DB
+- `GET /admin/reports` - List unreviewed user reports
+- `DELETE /admin/reports/<id>` - Acknowledge a report
+- `GET /admin/user/<pubkey>` - User info, files, and payment history
+- `DELETE /admin/user/<pubkey>/purge` - Delete all files belonging to a user
 
 ## Configuration
 
-Route96 uses YAML configuration. See [config.yaml](config.yaml) for a complete example:
+Route96 uses YAML configuration. See [config.yaml](config.yaml) for a complete example.
+
+### Minimal config
 
 ```yaml
 listen: "127.0.0.1:8000"
@@ -75,13 +89,46 @@ database: "mysql://user:pass@localhost:3306/route96"
 storage_dir: "./data"
 max_upload_bytes: 104857600  # 100MB
 public_url: "https://your-domain.com"
+```
 
-# Optional: Restrict to specific pubkeys
-whitelist: ["pubkey1", "pubkey2"]
+### AI Labeling & Auto-moderation
 
-# Optional: Payment system
+```yaml
+# Directory where HuggingFace model files are cached (default: <storage_dir>/models)
+models_dir: "./data/models"
+
+# Models to run on every upload. Files are downloaded from HuggingFace on first use.
+label_models:
+  - hf_repo: "google/vit-base-patch16-224"
+    name: "vit224"
+  - hf_repo: "Falconsai/nsfw_image_detection"
+    name: "nsfw"
+    label_exclude:
+      - "normal"   # suppress the "clean" class from the NSFW model
+
+# Labels containing any of these terms (case-insensitive substring) will be
+# automatically flagged for admin review.
+label_flag_terms:
+  - "nsfw"
+  - "explicit"
+  - "porn"
+  - "sexy"
+  - "hentai"
+```
+
+Models are downloaded once and cached under `models_dir/<org>--<repo>/`. A background
+task runs at startup to retroactively label any existing uploads that are missing labels.
+
+### Payment system
+
+```yaml
 payments:
-  free_quota_bytes: 104857600
+  free_quota_bytes: 104857600  # 100 MB free tier
+  fiat: "USD"
+  lnd:
+    endpoint: "https://127.0.0.1:10001"
+    tls: "/path/to/tls.cert"
+    macaroon: "/path/to/admin.macaroon"
   cost:
     currency: "BTC"
     amount: 0.00000100
@@ -94,7 +141,6 @@ payments:
 
 ### Upload a file (Blossom)
 ```bash
-# Create authorization event (kind 24242)
 auth_event='{"kind":24242,"tags":[["t","upload"],["expiration","1234567890"]],"content":"Upload file"}'
 auth_b64=$(echo $auth_event | base64 -w 0)
 
@@ -109,33 +155,46 @@ curl -X PUT http://localhost:8000/upload \
 curl http://localhost:8000/abc123def456...789
 ```
 
-### List user's files
+### Review the moderation queue
 ```bash
-curl http://localhost:8000/list/user_pubkey_hex
+# List files pending review
+curl -H "Authorization: Nostr $auth_b64" \
+  http://localhost:8000/admin/files/review
+
+# Mark a file as reviewed
+curl -X PATCH -H "Authorization: Nostr $auth_b64" \
+  http://localhost:8000/admin/files/<sha256>/review
+
+# Delete a flagged file
+curl -X DELETE -H "Authorization: Nostr $auth_b64" \
+  http://localhost:8000/admin/files/<sha256>/review
 ```
 
 ## Feature Flags
 
-Route96 supports optional features that can be enabled at compile time:
-
-- `nip96` (default) - NIP-96 protocol support
-- `blossom` (default) - Blossom protocol support  
-- `media-compression` - WebP conversion and thumbnails
-- `labels` - AI-powered content labeling
-- `payments` (default) - Lightning payment integration
-- `analytics` (default) - Plausible analytics
-- `react-ui` (default) - Web dashboard interface
+| Flag | Default | Description |
+|------|---------|-------------|
+| `nip96` | on | NIP-96 protocol support |
+| `blossom` | on | Blossom protocol support |
+| `media-compression` | off | WebP conversion, thumbnails, media metadata |
+| `labels` | off | AI content labeling (requires `media-compression`) |
+| `cuda` | off | Run label models on GPU via CUDA (implies `labels`) |
+| `payments` | on | Lightning payment integration |
+| `analytics` | on | Plausible analytics |
+| `react-ui` | on | Web dashboard interface |
 
 ```bash
-# Build with specific features
-cargo build --features "blossom,payments,media-compression"
+# CPU labeling
+cargo build --features "blossom,media-compression,labels"
+# GPU labeling
+cargo build --features "blossom,media-compression,cuda"
 ```
 
 ## Requirements
 
-- **Rust** 1.70+ 
+- **Rust** 1.70+
 - **MySQL/MariaDB** - Database storage
-- **FFmpeg libraries** - Media processing (optional)
+- **FFmpeg libraries** - Media processing (`media-compression` / `labels` features)
 - **Node.js** - UI building (optional)
 
 See [docs/debian.md](docs/debian.md) for detailed installation instructions.
@@ -144,15 +203,11 @@ See [docs/debian.md](docs/debian.md) for detailed installation instructions.
 
 ### Docker Compose
 
-The easiest way to run `route96` is to use `docker compose`
-
 ```bash
 docker compose -f docker-compose.prod.yml up
 ```
 
 ### Docker
-
-Assuming you already created your `config.yaml` and configured the `database` run:
 
 ```bash
 docker run --rm -it \
@@ -163,4 +218,4 @@ docker run --rm -it \
 ```
 
 ### Manual
-See [install.md](docs/debian.md)
+See [docs/debian.md](docs/debian.md)

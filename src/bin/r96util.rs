@@ -107,6 +107,7 @@ async fn main() -> Result<(), Error> {
             info!("Importing from: {}", fs.storage_dir().display());
             iter_files(&from, 4, |entry, p| {
                 let fs = fs.clone();
+                let db = db.clone();
                 let p = p.clone();
                 Box::pin(async move {
                     let mime = infer::get_from_path(&entry)?
@@ -123,8 +124,11 @@ async fn main() -> Result<(), Error> {
                     }
 
                     let file = tokio::fs::File::open(&entry).await?;
-                    let dst = fs.put(file, mime, false).await?;
+                    let dst = fs.put(&db, file, mime, false).await?;
                     match dst {
+                        FileSystemResult::Banned => {
+                            p.set_message(format!("Skipping banned file: {}", &entry.display()));
+                        }
                         FileSystemResult::AlreadyExists(_) => {
                             p.set_message(format!("Duplicate file: {}", &entry.display()));
                         }
@@ -174,6 +178,10 @@ async fn main() -> Result<(), Error> {
                                 alt: None,
                                 duration: None,
                                 bitrate: None,
+                                review_state: route96::db::ReviewState::None,
+                                banned: false,
+                                #[cfg(feature = "labels")]
+                                labeled_by: route96::comma_separated::CommaSeparated::default(),
                                 #[cfg(feature = "labels")]
                                 labels: vec![],
                             };

@@ -421,7 +421,7 @@ async fn process_stream<'p, S>(
 where
     S: AsyncRead + Unpin + 'p,
 {
-    let upload = match state.fs.put(stream, mime_type, compress).await {
+    let mut upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
 
@@ -459,6 +459,12 @@ where
             ret.name = name.map(|s| s.to_string());
 
             ret
+        }
+        Ok(FileSystemResult::Banned) => {
+            return BlossomResponse::Generic(BlossomGenericResponse {
+                message: Some("File is not allowed on this server".to_string()),
+                status: StatusCode::FORBIDDEN,
+            });
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) => f,

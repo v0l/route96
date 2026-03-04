@@ -1,6 +1,11 @@
 use crate::db::Database;
 use crate::filesystem::FileStore;
-#[cfg(any(feature = "media-compression", feature = "payments"))]
+use crate::settings::Settings;
+#[cfg(any(
+    feature = "media-compression",
+    feature = "payments",
+    feature = "labels"
+))]
 use log::{error, info};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -8,32 +13,51 @@ use tokio::task::JoinHandle;
 #[cfg(feature = "media-compression")]
 mod media_metadata;
 
+#[cfg(feature = "labels")]
+mod label_files;
+
 #[cfg(feature = "payments")]
 mod payments;
 
 pub fn start_background_tasks(
-    #[cfg(feature = "media-compression")] db: Database,
-    #[cfg(not(feature = "media-compression"))] _db: Database,
-    #[cfg(feature = "media-compression")] file_store: FileStore,
-    #[cfg(not(feature = "media-compression"))] _file_store: FileStore,
-    #[cfg(any(feature = "media-compression", feature = "payments"))]
+    db: Database,
+    file_store: FileStore,
+    settings: Settings,
+    #[cfg(any(
+        feature = "media-compression",
+        feature = "payments",
+        feature = "labels"
+    ))]
     shutdown_rx: broadcast::Receiver<()>,
-    #[cfg(not(any(feature = "media-compression", feature = "payments")))]
+    #[cfg(not(any(
+        feature = "media-compression",
+        feature = "payments",
+        feature = "labels"
+    )))]
     _shutdown_rx: broadcast::Receiver<()>,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> Vec<JoinHandle<()>> {
-    #[cfg(any(feature = "media-compression", feature = "payments"))]
+    #[cfg(any(
+        feature = "media-compression",
+        feature = "payments",
+        feature = "labels"
+    ))]
     let mut ret = vec![];
-    #[cfg(not(any(feature = "media-compression", feature = "payments")))]
+    #[cfg(not(any(
+        feature = "media-compression",
+        feature = "payments",
+        feature = "labels"
+    )))]
     let ret = vec![];
 
     #[cfg(feature = "media-compression")]
     {
         let db = db.clone();
+        let fs = file_store.clone();
         let rx = shutdown_rx.resubscribe();
         ret.push(tokio::spawn(async move {
             info!("Starting MediaMetadata background task");
-            let mut m = media_metadata::MediaMetadata::new(db, file_store.clone());
+            let mut m = media_metadata::MediaMetadata::new(db, fs);
             if let Err(e) = m.process(rx).await {
                 error!("MediaMetadata failed: {}", e);
             } else {
@@ -41,6 +65,30 @@ pub fn start_background_tasks(
             }
         }));
     }
+
+    #[cfg(feature = "labels")]
+    {
+        if let Some(label_models) = settings.label_models.clone() {
+            if !label_models.is_empty() {
+                let db = db.clone();
+                let fs = file_store.clone();
+                let models_dir = settings
+                    .models_dir
+                    .clone()
+                    .unwrap_or_else(|| fs.storage_dir().join("models"));
+                let flag_terms = settings.label_flag_terms.clone().unwrap_or_default();
+                let rx = shutdown_rx.resubscribe();
+                ret.push(tokio::spawn(async move {
+                    info!("Starting LabelFiles background task");
+                    let task =
+                        label_files::LabelFiles::new(db, fs, models_dir, label_models, flag_terms);
+                    task.process(rx).await;
+                    info!("LabelFiles background task completed");
+                }));
+            }
+        }
+    }
+
     #[cfg(feature = "payments")]
     {
         if let Some(client) = client {
@@ -59,5 +107,6 @@ pub fn start_background_tasks(
             warn!("Not starting PaymentsHandler, configuration missing")
         }
     }
+
     ret
 }

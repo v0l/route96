@@ -97,22 +97,16 @@ impl Nip94Event {
         if let (Some(w), Some(h)) = (upload.width, upload.height) {
             tags.push(vec!["dim".to_string(), format!("{}x{}", w, h)])
         }
-        if let Some(d) = &upload.duration {
+        if let Some(d) = upload.duration.filter(|d| *d > 0.0) {
             tags.push(vec!["duration".to_string(), d.to_string()]);
         }
-        if let Some(b) = &upload.bitrate {
+        if let Some(b) = upload.bitrate.filter(|b| *b > 0) {
             tags.push(vec!["bitrate".to_string(), b.to_string()]);
         }
 
         #[cfg(feature = "labels")]
         for l in &upload.labels {
-            let val = if l.label.contains(',') {
-                let split_val: Vec<&str> = l.label.split(',').collect();
-                split_val[0].to_string()
-            } else {
-                l.label.clone()
-            };
-            tags.push(vec!["t".to_string(), val])
+            tags.push(vec!["t".to_string(), l.label.clone()])
         }
 
         Self {
@@ -124,6 +118,16 @@ impl Nip94Event {
 }
 
 /// Maximum size for unbounded range requests (8 MiB)
+/// Embedded admin API documentation served at `/docs.md`
+const ADMIN_API_DOCS: &str = include_str!("../../docs/admin-api.md");
+
+pub async fn docs_md() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+        ADMIN_API_DOCS,
+    )
+}
+
 const MAX_UNBOUNDED_RANGE: u64 = 8 * 1024 * 1024;
 /// Chunk size for streaming file responses (64 KiB)
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;

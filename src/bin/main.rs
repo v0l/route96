@@ -91,6 +91,7 @@ async fn main() -> Result<(), Error> {
     // Build the router
     let mut app = Router::new()
         .route("/", get(routes::root))
+        .route("/docs.md", get(routes::docs_md))
         .route("/{sha256}", head(routes::head_blob).get(routes::get_blob));
 
     #[cfg(feature = "media-compression")]
@@ -148,6 +149,7 @@ async fn main() -> Result<(), Error> {
     let mut jh = start_background_tasks(
         db.clone(),
         fs.clone(),
+        settings.clone(),
         shutdown_rx.resubscribe(),
         #[cfg(feature = "payments")]
         lnd.clone(),

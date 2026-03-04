@@ -27,8 +27,22 @@ pub struct Settings {
     /// When set, the server will monitor this file and reload it if it changes.
     pub whitelist_file: Option<PathBuf>,
 
-    /// Path for ViT image model
-    pub vit_model: Option<VitModelConfig>,
+    /// Directory where HuggingFace models are cached / loaded from.
+    /// Defaults to `<storage_dir>/models` when not set.
+    #[cfg(feature = "labels")]
+    pub models_dir: Option<PathBuf>,
+
+    /// Label models to run on every uploaded file.
+    /// Each entry describes one ViT model; all results are merged into the
+    /// file's label set.  When this list is empty or absent, no labeling runs.
+    #[cfg(feature = "labels")]
+    pub label_models: Option<Vec<LabelModelConfig>>,
+
+    /// Label terms that trigger automatic LabelFlagged review state.
+    /// Any file whose AI labels contain a substring matching one of these
+    /// terms (case-insensitive) will have its review_state set to LabelFlagged.
+    #[cfg(feature = "labels")]
+    pub label_flag_terms: Option<Vec<String>>,
 
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
@@ -48,10 +62,28 @@ pub struct Settings {
     pub payments: Option<PaymentConfig>,
 }
 
+/// Configuration for a single ViT labeling model.
+#[cfg(feature = "labels")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VitModelConfig {
-    pub model: PathBuf,
-    pub config: PathBuf,
+pub struct LabelModelConfig {
+    /// HuggingFace repo id (e.g. `"google/vit-base-patch16-224"`).
+    /// The model files are downloaded into `models_dir` on first use and
+    /// reused on subsequent runs.
+    pub hf_repo: String,
+
+    /// Human-readable name stored alongside each label this model produces
+    /// (e.g. `"vit224"`, `"nsfw-detector"`).
+    pub name: String,
+
+    /// Labels to discard from this model's output (exact match, case-insensitive).
+    /// Use this to suppress noise labels that are meaningless for a given model,
+    /// e.g. `["normal"]` for the Falconsai NSFW detector.
+    #[serde(default)]
+    pub label_exclude: Vec<String>,
+
+    /// Minimum confidence score for a label to be stored.
+    /// Overrides the global default (0.25) for this model.
+    pub min_confidence: Option<f32>,
 }
 
 #[cfg(feature = "payments")]

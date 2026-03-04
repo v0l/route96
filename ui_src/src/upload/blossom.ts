@@ -20,23 +20,32 @@ export class Blossom {
   }
 
   async #handleError(rsp: Response) {
-    const reason = rsp.headers.get("X-Reason") || rsp.headers.get("x-reason");
-    if (reason) {
-      throw new Error(reason);
-    } else {
-      const text = await rsp.text();
-      throw new Error(text);
-    }
+    throw new Error(
+      rsp.headers.get("X-Reason") ||
+        (await rsp.text()) ||
+        `${rsp.status} ${rsp.statusText}`,
+    );
   }
 
-  async upload(file: File, onProgress?: UploadProgressCallback): Promise<BlobDescriptor> {
+  async upload(
+    file: File,
+    onProgress?: UploadProgressCallback,
+  ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("upload", "PUT", "upload", file, tags, undefined, onProgress);
+    const rsp = await this.#req(
+      "upload",
+      "PUT",
+      "upload",
+      file,
+      tags,
+      undefined,
+      onProgress,
+    );
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -45,14 +54,25 @@ export class Blossom {
     }
   }
 
-  async media(file: File, onProgress?: UploadProgressCallback): Promise<BlobDescriptor> {
+  async media(
+    file: File,
+    onProgress?: UploadProgressCallback,
+  ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
       await file.arrayBuffer(),
     );
     const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
 
-    const rsp = await this.#req("media", "PUT", "media", file, tags, undefined, onProgress);
+    const rsp = await this.#req(
+      "media",
+      "PUT",
+      "media",
+      file,
+      tags,
+      undefined,
+      onProgress,
+    );
     if (rsp.ok) {
       return (await rsp.json()) as BlobDescriptor;
     } else {
@@ -136,7 +156,13 @@ export class Blossom {
 
     // Use progress-enabled upload for PUT requests with body
     if (method === "PUT" && body && onProgress) {
-      return await uploadWithProgress(url, method, body, requestHeaders, onProgress);
+      return await uploadWithProgress(
+        url,
+        method,
+        body,
+        requestHeaders,
+        onProgress,
+      );
     }
 
     // Fall back to regular fetch for other requests

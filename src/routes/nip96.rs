@@ -318,9 +318,14 @@ async fn upload(
     let Ok(temp_file) = tokio::fs::File::open(form.tmp_file).await else {
         return Nip96Response::error("Failed to open temporary file");
     };
-    let upload = match state
+    let mut upload = match state
         .fs
-        .put(temp_file, content_type, !form.no_transform.unwrap_or(false))
+        .put(
+            &state.db,
+            temp_file,
+            content_type,
+            !form.no_transform.unwrap_or(false),
+        )
         .await
     {
         Ok(FileSystemResult::NewFile(blob)) => {
@@ -338,6 +343,11 @@ async fn upload(
             upload.name = form.caption;
             upload.alt = form.alt;
             upload
+        }
+        Ok(FileSystemResult::Banned) => {
+            return Nip96Response::Forbidden(Json(Nip96UploadResult::error(
+                "File is not allowed on this server",
+            )));
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) => f,

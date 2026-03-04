@@ -1,12 +1,12 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, Report, User};
+use crate::db::{Database, FileUpload, Report, ReviewState, User};
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
     Json, Router,
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, patch},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
@@ -16,6 +16,11 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/admin/self", get(admin_get_self))
         .route("/admin/files", get(admin_list_files))
+        .route("/admin/files/review", get(admin_list_pending_review))
+        .route(
+            "/admin/files/{file_id}/review",
+            patch(admin_review_file).delete(admin_delete_file),
+        )
         .route("/admin/reports", get(admin_list_reports))
         .route(
             "/admin/reports/{report_id}",
@@ -179,6 +184,9 @@ struct AdminListFilesQuery {
     #[serde(default = "default_count")]
     count: u32,
     mime_type: Option<String>,
+    /// Filter to files that have at least one label containing this substring
+    /// (case-insensitive). Only available when the `labels` feature is enabled.
+    label: Option<String>,
 }
 
 fn default_count() -> u32 {
@@ -203,7 +211,12 @@ async fn admin_list_files(
     }
     match state
         .db
-        .list_all_files(params.page * server_count, server_count, params.mime_type)
+        .list_all_files(
+            params.page * server_count,
+            server_count,
+            params.mime_type,
+            params.label,
+        )
         .await
     {
         Ok((files, count)) => AdminResponse::success(PagedResult {
@@ -480,26 +493,156 @@ async fn admin_purge_user(
     }
 }
 
+#[derive(Deserialize)]
+struct AdminListPendingReviewQuery {
+    #[serde(default)]
+    page: u32,
+    #[serde(default = "default_count")]
+    count: u32,
+}
+
+async fn admin_list_pending_review(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListPendingReviewQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<PagedResult<AdminNip94File>> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let server_count = params.count.clamp(1, 5_000);
+
+    let user = match state.db.get_user(&pubkey_vec).await {
+        Ok(u) => u,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    match state
+        .db
+        .list_files_pending_review(params.page * server_count, server_count)
+        .await
+    {
+        Ok((files, total)) => AdminResponse::success(PagedResult {
+            count: files.len() as u32,
+            page: params.page,
+            total: total as u32,
+            files: files
+                .into_iter()
+                .map(|f| AdminNip94File {
+                    inner: Nip94Event::from_upload(&state.settings, &f.0),
+                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                })
+                .collect(),
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list pending review files: {}", e)),
+    }
+}
+
+/// PATCH /admin/files/{file_id}/review — mark a file as reviewed (clears flag)
+async fn admin_review_file(
+    auth: Nip98Auth,
+    Path(file_id): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    let user = match state.db.get_user(&pubkey_vec).await {
+        Ok(u) => u,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    let id = match hex::decode(&file_id) {
+        Ok(id) => id,
+        Err(_) => return AdminResponse::error("Invalid file id"),
+    };
+
+    match state
+        .db
+        .set_file_review_state(&id, ReviewState::Reviewed)
+        .await
+    {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Could not update review state: {}", e)),
+    }
+}
+
+/// DELETE /admin/files/{file_id}/review — delete a flagged file from disk and DB
+async fn admin_delete_file(
+    auth: Nip98Auth,
+    Path(file_id): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    let user = match state.db.get_user(&pubkey_vec).await {
+        Ok(u) => u,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    let id = match hex::decode(&file_id) {
+        Ok(id) => id,
+        Err(_) => return AdminResponse::error("Invalid file id"),
+    };
+
+    // ban_file removes ownership records and sets banned=true, keeping the row
+    // as a tombstone so the same hash cannot be re-uploaded.
+    if let Err(e) = state.db.ban_file(&id).await {
+        return AdminResponse::error(&format!("Could not ban file: {}", e));
+    }
+    if let Err(e) = tokio::fs::remove_file(state.fs.get(&id)).await {
+        log::warn!("Could not remove file from disk {}: {}", &file_id, e);
+    }
+
+    AdminResponse::success(())
+}
+
 impl Database {
     pub async fn list_all_files(
         &self,
         offset: u32,
         limit: u32,
         mime_type: Option<String>,
+        label: Option<String>,
     ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
-        let mut q = QueryBuilder::new("select u.* from uploads u ");
-        if let Some(m) = mime_type {
-            q.push("where INSTR(u.mime_type,");
-            q.push_bind(m);
-            q.push(") > 0");
+        let mut q = QueryBuilder::new("select u.* from uploads u where u.banned = false ");
+        if let Some(m) = &mime_type {
+            q.push("and INSTR(u.mime_type,");
+            q.push_bind(m.clone());
+            q.push(") > 0 ");
         }
-        q.push(" order by u.created desc limit ");
+        if let Some(l) = &label {
+            q.push("and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ");
+            q.push_bind(l.clone());
+            q.push(") ");
+        }
+        q.push("order by u.created desc limit ");
         q.push_bind(limit);
         q.push(" offset ");
         q.push_bind(offset);
 
         let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
-        let count: i64 = sqlx::query("select count(u.id) from uploads u")
+
+        let mut cq = QueryBuilder::new(
+            "select count(u.id) from uploads u where u.banned = false ",
+        );
+        if let Some(m) = &mime_type {
+            cq.push("and INSTR(u.mime_type,");
+            cq.push_bind(m.clone());
+            cq.push(") > 0 ");
+        }
+        if let Some(l) = &label {
+            cq.push("and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ");
+            cq.push_bind(l.clone());
+            cq.push(") ");
+        }
+        let count: i64 = cq
+            .build()
             .fetch_one(&self.pool)
             .await?
             .try_get(0)?;
@@ -511,6 +654,42 @@ impl Database {
             self.populate_labels(&mut upload).await?;
             let upd = self.get_file_owners(&upload.id).await?;
             res.push((upload, upd));
+        }
+        Ok((res, count))
+    }
+
+    /// List files whose `review_state` is not `None` and not `Reviewed`,
+    /// ordered oldest-first so the backlog drains naturally.
+    pub async fn list_files_pending_review(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
+        let results: Vec<FileUpload> = sqlx::query_as(
+            "select * from uploads \
+             where banned = false and review_state != 0 and review_state != 3 \
+             order by created asc limit ? offset ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let count: i64 = sqlx::query(
+            "select count(id) from uploads \
+             where banned = false and review_state != 0 and review_state != 3",
+        )
+        .fetch_one(&self.pool)
+        .await?
+        .try_get(0)?;
+
+        let mut res = Vec::with_capacity(results.len());
+        #[allow(unused_mut)]
+        for mut upload in results {
+            #[cfg(feature = "labels")]
+            self.populate_labels(&mut upload).await?;
+            let owners = self.get_file_owners(&upload.id).await?;
+            res.push((upload, owners));
         }
         Ok((res, count))
     }
