@@ -2,8 +2,6 @@ use crate::db::Database;
 #[cfg(feature = "labels")]
 use crate::db::FileLabel;
 
-#[cfg(feature = "labels")]
-use crate::processing::labeling::label_file;
 #[cfg(feature = "media-compression")]
 use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
@@ -249,48 +247,6 @@ impl FileStore {
             #[cfg(feature = "labels")]
             labels: vec![],
         })
-    }
-
-    /// Run every configured label model against `path` and collect the results
-    /// into a flat `Vec<FileLabel>`.  Models that fail are logged and skipped.
-    #[cfg(feature = "labels")]
-    fn run_label_models(&self, path: &Path, mime_type: &str) -> Vec<FileLabel> {
-        use log::warn;
-        let models_dir = self
-            .settings
-            .models_dir
-            .clone()
-            .unwrap_or_else(|| self.storage_dir().join("models"));
-
-        let Some(label_models) = self.settings.label_models.as_ref() else {
-            return vec![];
-        };
-
-        let mut labels: Vec<FileLabel> = Vec::new();
-        for model_cfg in label_models {
-            match label_file(path, mime_type, &models_dir, &model_cfg.hf_repo) {
-                Ok(results) => {
-                    for (label, _score) in results {
-                        let lower = label.to_lowercase();
-                        if model_cfg
-                            .label_exclude
-                            .iter()
-                            .any(|ex| ex.to_lowercase() == lower)
-                        {
-                            continue;
-                        }
-                        labels.push(FileLabel::new(label, model_cfg.name.clone()));
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "Label model '{}' failed on {:?}: {}",
-                        model_cfg.name, path, e
-                    );
-                }
-            }
-        }
-        labels
     }
 
     async fn store_hash_temp_file<S>(&self, mut stream: S) -> Result<(PathBuf, u64, Vec<u8>)>

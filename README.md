@@ -76,6 +76,7 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - `DELETE /admin/reports/<id>` - Acknowledge a report
 - `GET /admin/user/<pubkey>` - User info, files, and payment history
 - `DELETE /admin/user/<pubkey>/purge` - Delete all files belonging to a user
+- `GET /docs.md` - Admin API reference (embedded Markdown)
 
 ## Configuration
 
@@ -177,11 +178,12 @@ curl -X DELETE -H "Authorization: Nostr $auth_b64" \
 | `nip96` | on | NIP-96 protocol support |
 | `blossom` | on | Blossom protocol support |
 | `media-compression` | off | WebP conversion, thumbnails, media metadata |
-| `labels` | off | AI content labeling (requires `media-compression`) |
+| `labels` | on | AI content labeling (requires `media-compression`) |
 | `cuda` | off | Run label models on GPU via CUDA (implies `labels`) |
-| `payments` | on | Lightning payment integration |
+| `payments` | off | Lightning payment integration |
 | `analytics` | on | Plausible analytics |
 | `react-ui` | on | Web dashboard interface |
+| `r96util` | on | CLI utility binary for maintenance operations |
 
 ```bash
 # CPU labeling

@@ -421,7 +421,7 @@ async fn process_stream<'p, S>(
 where
     S: AsyncRead + Unpin + 'p,
 {
-    let mut upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
+    let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
 

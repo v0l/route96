@@ -6,7 +6,6 @@ docker-compose.yml
 .dockerignore
 .gitignore
 
-docs/
 **/dist
 **/node_modules
 **/.vscode

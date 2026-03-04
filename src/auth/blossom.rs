@@ -43,7 +43,7 @@ where
             return Err((StatusCode::BAD_REQUEST, "Wrong event kind"));
         }
 
-        if (event.created_at.as_u64() as i64 - Timestamp::now().as_u64() as i64).unsigned_abs()
+        if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
             >= 60 * 3
         {
             return Err((StatusCode::BAD_REQUEST, "Created timestamp is out of range"));

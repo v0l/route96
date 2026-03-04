@@ -5,7 +5,7 @@ use axum::{
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use log::debug;
-use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
+use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
 use url::Url;
 
 const DEFAULT_EXPIRATION_SECS: u64 = 60 * 10; // 10 minutes

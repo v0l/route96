@@ -11,7 +11,7 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "react-ui", "r96util", "labels", "cuda"]
+default = ["nip96", "blossom", "analytics", "react-ui", "r96util", "labels"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:hf-hub"]
 cuda = ["labels", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]

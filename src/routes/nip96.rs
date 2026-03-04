@@ -16,7 +16,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete as route_delete, get, post},
 };
-use futures_util::StreamExt;
 use log::error;
 use nostr::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -318,7 +317,7 @@ async fn upload(
     let Ok(temp_file) = tokio::fs::File::open(form.tmp_file).await else {
         return Nip96Response::error("Failed to open temporary file");
     };
-    let mut upload = match state
+    let upload = match state
         .fs
         .put(
             &state.db,
