@@ -186,7 +186,10 @@ async fn delete_file(
     if id.len() != 32 {
         return Err(Error::msg("Invalid file id"));
     }
-    if let Ok(Some(_info)) = db.get_file(&id).await {
+    if let Ok(Some(info)) = db.get_file(&id).await {
+        if info.banned {
+            return Err(Error::msg("File is banned and cannot be deleted"));
+        }
         let pubkey_vec = auth.pubkey.to_bytes().to_vec();
         let auth_user = db.get_user(&pubkey_vec).await?;
         let owners = db.get_file_owners(&id).await?;
