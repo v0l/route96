@@ -11,7 +11,7 @@ export default function usePublisher() {
     if (login?.publicKey) {
       // Use async signer initialization to wait for nip7 extension
       Login.getSignerAsync()
-        .then(signer => {
+        .then((signer) => {
           setPublisher(signer);
         })
         .catch(() => {

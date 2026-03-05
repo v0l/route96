@@ -53,6 +53,10 @@
     line-height: normal;
   }
 
+  select {
+    @apply py-0.5;
+  }
+
   input[type="checkbox"] {
     @apply w-4 h-4 rounded-sm bg-surface border-border;
   }

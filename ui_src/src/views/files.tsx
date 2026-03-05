@@ -4,12 +4,13 @@ import { FormatBytes } from "../const";
 import classNames from "classnames";
 import Profile from "../components/profile";
 
-interface FileInfo {
+export interface FileInfo {
   id: string;
   url: string;
   name?: string;
   type?: string;
   size?: number;
+  dim?: string;
   uploader?: Array<string>;
   labels?: Array<string>;
 }
@@ -23,6 +24,7 @@ export default function FileList({
   onBan,
   onReview,
   onLabelClick,
+  onFindSimilar,
   adminMode,
 }: {
   files: Array<File | NostrEvent | FileInfo>;
@@ -33,6 +35,7 @@ export default function FileList({
   onBan?: (id: string) => void;
   onReview?: (id: string) => void;
   onLabelClick?: (label: string) => void;
+  onFindSimilar?: (file: FileInfo) => void;
   adminMode?: boolean;
 }) {
   const [viewType, setViewType] = useState<"grid" | "list">("grid");
@@ -100,6 +103,7 @@ export default function FileList({
         name: f.content,
         type: f.tags.find((a) => a[0] === "m")?.at(1),
         size: Number(f.tags.find((a) => a[0] === "size")?.at(1)),
+        dim: f.tags.find((a) => a[0] === "dim")?.at(1),
         uploader: "uploader" in f ? (f.uploader as Array<string>) : undefined,
         labels: f.tags.filter((a) => a[0] === "t").map((a) => a[1]),
       };
@@ -292,6 +296,17 @@ export default function FileList({
                       Ban
                     </button>
                   )}
+                  {onFindSimilar && info.type?.startsWith("image/") && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onFindSimilar?.(info);
+                      }}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
+                    >
+                      Similar
+                    </button>
+                  )}
                 </div>
                 {info.uploader &&
                   info.uploader.map((a, idx) => (
@@ -437,6 +452,17 @@ export default function FileList({
                           className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
                         >
                           Ban
+                        </button>
+                      )}
+                      {onFindSimilar && info.type?.startsWith("image/") && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onFindSimilar?.(info);
+                          }}
+                          className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
+                        >
+                          Similar
                         </button>
                       )}
                     </div>

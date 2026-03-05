@@ -5,7 +5,7 @@ import { EventKind, RequestBuilder } from "@snort/system";
 import { dedupe, removeUndefined, sanitizeRelayUrl } from "@snort/shared";
 import { ServerUrl } from "../const";
 
-const DefaultMediaServers = [ServerUrl]
+const DefaultMediaServers = [ServerUrl];
 
 export function useBlossomServers() {
   const login = useLogin();
@@ -18,12 +18,18 @@ export function useBlossomServers() {
   }
   const req = useRequestBuilder(rb);
 
-  const servers = req === undefined ? undefined :
-    req
-      .flatMap((e) => e.tags.filter(t => t[0] === "server")
-        .map((t) => t[1]));
-  
+  const servers =
+    req === undefined
+      ? undefined
+      : req.flatMap((e) =>
+          e.tags.filter((t) => t[0] === "server").map((t) => t[1]),
+        );
+
   return useMemo(() => {
-    return dedupe(removeUndefined([...DefaultMediaServers, ...(servers ?? [])].map(sanitizeRelayUrl)));
+    return dedupe(
+      removeUndefined(
+        [...DefaultMediaServers, ...(servers ?? [])].map(sanitizeRelayUrl),
+      ),
+    );
   }, [servers]);
 }

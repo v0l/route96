@@ -17,7 +17,6 @@ const system = new NostrSystem({});
   "wss://relay.snort.social/",
 ].map((a) => system.ConnectToRelay(a, { read: true, write: true }));
 
-
 const routes = createBrowserRouter([
   {
     path: "",
@@ -25,20 +24,19 @@ const routes = createBrowserRouter([
     children: [
       {
         path: "/",
-        element: <Upload />
+        element: <Upload />,
       },
       {
         path: "/admin",
-        element: <Admin />
+        element: <Admin />,
       },
       {
         path: "/admin/user/:pubkey",
-        element: <UserScope />
-      }
-    ]
-  }
+        element: <UserScope />,
+      },
+    ],
+  },
 ]);
-
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

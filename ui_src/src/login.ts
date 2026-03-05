@@ -21,7 +21,7 @@ async function waitForNostr(maxWaitMs = 3000): Promise<boolean> {
     if (window.nostr) {
       return true;
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return false;
 }
@@ -108,7 +108,9 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
         case "nip7":
           // For nip7, check if window.nostr is available
           if (!window.nostr) {
-            throw new Error("NIP-07 extension not found. Please install a Nostr browser extension.");
+            throw new Error(
+              "NIP-07 extension not found. Please install a Nostr browser extension.",
+            );
           }
           this.#signer = new EventPublisher(
             new Nip7Signer(),
@@ -169,7 +171,9 @@ class LoginStore extends ExternalStore<LoginSession | undefined> {
         // Wait for window.nostr to become available
         const nostrAvailable = await waitForNostr();
         if (!nostrAvailable) {
-          throw new Error("NIP-07 extension not found. Please install a Nostr browser extension.");
+          throw new Error(
+            "NIP-07 extension not found. Please install a Nostr browser extension.",
+          );
         }
         this.#signer = new EventPublisher(
           new Nip7Signer(),

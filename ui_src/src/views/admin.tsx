@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import classNames from "classnames";
-import FileList from "./files";
+import FileList, { type FileInfo } from "./files";
 import ReportList from "./reports";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96, Report } from "../upload/admin";
+import { AdminSelf, Route96, Report, SimilarFile } from "../upload/admin";
 import { Blossom } from "../upload/blossom";
+import { FormatBytes } from "../const";
 
 type Tab = "files" | "reports" | "review";
 
@@ -32,6 +33,11 @@ export default function Admin() {
   // Review tab
   const [pendingReview, setPendingReview] = useState<Nip96FileList>();
   const [pendingReviewPage, setPendingReviewPage] = useState(0);
+
+  // Similar images modal
+  const [similarFiles, setSimilarFiles] = useState<SimilarFile[]>();
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarSource, setSimilarSource] = useState<FileInfo>();
 
   const login = useLogin();
   const pub = usePublisher();
@@ -212,6 +218,33 @@ export default function Admin() {
     await listPendingReview(pendingReviewPage);
   }
 
+  async function findSimilar(file: FileInfo) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      setSimilarLoading(true);
+      setSimilarSource(file);
+      const route96 = new Route96(url, pub);
+      const result = await route96.findSimilar(file.id);
+      setSimilarFiles(result.data);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Find similar failed"
+          : "Find similar failed",
+      );
+      setSimilarFiles(undefined);
+      setSimilarSource(undefined);
+    } finally {
+      setSimilarLoading(false);
+    }
+  }
+
+  function closeSimilarModal() {
+    setSimilarFiles(undefined);
+    setSimilarSource(undefined);
+  }
+
   useEffect(() => {
     if (pub) {
       const r96 = new Route96(url, pub);
@@ -337,6 +370,7 @@ export default function Admin() {
                 await listAllUploads(adminListedPage);
               }}
               onLabelClick={(l) => setLabelFilter(l)}
+              onFindSimilar={findSimilar}
               adminMode={true}
             />
           )}
@@ -400,11 +434,151 @@ export default function Admin() {
                 onReview={reviewFile}
                 onDelete={reviewAndDeleteFile}
                 onBan={banFile}
+                onFindSimilar={findSimilar}
                 adminMode={true}
               />
             </>
           )}
         </>
+      )}
+
+      {(similarFiles || similarLoading) && similarSource && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={closeSimilarModal}
+        >
+          <div
+            className="bg-neutral-900 border border-neutral-800 rounded-sm max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+              <h2 className="text-sm font-medium text-white">Similar Images</h2>
+              <button
+                onClick={closeSimilarModal}
+                className="text-neutral-500 hover:text-white text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-24 h-24 shrink-0 rounded-sm overflow-hidden bg-neutral-950 border border-neutral-700">
+                  <img
+                    src={similarSource.url.replace(
+                      `/${similarSource.id}`,
+                      `/thumb/${similarSource.id}`,
+                    )}
+                    className="w-full h-full object-contain object-center"
+                  />
+                </div>
+                <div className="text-xs space-y-1 min-w-0">
+                  <div className="text-neutral-300 font-medium truncate">
+                    {similarSource.name || "Untitled"}
+                  </div>
+                  <div className="text-neutral-500">
+                    {similarSource.dim && <span>{similarSource.dim}</span>}
+                    {similarSource.dim && similarSource.type && " | "}
+                    {similarSource.type}
+                    {similarSource.size
+                      ? ` | ${FormatBytes(similarSource.size, 2)}`
+                      : ""}
+                  </div>
+                  <div className="text-neutral-600 font-mono truncate">
+                    {similarSource.id}
+                  </div>
+                </div>
+              </div>
+
+              {similarLoading && (
+                <div className="text-sm text-neutral-500 text-center py-8">
+                  Searching for similar images...
+                </div>
+              )}
+              {similarFiles && similarFiles.length === 0 && (
+                <div className="text-sm text-neutral-500 text-center py-8">
+                  No similar images found.
+                </div>
+              )}
+              {similarFiles && similarFiles.length > 0 && (
+                <>
+                  <div className="text-xs text-neutral-500">
+                    {similarFiles.length} similar{" "}
+                    {similarFiles.length === 1 ? "image" : "images"} found
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {similarFiles.map((f, idx) => {
+                      const fileId = f.tags.find((t) => t[0] === "x")?.[1];
+                      const fileUrl = f.tags.find((t) => t[0] === "url")?.[1];
+                      const thumbUrl = fileUrl?.replace(
+                        `/${fileId}`,
+                        `/thumb/${fileId}`,
+                      );
+                      const mime = f.tags.find((t) => t[0] === "m")?.[1];
+                      const dim = f.tags.find((t) => t[0] === "dim")?.[1];
+                      const size = Number(
+                        f.tags.find((t) => t[0] === "size")?.[1],
+                      );
+                      return (
+                        <div
+                          key={`${fileId}-${idx}`}
+                          className="group relative rounded-sm aspect-square overflow-hidden bg-neutral-950 border border-neutral-800"
+                        >
+                          <img
+                            src={thumbUrl}
+                            className="w-full h-full object-contain object-center"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-black/80 px-2 py-1.5 text-xs space-y-0.5">
+                            <div className="flex justify-between text-neutral-300">
+                              <span>Distance: {f.distance}</span>
+                              <span>
+                                {size && !isNaN(size)
+                                  ? FormatBytes(size, 2)
+                                  : ""}
+                              </span>
+                            </div>
+                            <div className="text-neutral-500 truncate">
+                              {dim && <span>{dim}</span>}
+                              {dim && mime && <span className="mx-1">|</span>}
+                              {mime && <span>{mime}</span>}
+                            </div>
+                            <div className="flex gap-1 mt-1">
+                              <a
+                                href={fileUrl}
+                                target="_blank"
+                                className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-0.5 rounded-sm text-xs"
+                              >
+                                View
+                              </a>
+                              <button
+                                onClick={async () => {
+                                  if (fileId) {
+                                    await deleteFile(fileId);
+                                    setSimilarFiles((prev) =>
+                                      prev?.filter(
+                                        (s) =>
+                                          s.tags.find(
+                                            (t) => t[0] === "x",
+                                          )?.[1] !== fileId,
+                                      ),
+                                    );
+                                  }
+                                }}
+                                className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-0.5 rounded-sm text-xs"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

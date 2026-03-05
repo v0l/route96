@@ -18,7 +18,7 @@ export default function Profile({
   const linkId = useMemo(() => link.id, [link.id]);
   const profile = useUserProfile(linkId);
   const s = size ?? 24;
-  
+
   const inner = (
     <>
       <img
@@ -47,7 +47,10 @@ export default function Profile({
 
   if (adminMode) {
     return (
-      <Link className="flex gap-1.5 items-center hover:text-white" to={`/admin/user/${linkId}`}>
+      <Link
+        className="flex gap-1.5 items-center hover:text-white"
+        to={`/admin/user/${linkId}`}
+      >
         {inner}
       </Link>
     );

@@ -76,11 +76,15 @@ export default function PaymentFlow({
   }
 
   if (error && !paymentInfo) {
-    return <div className="text-red-400 text-xs">Payment not available: {error}</div>;
+    return (
+      <div className="text-red-400 text-xs">Payment not available: {error}</div>
+    );
   }
 
   if (!paymentInfo) {
-    return <div className="text-neutral-500 text-xs">Loading payment info...</div>;
+    return (
+      <div className="text-neutral-500 text-xs">Loading payment info...</div>
+    );
   }
 
   const totalCostBTC = paymentInfo.cost.amount * gigabytes * months;
@@ -152,7 +156,9 @@ export default function PaymentFlow({
 
         {paymentRequest && (
           <div className="bg-neutral-950 border border-neutral-800 rounded-sm p-2">
-            <div className="text-xs text-neutral-500 mb-1">Lightning Invoice:</div>
+            <div className="text-xs text-neutral-500 mb-1">
+              Lightning Invoice:
+            </div>
             <code className="text-xs text-neutral-300 break-all block">
               {paymentRequest}
             </code>

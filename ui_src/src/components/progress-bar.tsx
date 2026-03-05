@@ -25,16 +25,18 @@ export default function ProgressBar({ progress, fileName }: ProgressBarProps) {
           {percentage.toFixed(0)}%
         </span>
       </div>
-      
+
       <div className="w-full bg-neutral-800 rounded-sm h-1 mb-2">
-        <div 
+        <div
           className="bg-white h-1 rounded-sm transition-all"
           style={{ width: `${Math.min(100, percentage)}%` }}
         />
       </div>
-      
+
       <div className="flex justify-between text-xs text-neutral-500">
-        <span>{FormatBytes(bytesUploaded)} / {FormatBytes(totalBytes)}</span>
+        <span>
+          {FormatBytes(bytesUploaded)} / {FormatBytes(totalBytes)}
+        </span>
         <span className="text-green-400">{formatSpeed(averageSpeed)}</span>
         <span>{formatTime(estimatedTimeRemaining)}</span>
       </div>

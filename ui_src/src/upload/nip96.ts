@@ -58,7 +58,12 @@ export class Nip96 {
     }
   }
 
-  async #req(path: string, method: "GET" | "POST" | "DELETE", body?: BodyInit, onProgress?: UploadProgressCallback) {
+  async #req(
+    path: string,
+    method: "GET" | "POST" | "DELETE",
+    body?: BodyInit,
+    onProgress?: UploadProgressCallback,
+  ) {
     throwIfOffline();
     const auth = async (url: string, method: string) => {
       const auth = await this.publisher.generic((eb) => {
@@ -86,7 +91,13 @@ export class Nip96 {
 
     // Use progress-enabled upload for POST requests with FormData
     if (method === "POST" && body && onProgress) {
-      return await uploadWithProgress(u, method, body, requestHeaders, onProgress);
+      return await uploadWithProgress(
+        u,
+        method,
+        body,
+        requestHeaders,
+        onProgress,
+      );
     }
 
     // Fall back to regular fetch for other requests

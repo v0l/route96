@@ -31,7 +31,7 @@ export default function Upload() {
   const pub = usePublisher();
 
   const shouldCompress = (file: File) => {
-    return file.type.startsWith('video/') || file.type.startsWith('image/');
+    return file.type.startsWith("video/") || file.type.startsWith("image/");
   };
 
   async function doUpload(file: File) {
@@ -167,7 +167,9 @@ export default function Upload() {
         {/* Upload Widget */}
         <div className="flex-1 min-w-72 bg-neutral-900 border border-neutral-800 rounded-sm">
           <div className="p-3">
-            <h3 className="text-sm font-medium mb-3 text-white">Upload Files</h3>
+            <h3 className="text-sm font-medium mb-3 text-white">
+              Upload Files
+            </h3>
             <div className="space-y-3">
               <label className="flex items-center cursor-pointer">
                 <input
@@ -204,59 +206,84 @@ export default function Upload() {
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Files:</span>
-                  <span className="text-white">{self.file_count.toLocaleString()}</span>
+                  <span className="text-white">
+                    {self.file_count.toLocaleString()}
+                  </span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Size:</span>
-                  <span className="text-white">{FormatBytes(self.total_size)}</span>
+                  <span className="text-white">
+                    {FormatBytes(self.total_size)}
+                  </span>
                 </div>
 
-                {self.total_available_quota && self.total_available_quota > 0 && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Quota:</span>
-                      <span className="text-white">
-                        {FormatBytes(self.total_size)} / {FormatBytes(self.total_available_quota)}
-                      </span>
-                    </div>
-                    <div className="w-full bg-neutral-800 rounded-sm h-1.5">
-                      <div 
-                        className="bg-white h-1.5 rounded-sm transition-all"
-                        style={{ width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-neutral-500">
-                      <span>
-                        {((self.total_size / self.total_available_quota) * 100).toFixed(1)}%
-                      </span>
-                      <span className={
-                        self.total_size / self.total_available_quota > 0.8
-                          ? "text-red-400"
-                          : self.total_size / self.total_available_quota > 0.6
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                      }>
-                        {FormatBytes(Math.max(0, self.total_available_quota - self.total_size))} free
-                      </span>
-                    </div>
-
-                    {(self.quota ?? 0) > 0 && (
-                      <div className="flex justify-between pt-2 border-t border-neutral-800">
-                        <span className="text-neutral-500">Paid:</span>
-                        <span className="text-white">{FormatBytes(self.quota!)}</span>
-                      </div>
-                    )}
-                    {(self.paid_until ?? 0) > 0 && (
+                {self.total_available_quota &&
+                  self.total_available_quota > 0 && (
+                    <>
                       <div className="flex justify-between">
-                        <span className="text-neutral-500">Expires:</span>
+                        <span className="text-neutral-500">Quota:</span>
                         <span className="text-white">
-                          {new Date(self.paid_until! * 1000).toLocaleDateString()}
+                          {FormatBytes(self.total_size)} /{" "}
+                          {FormatBytes(self.total_available_quota)}
                         </span>
                       </div>
-                    )}
-                  </>
-                )}
+                      <div className="w-full bg-neutral-800 rounded-sm h-1.5">
+                        <div
+                          className="bg-white h-1.5 rounded-sm transition-all"
+                          style={{
+                            width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-neutral-500">
+                        <span>
+                          {(
+                            (self.total_size / self.total_available_quota) *
+                            100
+                          ).toFixed(1)}
+                          %
+                        </span>
+                        <span
+                          className={
+                            self.total_size / self.total_available_quota > 0.8
+                              ? "text-red-400"
+                              : self.total_size / self.total_available_quota >
+                                  0.6
+                                ? "text-yellow-400"
+                                : "text-green-400"
+                          }
+                        >
+                          {FormatBytes(
+                            Math.max(
+                              0,
+                              self.total_available_quota - self.total_size,
+                            ),
+                          )}{" "}
+                          free
+                        </span>
+                      </div>
+
+                      {(self.quota ?? 0) > 0 && (
+                        <div className="flex justify-between pt-2 border-t border-neutral-800">
+                          <span className="text-neutral-500">Paid:</span>
+                          <span className="text-white">
+                            {FormatBytes(self.quota!)}
+                          </span>
+                        </div>
+                      )}
+                      {(self.paid_until ?? 0) > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-neutral-500">Expires:</span>
+                          <span className="text-white">
+                            {new Date(
+                              self.paid_until! * 1000,
+                            ).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 <Button
                   onClick={() => setShowPaymentFlow(!showPaymentFlow)}
                   className="w-full mt-2"
@@ -305,7 +332,9 @@ export default function Upload() {
                       <div>
                         <span className="text-xs text-green-400">Uploaded</span>
                         <span className="text-xs text-neutral-500 ml-2">
-                          {new Date((result.uploaded || Date.now() / 1000) * 1000).toLocaleString()}
+                          {new Date(
+                            (result.uploaded || Date.now() / 1000) * 1000,
+                          ).toLocaleString()}
                         </span>
                       </div>
                       <span className="text-xs bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded-sm">
@@ -324,7 +353,9 @@ export default function Upload() {
                             {result.url}
                           </code>
                           <button
-                            onClick={() => navigator.clipboard.writeText(result.url!)}
+                            onClick={() =>
+                              navigator.clipboard.writeText(result.url!)
+                            }
                             className="text-xs bg-neutral-800 hover:bg-neutral-700 text-white px-1.5 py-0.5 rounded-sm"
                           >
                             Copy

@@ -51,6 +51,13 @@ export interface PaymentInfo {
   };
 }
 
+export interface SimilarFile {
+  created_at: number;
+  content?: string;
+  tags: Array<Array<string>>;
+  distance: number;
+}
+
 export interface PaymentRequest {
   units: number;
   quantity: number;
@@ -148,6 +155,17 @@ export class Route96 {
   async deleteReviewFile(fileId: string) {
     const rsp = await this.#req(`admin/files/${fileId}/review`, "DELETE");
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async findSimilar(fileId: string, distance?: number) {
+    const params = distance !== undefined ? `?distance=${distance}` : "";
+    const rsp = await this.#req(
+      `admin/files/${fileId}/similar${params}`,
+      "GET",
+    );
+    const data =
+      await this.#handleResponse<AdminResponse<Array<SimilarFile>>>(rsp);
     return data;
   }
 
