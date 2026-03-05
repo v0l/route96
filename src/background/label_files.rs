@@ -59,20 +59,11 @@ impl LabelFiles {
                 loop {
                     Self::run_batch(labeler.as_ref(), &db, &fs, &flag_terms, &handle);
 
-                    // Sleep 60s, waking early on shutdown.
-                    let deadline = std::time::Instant::now() + Duration::from_secs(60);
-                    loop {
-                        if token.is_cancelled() {
-                            info!("Label worker '{}' shutting down", labeler.name());
-                            return;
-                        }
-                        let remaining =
-                            deadline.saturating_duration_since(std::time::Instant::now());
-                        if remaining.is_zero() {
-                            break;
-                        }
-                        std::thread::sleep(remaining.min(Duration::from_millis(200)));
+                    if token.is_cancelled() {
+                        info!("Label worker '{}' shutting down", labeler.name());
+                        return;
                     }
+                    std::thread::sleep(Duration::from_secs(2));
                 }
             }));
         }
@@ -205,14 +196,14 @@ impl LabelFiles {
 
             if !label_flag_terms.is_empty() && !new_labels.is_empty() {
                 let new_state = Database::review_state_for_labels(&new_labels, label_flag_terms);
-                if new_state != ReviewState::None {
-                    if let Err(e) = handle.block_on(db.set_file_review_state(&file.id, new_state)) {
-                        error!(
-                            "Failed to set review state for {}: {}",
-                            hex::encode(&file.id),
-                            e
-                        );
-                    }
+                if new_state != ReviewState::None
+                    && let Err(e) = handle.block_on(db.set_file_review_state(&file.id, new_state))
+                {
+                    error!(
+                        "Failed to set review state for {}: {}",
+                        hex::encode(&file.id),
+                        e
+                    );
                 }
             }
         }

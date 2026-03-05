@@ -265,7 +265,7 @@ async fn mirror(
     process_stream(
         StreamReader::new(
             rsp.bytes_stream()
-                .map(|result| result.map_err(|e| std::io::Error::other(e))),
+                .map(|result| result.map_err(std::io::Error::other)),
         ),
         &mime_type,
         &None,
@@ -389,7 +389,7 @@ async fn process_upload(
     }
 
     let data_stream = body.into_data_stream();
-    let stream = TryStreamExt::map_err(data_stream, |e| std::io::Error::other(e));
+    let stream = TryStreamExt::map_err(data_stream, std::io::Error::other);
     let reader = StreamReader::new(stream);
 
     process_stream(
@@ -407,6 +407,7 @@ async fn process_upload(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn process_stream<'p, S>(
     stream: S,
     mime_type: &str,
@@ -514,10 +515,29 @@ where
     }
     if let Err(e) = state.db.add_file(&upload, Some(user_id)).await {
         error!("{}", e);
-        BlossomResponse::error(format!("Error saving file (db): {}", e))
-    } else {
-        BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings, &upload)))
+        return BlossomResponse::error(format!("Error saving file (db): {}", e));
     }
+
+    // Compute perceptual hash in background (non-blocking, fire-and-forget)
+    #[cfg(feature = "media-compression")]
+    if upload.mime_type.starts_with("image/") {
+        let db = state.db.clone();
+        let path = state.fs.get(&upload.id);
+        let mime = upload.mime_type.clone();
+        let file_id = upload.id.clone();
+        tokio::task::spawn_blocking(move || match crate::phash::phash_image(&path, &mime) {
+            Ok(hash) => {
+                let bytes: [u8; 8] = hash.as_bytes().try_into().unwrap();
+                let rt = tokio::runtime::Handle::current();
+                if let Err(e) = rt.block_on(db.upsert_phash(&file_id, &bytes)) {
+                    log::warn!("Failed to store phash: {}", e);
+                }
+            }
+            Err(e) => log::warn!("Failed to compute phash: {}", e),
+        });
+    }
+
+    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings, &upload)))
 }
 
 async fn report_file(

@@ -88,6 +88,41 @@ Permanently ban a file. The physical file is removed from disk, all ownership re
 
 ---
 
+## Similar Images
+
+### `GET /admin/files/{sha256}/similar`
+Find visually similar images using perceptual hashing (pHash + LSH). Requires the `media-compression` feature.
+
+Perceptual hashes are computed at upload time for new images. A background worker also backfills hashes for any images that were uploaded before the feature was enabled. This endpoint finds candidates that share at least one LSH band with the queried file, then verifies exact Hamming distance.
+
+**Query parameters**
+
+| Parameter  | Type | Default | Description                                        |
+|------------|------|---------|----------------------------------------------------|
+| `distance` | int  | `10`    | Maximum Hamming distance (0 = exact match, 64 = max) |
+
+**Response**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "url": "https://example.com/abc123...",
+      "ox": "abc123...",
+      "size": 204800,
+      "mime_type": "image/jpeg",
+      "distance": 3
+    }
+  ]
+}
+```
+
+Each result is a NIP-94 event with an additional `distance` field indicating how many bits differ from the queried image's hash. Results are sorted by distance (most similar first).
+
+Returns an error if the queried file does not yet have a perceptual hash computed.
+
+---
+
 ## Reports
 
 ### `GET /admin/reports`

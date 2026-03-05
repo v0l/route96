@@ -606,6 +606,136 @@ impl Database {
     }
 }
 
+// ── Perceptual hash (pHash / LSH) ──────────────────────────────────────────
+
+#[cfg(feature = "media-compression")]
+#[derive(Clone, FromRow)]
+pub struct FilePhash {
+    pub file: Vec<u8>,
+    pub band0: i16,
+    pub band1: i16,
+    pub band2: i16,
+    pub band3: i16,
+}
+
+#[cfg(feature = "media-compression")]
+impl FilePhash {
+    /// Hamming distance between this stored hash and `query` bands.
+    pub fn hamming_distance(&self, query: &[i16; 4]) -> u32 {
+        (self.band0 ^ query[0]).count_ones()
+            + (self.band1 ^ query[1]).count_ones()
+            + (self.band2 ^ query[2]).count_ones()
+            + (self.band3 ^ query[3]).count_ones()
+    }
+}
+
+/// Extract four 16-bit LSH bands from an 8-byte hash.
+#[cfg(feature = "media-compression")]
+fn hash_bands(hash: &[u8; 8]) -> [i16; 4] {
+    [
+        i16::from_be_bytes([hash[0], hash[1]]),
+        i16::from_be_bytes([hash[2], hash[3]]),
+        i16::from_be_bytes([hash[4], hash[5]]),
+        i16::from_be_bytes([hash[6], hash[7]]),
+    ]
+}
+
+#[cfg(feature = "media-compression")]
+impl Database {
+    /// Store a perceptual hash for a file.
+    /// Uses `INSERT IGNORE` so calling this twice is safe.
+    pub async fn upsert_phash(&self, file_id: &[u8], hash: &[u8; 8]) -> Result<(), Error> {
+        let bands = hash_bands(hash);
+        sqlx::query(
+            "insert ignore into upload_phash(file, band0, band1, band2, band3) \
+             values(?, ?, ?, ?, ?)",
+        )
+        .bind(file_id)
+        .bind(bands[0])
+        .bind(bands[1])
+        .bind(bands[2])
+        .bind(bands[3])
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Return image uploads that do not yet have a perceptual hash computed.
+    pub async fn get_images_missing_phash(&self) -> Result<Vec<FileUpload>, Error> {
+        sqlx::query_as(
+            "select u.* from uploads u \
+             where u.mime_type like 'image/%' \
+             and u.banned = false \
+             and not exists (select 1 from upload_phash p where p.file = u.id) \
+             limit 100",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Find files whose pHash is within `max_distance` Hamming bits of `query`,
+    /// using LSH band matching as a pre-filter then exact Hamming verification.
+    pub async fn find_similar_images(
+        &self,
+        query: &[u8; 8],
+        max_distance: u32,
+        exclude_file: Option<&[u8]>,
+    ) -> Result<Vec<(Vec<u8>, u32)>, Error> {
+        let bands = hash_bands(query);
+
+        let mut qb = sqlx::QueryBuilder::new(
+            "select file, band0, band1, band2, band3 from upload_phash where (band0 = ",
+        );
+        qb.push_bind(bands[0]);
+        qb.push(" or band1 = ");
+        qb.push_bind(bands[1]);
+        qb.push(" or band2 = ");
+        qb.push_bind(bands[2]);
+        qb.push(" or band3 = ");
+        qb.push_bind(bands[3]);
+        qb.push(")");
+
+        if let Some(ex) = exclude_file {
+            qb.push(" and file != ");
+            qb.push_bind(ex.to_vec());
+        }
+
+        let rows: Vec<FilePhash> = qb.build_query_as().fetch_all(&self.pool).await?;
+
+        let mut results: Vec<(Vec<u8>, u32)> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let dist = row.hamming_distance(&bands);
+                if dist <= max_distance {
+                    Some((row.file, dist))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        results.sort_by_key(|(_, d)| *d);
+        Ok(results)
+    }
+
+    /// Retrieve the stored pHash for a single file, if present.
+    pub async fn get_phash(&self, file_id: &[u8]) -> Result<Option<[u8; 8]>, Error> {
+        let row: Option<FilePhash> = sqlx::query_as(
+            "select file, band0, band1, band2, band3 from upload_phash where file = ?",
+        )
+        .bind(file_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| {
+            let b0 = r.band0.to_be_bytes();
+            let b1 = r.band1.to_be_bytes();
+            let b2 = r.band2.to_be_bytes();
+            let b3 = r.band3.to_be_bytes();
+            [b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], b3[0], b3[1]]
+        }))
+    }
+}
+
 #[cfg(feature = "payments")]
 impl Database {
     pub async fn insert_payment(&self, payment: &Payment) -> Result<(), Error> {

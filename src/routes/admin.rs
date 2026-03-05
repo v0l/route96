@@ -13,7 +13,8 @@ use sqlx::{Error, QueryBuilder, Row};
 use std::sync::Arc;
 
 pub fn admin_routes() -> Router<Arc<AppState>> {
-    Router::new()
+    #[allow(unused_mut)]
+    let mut router = Router::new()
         .route("/admin/self", get(admin_get_self))
         .route("/admin/files", get(admin_list_files))
         .route("/admin/files/review", get(admin_list_pending_review))
@@ -27,7 +28,14 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             delete(admin_acknowledge_report),
         )
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
-        .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
+        .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user));
+
+    #[cfg(feature = "media-compression")]
+    {
+        router = router.route("/admin/files/{file_id}/similar", get(admin_similar_files));
+    }
+
+    router
 }
 
 #[derive(Serialize, Default)]
@@ -600,6 +608,79 @@ async fn admin_delete_file(
     }
 
     AdminResponse::success(())
+}
+
+/// Query params for the similar-files endpoint.
+#[derive(Deserialize)]
+struct AdminSimilarFilesQuery {
+    /// Maximum Hamming distance (default: `MAX_HAMMING_DISTANCE`).
+    distance: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct SimilarFile {
+    #[serde(flatten)]
+    pub inner: Nip94Event,
+    /// Hamming distance from the query image's pHash.
+    pub distance: u32,
+}
+
+/// GET /admin/files/{file_id}/similar
+///
+/// Returns files whose perceptual hash is within `distance` Hamming bits of
+/// the queried file (default: `MAX_HAMMING_DISTANCE` = 10).
+/// Requires admin auth.
+#[cfg(feature = "media-compression")]
+async fn admin_similar_files(
+    auth: Nip98Auth,
+    Path(file_id): Path<String>,
+    Query(params): Query<AdminSimilarFilesQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<Vec<SimilarFile>> {
+    use crate::phash::MAX_HAMMING_DISTANCE;
+
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let user = match state.db.get_user(&pubkey_vec).await {
+        Ok(u) => u,
+        Err(_) => return AdminResponse::error("User not found"),
+    };
+    if !user.is_admin {
+        return AdminResponse::error("User is not an admin");
+    }
+
+    let id = match hex::decode(&file_id) {
+        Ok(id) => id,
+        Err(_) => return AdminResponse::error("Invalid file id"),
+    };
+
+    let max_dist = params.distance.unwrap_or(MAX_HAMMING_DISTANCE);
+
+    let query_hash = match state.db.get_phash(&id).await {
+        Ok(Some(h)) => h,
+        Ok(None) => return AdminResponse::error("No perceptual hash for this file yet"),
+        Err(e) => return AdminResponse::error(&format!("DB error: {}", e)),
+    };
+
+    let candidates = match state
+        .db
+        .find_similar_images(&query_hash, max_dist, Some(&id))
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => return AdminResponse::error(&format!("DB error: {}", e)),
+    };
+
+    let mut results = Vec::with_capacity(candidates.len());
+    for (file_id_bytes, dist) in candidates {
+        if let Ok(Some(upload)) = state.db.get_file(&file_id_bytes).await {
+            results.push(SimilarFile {
+                inner: Nip94Event::from_upload(&state.settings, &upload),
+                distance: dist,
+            });
+        }
+    }
+
+    AdminResponse::success(results)
 }
 
 impl Database {

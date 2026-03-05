@@ -397,6 +397,26 @@ async fn upload(
         error!("{}", e);
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }
+
+    // Compute perceptual hash in background (non-blocking, fire-and-forget)
+    #[cfg(feature = "media-compression")]
+    if upload.mime_type.starts_with("image/") {
+        let db = state.db.clone();
+        let path = state.fs.get(&upload.id);
+        let mime = upload.mime_type.clone();
+        let file_id = upload.id.clone();
+        tokio::task::spawn_blocking(move || match crate::phash::phash_image(&path, &mime) {
+            Ok(hash) => {
+                let bytes: [u8; 8] = hash.as_bytes().try_into().unwrap();
+                let rt = tokio::runtime::Handle::current();
+                if let Err(e) = rt.block_on(db.upsert_phash(&file_id, &bytes)) {
+                    log::warn!("Failed to store phash: {}", e);
+                }
+            }
+            Err(e) => log::warn!("Failed to compute phash: {}", e),
+        });
+    }
+
     Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
         &state.settings,
         &upload,
@@ -426,7 +446,7 @@ async fn list_files(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> Nip96Response {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let server_count = query.count.min(5_000).max(1);
+    let server_count = query.count.clamp(1, 5_000);
     match state
         .db
         .list_files(&pubkey_vec, query.page * server_count, server_count)

@@ -147,12 +147,12 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
-    if let Some(name) = &info.name {
-        if let Ok(disposition) = format!("inline; filename=\"{}\"", name).parse() {
-            response
-                .headers_mut()
-                .insert(header::CONTENT_DISPOSITION, disposition);
-        }
+    if let Some(name) = &info.name
+        && let Ok(disposition) = format!("inline; filename=\"{}\"", name).parse()
+    {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, disposition);
     }
 }
 
@@ -308,13 +308,11 @@ pub async fn get_blob(
     let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
 
     // Only use range response for files > 1MiB
-    if info.size >= MAX_UNBOUNDED_RANGE {
-        if let Some(range_str) = range_header {
-            if let Some((start, end)) = get_range_from_header(range_str, info.size) {
-                // Build the range response directly
-                return Ok(build_range_response(file_path, info, start, end).await?);
-            }
-        }
+    if info.size >= MAX_UNBOUNDED_RANGE
+        && let Some(range_str) = range_header
+        && let Some((start, end)) = get_range_from_header(range_str, info.size)
+    {
+        return build_range_response(file_path, info, start, end).await;
     }
 
     // Full file response

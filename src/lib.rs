@@ -11,6 +11,8 @@ pub mod filesystem;
 #[cfg(feature = "payments")]
 pub mod payments;
 #[cfg(feature = "media-compression")]
+pub mod phash;
+#[cfg(feature = "media-compression")]
 pub mod processing;
 pub mod routes;
 pub mod settings;
