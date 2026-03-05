@@ -2,7 +2,7 @@ use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
-use sqlx::{Error, Executor, FromRow, Row};
+use sqlx::{Error, Executor, FromRow, QueryBuilder, Row};
 
 /// Review/moderation state for an uploaded file.
 ///
@@ -602,6 +602,71 @@ impl Database {
             .bind(file_id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    /// Set the review state for multiple files in a single query.
+    pub async fn set_files_review_state(
+        &self,
+        file_ids: &[Vec<u8>],
+        state: ReviewState,
+    ) -> Result<(), Error> {
+        if file_ids.is_empty() {
+            return Ok(());
+        }
+        let mut qb = QueryBuilder::new("update uploads set review_state = ");
+        qb.push_bind(state);
+        qb.push(" where id in (");
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        qb.build().execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Ban multiple files in a single transaction: removes all ownership
+    /// records and sets `banned = true`. Returns the list of IDs that were
+    /// successfully banned.
+    pub async fn ban_files(&self, file_ids: &[Vec<u8>]) -> Result<(), Error> {
+        if file_ids.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await?;
+
+        let mut qb = QueryBuilder::new("delete from user_uploads where file in (");
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        qb.build().execute(&mut *tx).await?;
+
+        let mut qb = QueryBuilder::new("update uploads set banned = true where id in (");
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        qb.build().execute(&mut *tx).await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Mark multiple reports as reviewed in a single query.
+    pub async fn mark_reports_reviewed(&self, report_ids: &[u64]) -> Result<(), Error> {
+        if report_ids.is_empty() {
+            return Ok(());
+        }
+        let mut qb = QueryBuilder::new("update reports set reviewed = true where id in (");
+        let mut sep = qb.separated(", ");
+        for id in report_ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        qb.build().execute(&self.pool).await?;
         Ok(())
     }
 }

@@ -68,8 +68,13 @@ List files pending moderation review — those with `review_state` of `LabelFlag
 
 ---
 
-### `PATCH /admin/files/{sha256}/review`
-Mark a file as reviewed, clearing the moderation flag (`review_state → Reviewed`). The file remains accessible.
+### `PATCH /admin/files/review`
+Mark one or more files as reviewed, clearing the moderation flag (`review_state → Reviewed`). The files remain accessible.
+
+**Request body**
+```json
+{ "ids": ["abc123...", "def456..."] }
+```
 
 **Response**
 ```json
@@ -78,8 +83,13 @@ Mark a file as reviewed, clearing the moderation flag (`review_state → Reviewe
 
 ---
 
-### `DELETE /admin/files/{sha256}/review`
-Permanently ban a file. The physical file is removed from disk, all ownership records are deleted, and the database row is kept as a tombstone so the same hash cannot be re-uploaded.
+### `DELETE /admin/files/review`
+Permanently ban one or more files. Physical files are removed from disk, all ownership records are deleted, and the database rows are kept as tombstones so the same hashes cannot be re-uploaded.
+
+**Request body**
+```json
+{ "ids": ["abc123...", "def456..."] }
+```
 
 **Response**
 ```json
@@ -159,8 +169,13 @@ List unreviewed user-submitted content reports.
 
 ---
 
-### `DELETE /admin/reports/{id}`
-Acknowledge a report, marking it as reviewed without taking action on the file.
+### `DELETE /admin/reports`
+Acknowledge one or more reports, marking them as reviewed without taking action on the files.
+
+**Request body**
+```json
+{ "ids": [1, 2, 3] }
+```
 
 **Response**
 ```json

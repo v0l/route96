@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, patch},
+    routing::{delete, get},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
@@ -17,16 +17,14 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
     let mut router = Router::new()
         .route("/admin/self", get(admin_get_self))
         .route("/admin/files", get(admin_list_files))
-        .route("/admin/files/review", get(admin_list_pending_review))
         .route(
-            "/admin/files/{file_id}/review",
-            patch(admin_review_file).delete(admin_delete_file),
+            "/admin/files/review",
+            get(admin_list_pending_review)
+                .patch(admin_review_files)
+                .delete(admin_delete_files),
         )
         .route("/admin/reports", get(admin_list_reports))
-        .route(
-            "/admin/reports/{report_id}",
-            delete(admin_acknowledge_report),
-        )
+        .route("/admin/reports", delete(admin_acknowledge_reports))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
         .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user));
 
@@ -129,6 +127,41 @@ pub struct AdminUserInfo {
     pub files: PagedResult<AdminNip94File>,
 }
 
+/// Shared request body for batch file operations.
+#[derive(Deserialize)]
+struct AdminFileIdsBody {
+    ids: Vec<String>,
+}
+
+impl AdminFileIdsBody {
+    /// Decode all hex IDs, returning an error string on the first invalid one.
+    fn decode(&self) -> Result<Vec<Vec<u8>>, String> {
+        self.ids
+            .iter()
+            .map(|id| hex::decode(id).map_err(|_| format!("Invalid file id: {}", id)))
+            .collect()
+    }
+}
+
+/// Shared request body for batch report operations.
+#[derive(Deserialize)]
+struct AdminReportIdsBody {
+    ids: Vec<u64>,
+}
+
+/// Verify the request comes from an admin. Returns the user on success.
+async fn require_admin(auth: &Nip98Auth, db: &Database) -> Result<User, String> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let user = db
+        .get_user(&pubkey_vec)
+        .await
+        .map_err(|_| "User not found".to_string())?;
+    if !user.is_admin {
+        return Err("User is not an admin".to_string());
+    }
+    Ok(user)
+}
+
 async fn admin_get_self(
     auth: Nip98Auth,
     AxumState(state): AxumState<Arc<AppState>>,
@@ -206,16 +239,10 @@ async fn admin_list_files(
     Query(params): Query<AdminListFilesQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<PagedResult<AdminNip94File>> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = params.count.clamp(1, 5_000);
 
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => user,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
     match state
         .db
@@ -256,16 +283,10 @@ async fn admin_list_reports(
     Query(params): Query<AdminListReportsQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<PagedResult<Report>> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = params.count.clamp(1, 5_000);
 
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => user,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
     match state
@@ -283,26 +304,21 @@ async fn admin_list_reports(
     }
 }
 
-async fn admin_acknowledge_report(
+/// DELETE /admin/reports — acknowledge (dismiss) reports by ID
+async fn admin_acknowledge_reports(
     auth: Nip98Auth,
-    Path(report_id): Path<u64>,
     AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AdminReportIdsBody>,
 ) -> AdminResponse<()> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => user,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
-    match state.db.mark_report_reviewed(report_id).await {
-        Ok(()) => AdminResponse::success(()),
-        Err(e) => AdminResponse::error(&format!("Could not acknowledge report: {}", e)),
+    if let Err(e) = state.db.mark_reports_reviewed(&body.ids).await {
+        return AdminResponse::error(&format!("Failed to acknowledge reports: {}", e));
     }
+
+    AdminResponse::success(())
 }
 
 #[derive(Deserialize)]
@@ -317,16 +333,8 @@ async fn admin_get_user_info(
     Query(params): Query<AdminGetUserInfoQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<AdminUserInfo> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    // Check if the requesting user is an admin
-    let admin_user = match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => user,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-
-    if !admin_user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
     // Parse target user pubkey
@@ -427,16 +435,8 @@ async fn admin_purge_user(
     Path(user_pubkey): Path<String>,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<()> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    // Check if the requesting user is an admin
-    let admin_user = match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => user,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-
-    if !admin_user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
     // Parse target user pubkey
@@ -514,15 +514,10 @@ async fn admin_list_pending_review(
     Query(params): Query<AdminListPendingReviewQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<PagedResult<AdminNip94File>> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let server_count = params.count.clamp(1, 5_000);
 
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(u) => u,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
     match state
@@ -546,65 +541,57 @@ async fn admin_list_pending_review(
     }
 }
 
-/// PATCH /admin/files/{file_id}/review — mark a file as reviewed (clears flag)
-async fn admin_review_file(
+/// PATCH /admin/files/review — mark files as reviewed (clears flag)
+async fn admin_review_files(
     auth: Nip98Auth,
-    Path(file_id): Path<String>,
     AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AdminFileIdsBody>,
 ) -> AdminResponse<()> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(u) => u,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
-    let id = match hex::decode(&file_id) {
-        Ok(id) => id,
-        Err(_) => return AdminResponse::error("Invalid file id"),
+    let ids = match body.decode() {
+        Ok(ids) => ids,
+        Err(e) => return AdminResponse::error(&e),
     };
 
-    match state
+    if let Err(e) = state
         .db
-        .set_file_review_state(&id, ReviewState::Reviewed)
+        .set_files_review_state(&ids, ReviewState::Reviewed)
         .await
     {
-        Ok(()) => AdminResponse::success(()),
-        Err(e) => AdminResponse::error(&format!("Could not update review state: {}", e)),
+        return AdminResponse::error(&format!("Failed to review files: {}", e));
     }
+
+    AdminResponse::success(())
 }
 
-/// DELETE /admin/files/{file_id}/review — delete a flagged file from disk and DB
-async fn admin_delete_file(
+/// DELETE /admin/files/review — ban files and remove from disk
+async fn admin_delete_files(
     auth: Nip98Auth,
-    Path(file_id): Path<String>,
     AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AdminFileIdsBody>,
 ) -> AdminResponse<()> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(u) => u,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
-    let id = match hex::decode(&file_id) {
-        Ok(id) => id,
-        Err(_) => return AdminResponse::error("Invalid file id"),
+    let ids = match body.decode() {
+        Ok(ids) => ids,
+        Err(e) => return AdminResponse::error(&e),
     };
 
-    // ban_file removes ownership records and sets banned=true, keeping the row
-    // as a tombstone so the same hash cannot be re-uploaded.
-    if let Err(e) = state.db.ban_file(&id).await {
-        return AdminResponse::error(&format!("Could not ban file: {}", e));
+    // Ban all files in one transaction (ownership + tombstone).
+    if let Err(e) = state.db.ban_files(&ids).await {
+        return AdminResponse::error(&format!("Failed to ban files: {}", e));
     }
-    if let Err(e) = tokio::fs::remove_file(state.fs.get(&id)).await {
-        log::warn!("Could not remove file from disk {}: {}", &file_id, e);
+
+    // Remove physical files (best-effort, DB is already updated).
+    for id in &ids {
+        if let Err(e) = tokio::fs::remove_file(state.fs.get(id)).await {
+            log::warn!("Could not remove file from disk {}: {}", hex::encode(id), e);
+        }
     }
 
     AdminResponse::success(())
@@ -639,13 +626,8 @@ async fn admin_similar_files(
 ) -> AdminResponse<Vec<SimilarFile>> {
     use crate::phash::MAX_HAMMING_DISTANCE;
 
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    let user = match state.db.get_user(&pubkey_vec).await {
-        Ok(u) => u,
-        Err(_) => return AdminResponse::error("User not found"),
-    };
-    if !user.is_admin {
-        return AdminResponse::error("User is not an admin");
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
     }
 
     let id = match hex::decode(&file_id) {

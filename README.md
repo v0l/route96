@@ -70,11 +70,11 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - `GET /admin/self` - Current user info and quota
 - `GET /admin/files` - List all files (paginated, filterable by MIME type)
 - `GET /admin/files/review` - List files pending moderation review
-- `PATCH /admin/files/<sha256>/review` - Mark a file as reviewed (clears flag)
-- `DELETE /admin/files/<sha256>/review` - Delete a flagged file from disk and DB
+- `PATCH /admin/files/review` - Mark files as reviewed (batch, JSON body)
+- `DELETE /admin/files/review` - Ban and delete files from disk (batch, JSON body)
 - `GET /admin/files/<sha256>/similar` - Find visually similar images (pHash + LSH)
 - `GET /admin/reports` - List unreviewed user reports
-- `DELETE /admin/reports/<id>` - Acknowledge a report
+- `DELETE /admin/reports` - Acknowledge reports (batch, JSON body)
 - `GET /admin/user/<pubkey>` - User info, files, and payment history
 - `DELETE /admin/user/<pubkey>/purge` - Delete all files belonging to a user
 - `GET /docs.md` - Admin API reference (embedded Markdown)
