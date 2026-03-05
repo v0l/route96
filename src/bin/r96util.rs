@@ -181,8 +181,6 @@ async fn main() -> Result<(), Error> {
                                 review_state: route96::db::ReviewState::None,
                                 banned: false,
                                 #[cfg(feature = "labels")]
-                                labeled_by: route96::comma_separated::CommaSeparated::default(),
-                                #[cfg(feature = "labels")]
                                 labels: vec![],
                             };
                             db.add_file(&entry, None).await.context("db add_file")?;

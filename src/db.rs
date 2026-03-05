@@ -1,4 +1,3 @@
-use crate::comma_separated::CommaSeparated;
 use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -51,10 +50,6 @@ pub struct FileUpload {
     pub review_state: ReviewState,
     /// When true the file has been admin-deleted and re-uploads must be rejected.
     pub banned: bool,
-    /// Comma-separated list of model names that have already labeled this file.
-    #[cfg(feature = "labels")]
-    pub labeled_by: CommaSeparated<String>,
-
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
     pub labels: Vec<FileLabel>,
@@ -76,8 +71,6 @@ impl From<&NewFileResult> for FileUpload {
             bitrate: value.bitrate,
             review_state: ReviewState::None,
             banned: false,
-            #[cfg(feature = "labels")]
-            labeled_by: CommaSeparated::default(),
             #[cfg(feature = "labels")]
             labels: value.labels.clone(),
         }
@@ -225,7 +218,7 @@ impl Database {
     pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
-        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate,review_state,banned,labeled_by) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate,review_state,banned) values(?,?,?,?,?,?,?,?,?,?,?,?,?)")
             .bind(&file.id)
             .bind(&file.name)
             .bind(file.size)
@@ -238,13 +231,7 @@ impl Database {
             .bind(file.duration)
             .bind(file.bitrate)
             .bind(&file.review_state)
-            .bind(file.banned)
-            .bind({
-                #[cfg(feature = "labels")]
-                { &file.labeled_by }
-                #[cfg(not(feature = "labels"))]
-                { &CommaSeparated::<String>::default() }
-            });
+            .bind(file.banned);
         tx.execute(q).await?;
 
         if let Some(uid) = user_id {
@@ -502,26 +489,14 @@ impl Database {
         Ok(())
     }
 
-    /// Append `model_name` to the `labeled_by` column for a file, ensuring it
-    /// is not added twice.
+    /// Record that `model_name` has labeled `file_id`.
     #[cfg(feature = "labels")]
     pub async fn add_labeled_by(&self, file_id: &[u8], model_name: &str) -> Result<(), Error> {
-        // Read current value, append if not already present, then write back.
-        let row: Option<(CommaSeparated<String>,)> =
-            sqlx::query_as("select labeled_by from uploads where id = ?")
-                .bind(file_id)
-                .fetch_optional(&self.pool)
-                .await?;
-
-        let mut labeled_by = row.map(|(v,)| v).unwrap_or_default();
-        if !labeled_by.iter().any(|m| m == model_name) {
-            labeled_by.push(model_name.to_string());
-            sqlx::query("update uploads set labeled_by = ? where id = ?")
-                .bind(&labeled_by)
-                .bind(file_id)
-                .execute(&self.pool)
-                .await?;
-        }
+        sqlx::query("insert ignore into upload_labeled_by(file, model) values(?, ?)")
+            .bind(file_id)
+            .bind(model_name)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -532,9 +507,10 @@ impl Database {
         model_name: &str,
     ) -> Result<Vec<FileUpload>, Error> {
         sqlx::query_as(
-            "select * from uploads \
-             where (mime_type like 'image/%' or mime_type like 'video/%') \
-             and not find_in_set(?, labeled_by)",
+            "select * from uploads u \
+             where (u.mime_type like 'image/%' or u.mime_type like 'video/%') \
+             and not exists (select 1 from upload_labeled_by lb where lb.file = u.id and lb.model = ?) \
+             limit 100",
         )
         .bind(model_name)
         .fetch_all(&self.pool)
