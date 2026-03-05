@@ -5,12 +5,24 @@ import FileList, { type FileInfo } from "./files";
 import ReportList from "./reports";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
-import { Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96, Report, SimilarFile } from "../upload/admin";
+import {
+  AdminSelf,
+  AdminNip94File,
+  Route96,
+  Report,
+  SimilarFile,
+} from "../upload/admin";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 
 type Tab = "files" | "reports" | "review";
+
+type AdminFileList = {
+  count: number;
+  total: number;
+  page: number;
+  files: Array<AdminNip94File>;
+};
 
 export default function Admin() {
   const [self, setSelf] = useState<AdminSelf>();
@@ -19,7 +31,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
 
   // Files tab
-  const [adminListedFiles, setAdminListedFiles] = useState<Nip96FileList>();
+  const [adminListedFiles, setAdminListedFiles] = useState<AdminFileList>();
   const [adminListedPage, setAdminListedPage] = useState(0);
   const [mimeFilter, setMimeFilter] = useState<string>();
   const [labelFilter, setLabelFilter] = useState<string>();
@@ -31,7 +43,7 @@ export default function Admin() {
   const [reportPage, setReportPage] = useState(0);
 
   // Review tab
-  const [pendingReview, setPendingReview] = useState<Nip96FileList>();
+  const [pendingReview, setPendingReview] = useState<AdminFileList>();
   const [pendingReviewPage, setPendingReviewPage] = useState(0);
 
   // Similar images modal
@@ -108,7 +120,7 @@ export default function Admin() {
     try {
       setError(undefined);
       const route96 = new Route96(url, pub);
-      await route96.acknowledgeReport(reportId);
+      await route96.acknowledgeReports([reportId]);
       await listReports(reportPage);
     } catch (e) {
       setError(
@@ -124,7 +136,7 @@ export default function Admin() {
     try {
       setError(undefined);
       const route96 = new Route96(url, pub);
-      await route96.reviewFile(id);
+      await route96.reviewFiles([id]);
       await listPendingReview(pendingReviewPage);
     } catch (e) {
       setError(
@@ -140,7 +152,7 @@ export default function Admin() {
     try {
       setError(undefined);
       const route96 = new Route96(url, pub);
-      await route96.deleteReviewFile(id);
+      await route96.deleteReviewFiles([id]);
       await listPendingReview(pendingReviewPage);
     } catch (e) {
       setError(
@@ -154,7 +166,7 @@ export default function Admin() {
     try {
       setError(undefined);
       const route96 = new Route96(url, pub);
-      await route96.reviewFile(id);
+      await route96.reviewFiles([id]);
       const blossom = new Blossom(url, pub);
       await blossom.delete(id);
       await listPendingReview(pendingReviewPage);
@@ -184,17 +196,16 @@ export default function Admin() {
 
   async function bulkApproveAll() {
     if (!pub || !pendingReview) return;
-    const files = pendingReview.files;
+    const ids = pendingReview.files
+      .map((f) => f.tags.find((t) => t[0] === "x")?.[1])
+      .filter((id): id is string => !!id);
+    if (ids.length === 0) return;
     const route96 = new Route96(url, pub);
-    for (let i = 0; i < files.length; i++) {
-      const id = files[i].tags.find((t) => t[0] === "x")?.[1];
-      if (!id) continue;
-      setBulkProgress(`Approving ${i + 1} / ${files.length}...`);
-      try {
-        await route96.reviewFile(id);
-      } catch {
-        // continue on individual failures
-      }
+    try {
+      setBulkProgress(`Approving ${ids.length} files...`);
+      await route96.reviewFiles(ids);
+    } catch {
+      // best-effort
     }
     setBulkProgress(undefined);
     await listPendingReview(pendingReviewPage);
@@ -202,17 +213,16 @@ export default function Admin() {
 
   async function bulkBanAll() {
     if (!pub || !pendingReview) return;
-    const files = pendingReview.files;
+    const ids = pendingReview.files
+      .map((f) => f.tags.find((t) => t[0] === "x")?.[1])
+      .filter((id): id is string => !!id);
+    if (ids.length === 0) return;
     const route96 = new Route96(url, pub);
-    for (let i = 0; i < files.length; i++) {
-      const id = files[i].tags.find((t) => t[0] === "x")?.[1];
-      if (!id) continue;
-      setBulkProgress(`Banning ${i + 1} / ${files.length}...`);
-      try {
-        await route96.deleteReviewFile(id);
-      } catch {
-        // continue on individual failures
-      }
+    try {
+      setBulkProgress(`Banning ${ids.length} files...`);
+      await route96.deleteReviewFiles(ids);
+    } catch {
+      // best-effort
     }
     setBulkProgress(undefined);
     await listPendingReview(pendingReviewPage);
@@ -226,7 +236,7 @@ export default function Admin() {
       setSimilarSource(file);
       const route96 = new Route96(url, pub);
       const result = await route96.findSimilar(file.id);
-      setSimilarFiles(result.data);
+      setSimilarFiles(result);
     } catch (e) {
       setError(
         e instanceof Error

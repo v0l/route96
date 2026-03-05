@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { FormatBytes } from "../const";
 import classNames from "classnames";
 import Profile from "../components/profile";
+import type { AdminNip94File } from "../upload/admin";
 
 export interface FileInfo {
   id: string;
@@ -27,7 +28,7 @@ export default function FileList({
   onFindSimilar,
   adminMode,
 }: {
-  files: Array<File | NostrEvent | FileInfo>;
+  files: Array<File | NostrEvent | AdminNip94File | FileInfo>;
   pages?: number;
   page?: number;
   onPage?: (n: number) => void;
@@ -92,7 +93,7 @@ export default function FileList({
     }
   }
 
-  function getInfo(f: File | NostrEvent | FileInfo): FileInfo {
+  function getInfo(f: File | NostrEvent | AdminNip94File | FileInfo): FileInfo {
     if ("url" in f) {
       return f;
     }

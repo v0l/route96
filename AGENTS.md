@@ -36,8 +36,10 @@ route96/
 │   ├── lib.rs              # Library root with module declarations
 │   ├── routes/             # HTTP route handlers (blossom, nip96, admin, payment)
 │   ├── auth/               # Authentication (blossom.rs, nip98.rs)
+│   ├── background/         # Background tasks (labeling, phash, payments)
 │   ├── db.rs               # Database models and queries (SQLx + MySQL)
 │   ├── filesystem.rs       # File storage operations
+│   ├── phash.rs            # Perceptual image hashing (pHash + LSH)
 │   ├── processing/         # Media processing (compression, labeling)
 │   └── settings.rs         # Configuration structures
 ├── ui_src/                 # React/TypeScript frontend
@@ -45,6 +47,8 @@ route96/
 │       ├── views/          # Page components
 │       ├── components/     # Reusable UI components
 │       └── upload/         # Upload utilities (blossom.ts, nip96.ts)
+├── docs/
+│   └── admin-api.md        # Admin API reference
 └── migrations/             # SQL migration files
 ```
 
@@ -172,5 +176,5 @@ public_url: "https://your-domain.com"
 
 ### Key Dependencies
 
-**Rust:** axum, tokio, sqlx (MySQL), nostr, serde, anyhow
+**Rust:** axum, tokio, sqlx (MySQL), nostr, serde, anyhow, image_hasher, ffmpeg_rs_raw
 **TypeScript:** React 19, Vite 7, Tailwind CSS 4, @snort/system

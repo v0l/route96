@@ -92,6 +92,7 @@ async fn main() -> Result<(), Error> {
     let mut app = Router::new()
         .route("/", get(routes::root))
         .route("/docs.md", get(routes::docs_md))
+        .route("/SKILL.md", get(routes::skill_md))
         .route("/{sha256}", head(routes::head_blob).get(routes::get_blob));
 
     #[cfg(feature = "media-compression")]

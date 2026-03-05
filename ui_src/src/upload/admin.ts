@@ -1,6 +1,6 @@
 import { base64 } from "@scure/base";
 import { throwIfOffline } from "@snort/shared";
-import { EventKind, EventPublisher, NostrEvent } from "@snort/system";
+import { EventKind, EventPublisher } from "@snort/system";
 
 export interface AdminSelf {
   is_admin: boolean;
@@ -10,6 +10,13 @@ export interface AdminSelf {
   quota?: number;
   free_quota?: number;
   total_available_quota?: number;
+}
+
+export interface AdminNip94File {
+  created_at: number;
+  content?: string;
+  tags: Array<Array<string>>;
+  uploader: Array<string>;
 }
 
 export interface AdminUserInfo {
@@ -27,7 +34,7 @@ export interface AdminUserInfo {
     total: number;
     page: number;
     count: number;
-    files: Array<NostrEvent>;
+    files: Array<AdminNip94File>;
   };
 }
 
@@ -92,6 +99,7 @@ export class Route96 {
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);
+    if (!data.data) throw new Error(data.message || "List files failed");
     return {
       ...data,
       ...data.data,
@@ -105,6 +113,7 @@ export class Route96 {
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseReportList>(rsp);
+    if (!data.data) throw new Error(data.message || "List reports failed");
     return {
       ...data,
       ...data.data,
@@ -112,8 +121,12 @@ export class Route96 {
     };
   }
 
-  async acknowledgeReport(reportId: number) {
-    const rsp = await this.#req(`admin/reports/${reportId}`, "DELETE");
+  async acknowledgeReports(reportIds: number[]) {
+    const rsp = await this.#req(
+      "admin/reports",
+      "DELETE",
+      JSON.stringify({ ids: reportIds }),
+    );
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
     return data;
   }
@@ -139,6 +152,8 @@ export class Route96 {
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);
+    if (!data.data)
+      throw new Error(data.message || "List pending review failed");
     return {
       ...data,
       ...data.data,
@@ -146,14 +161,22 @@ export class Route96 {
     };
   }
 
-  async reviewFile(fileId: string) {
-    const rsp = await this.#req(`admin/files/${fileId}/review`, "PATCH");
+  async reviewFiles(fileIds: string[]) {
+    const rsp = await this.#req(
+      "admin/files/review",
+      "PATCH",
+      JSON.stringify({ ids: fileIds }),
+    );
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
     return data;
   }
 
-  async deleteReviewFile(fileId: string) {
-    const rsp = await this.#req(`admin/files/${fileId}/review`, "DELETE");
+  async deleteReviewFiles(fileIds: string[]) {
+    const rsp = await this.#req(
+      "admin/files/review",
+      "DELETE",
+      JSON.stringify({ ids: fileIds }),
+    );
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
     return data;
   }
@@ -166,7 +189,8 @@ export class Route96 {
     );
     const data =
       await this.#handleResponse<AdminResponse<Array<SimilarFile>>>(rsp);
-    return data;
+    if (!data.data) throw new Error(data.message || "Find similar failed");
+    return data.data;
   }
 
   async getPaymentInfo() {
@@ -246,14 +270,14 @@ export interface AdminResponseBase {
 }
 
 export type AdminResponse<T> = AdminResponseBase & {
-  data: T;
+  data?: T;
 };
 
 export type AdminResponseFileList = AdminResponse<{
   total: number;
   page: number;
   count: number;
-  files: Array<NostrEvent>;
+  files: Array<AdminNip94File>;
 }>;
 
 export type AdminResponseReportList = AdminResponse<{

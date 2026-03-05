@@ -117,14 +117,22 @@ impl Nip94Event {
     }
 }
 
-/// Maximum size for unbounded range requests (8 MiB)
 /// Embedded admin API documentation served at `/docs.md`
 const ADMIN_API_DOCS: &str = include_str!("../../docs/admin-api.md");
+/// Embedded agent skill served at `/SKILL.md`
+const SKILL_MD: &str = include_str!("../../docs/SKILL.md");
 
 pub async fn docs_md() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
         ADMIN_API_DOCS,
+    )
+}
+
+pub async fn skill_md() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+        SKILL_MD,
     )
 }
 
