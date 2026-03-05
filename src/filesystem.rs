@@ -296,12 +296,8 @@ impl FileStore {
 #[cfg(all(test, feature = "labels"))]
 mod tests {
     use super::*;
-    use crate::settings::LabelModelConfig;
 
-    fn make_store(
-        label_models: Option<Vec<LabelModelConfig>>,
-        models_dir: Option<PathBuf>,
-    ) -> FileStore {
+    fn make_store() -> FileStore {
         FileStore::new(Settings {
             listen: None,
             storage_dir: std::env::temp_dir().to_str().unwrap().to_string(),
@@ -310,12 +306,11 @@ mod tests {
             public_url: String::new(),
             whitelist: None,
             whitelist_file: None,
-            models_dir,
-            label_models,
+            models_dir: None,
+            label_models: None,
             label_flag_terms: None,
             webhook_url: None,
             plausible_url: None,
-            void_cat_files: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
             #[cfg(feature = "payments")]
@@ -324,46 +319,9 @@ mod tests {
     }
 
     #[test]
-    fn test_run_label_models_no_models_configured() {
-        let store = make_store(None, None);
-        // No models configured → empty result, no panic
-        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
-        assert!(labels.is_empty());
-    }
-
-    #[test]
-    fn test_run_label_models_empty_models_list() {
-        let store = make_store(Some(vec![]), None);
-        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
-        assert!(labels.is_empty());
-    }
-
-    #[test]
-    fn test_run_label_models_failing_model_is_skipped() {
-        // A model with a nonexistent repo will fail; the result should be empty
-        // and no panic.
-        let store = make_store(
-            Some(vec![LabelModelConfig {
-                name: "test-model".to_string(),
-                labeler_type: crate::settings::LabelerType::Vit {
-                    hf_repo: "this/does-not-exist-xyz".to_string(),
-                },
-                label_exclude: vec![],
-                min_confidence: None,
-            }]),
-            Some(std::env::temp_dir().join("route96_test_models_fs")),
-        );
-        let labels = store.run_label_models(Path::new("/nonexistent"), "image/jpeg");
-        // Should be empty because the model failed, not a panic
-        assert!(labels.is_empty());
-    }
-
-    #[test]
     fn test_models_dir_defaults_to_storage_subdir() {
-        let store = make_store(None, None);
+        let store = make_store();
         let expected = PathBuf::from(store.settings.storage_dir.clone()).join("models");
-        // Exercise the defaulting logic inside run_label_models by checking the
-        // path that would be used (we verify it matches <storage_dir>/models).
         let derived = store
             .settings
             .models_dir

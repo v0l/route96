@@ -150,32 +150,39 @@ impl LabelFiles {
                 continue;
             }
 
+            let start = std::time::Instant::now();
             let new_labels = match labeler.label_file(&path, &file.mime_type) {
-                Ok(results) => results
-                    .into_iter()
-                    .filter(|(label, _)| {
-                        let lower = label.to_lowercase();
-                        !labeler
-                            .label_exclude()
-                            .iter()
-                            .any(|ex| ex.to_lowercase() == lower)
-                    })
-                    .map(|(label, score)| {
-                        info!(
-                            "Label: file={} model={} label={} score={:.4}",
-                            hex::encode(&file.id),
-                            model_name,
-                            label,
-                            score
-                        );
-                        FileLabel::new(label, model_name.to_string())
-                    })
-                    .collect::<Vec<_>>(),
+                Ok(results) => {
+                    let elapsed = start.elapsed();
+                    results
+                        .into_iter()
+                        .filter(|(label, _)| {
+                            let lower = label.to_lowercase();
+                            !labeler
+                                .label_exclude()
+                                .iter()
+                                .any(|ex| ex.to_lowercase() == lower)
+                        })
+                        .map(|(label, score)| {
+                            info!(
+                                "Label: file={} model={} label={} score={:.4} duration={:.2?}",
+                                hex::encode(&file.id),
+                                model_name,
+                                label,
+                                score,
+                                elapsed,
+                            );
+                            FileLabel::new(label, model_name.to_string())
+                        })
+                        .collect::<Vec<_>>()
+                }
                 Err(e) => {
+                    let elapsed = start.elapsed();
                     error!(
-                        "Label model '{}' failed on {}: {}",
+                        "Label model '{}' failed on {} after {:.2?}: {}",
                         model_name,
                         hex::encode(&file.id),
+                        elapsed,
                         e
                     );
                     Self::sync_mark_labeled(db, &file.id, model_name, handle);

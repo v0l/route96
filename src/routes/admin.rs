@@ -603,6 +603,26 @@ async fn admin_delete_file(
 }
 
 impl Database {
+    /// Build the shared WHERE clause for `list_all_files` queries.
+    fn build_all_files_where<'a>(
+        qb: &mut QueryBuilder<'a, sqlx::MySql>,
+        mime_type: &'a Option<String>,
+        label: &'a Option<String>,
+    ) {
+        if let Some(m) = mime_type {
+            qb.push("and u.mime_type like ");
+            qb.push_bind(format!("%{}%", m));
+            qb.push(" ");
+        }
+        if let Some(l) = label {
+            qb.push(
+                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
+            );
+            qb.push_bind(l.clone());
+            qb.push(") ");
+        }
+    }
+
     pub async fn list_all_files(
         &self,
         offset: u32,
@@ -611,48 +631,35 @@ impl Database {
         label: Option<String>,
     ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
         let mut q = QueryBuilder::new("select u.* from uploads u where u.banned = false ");
-        if let Some(m) = &mime_type {
-            q.push("and INSTR(u.mime_type,");
-            q.push_bind(m.clone());
-            q.push(") > 0 ");
-        }
-        if let Some(l) = &label {
-            q.push(
-                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
-            );
-            q.push_bind(l.clone());
-            q.push(") ");
-        }
+        Self::build_all_files_where(&mut q, &mime_type, &label);
         q.push("order by u.created desc limit ");
         q.push_bind(limit);
         q.push(" offset ");
         q.push_bind(offset);
-
         let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
 
         let mut cq = QueryBuilder::new("select count(u.id) from uploads u where u.banned = false ");
-        if let Some(m) = &mime_type {
-            cq.push("and INSTR(u.mime_type,");
-            cq.push_bind(m.clone());
-            cq.push(") > 0 ");
-        }
-        if let Some(l) = &label {
-            cq.push(
-                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
-            );
-            cq.push_bind(l.clone());
-            cq.push(") ");
-        }
+        Self::build_all_files_where(&mut cq, &mime_type, &label);
         let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
 
-        let mut res = Vec::with_capacity(results.len());
         #[allow(unused_mut)]
-        for mut upload in results.into_iter() {
-            #[cfg(feature = "labels")]
-            self.populate_labels(&mut upload).await?;
-            let upd = self.get_file_owners(&upload.id).await?;
-            res.push((upload, upd));
-        }
+        let mut results = results;
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut results).await?;
+
+        let file_ids: Vec<&[u8]> = results.iter().map(|f| f.id.as_slice()).collect();
+        let owners_map = self.get_file_owners_batch(&file_ids).await?;
+
+        let res: Vec<(FileUpload, Vec<User>)> = results
+            .into_iter()
+            .map(|upload| {
+                let owners = owners_map
+                    .get(upload.id.as_slice())
+                    .cloned()
+                    .unwrap_or_default();
+                (upload, owners)
+            })
+            .collect();
         Ok((res, count))
     }
 
@@ -681,14 +688,24 @@ impl Database {
         .await?
         .try_get(0)?;
 
-        let mut res = Vec::with_capacity(results.len());
         #[allow(unused_mut)]
-        for mut upload in results {
-            #[cfg(feature = "labels")]
-            self.populate_labels(&mut upload).await?;
-            let owners = self.get_file_owners(&upload.id).await?;
-            res.push((upload, owners));
-        }
+        let mut results = results;
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut results).await?;
+
+        let file_ids: Vec<&[u8]> = results.iter().map(|f| f.id.as_slice()).collect();
+        let owners_map = self.get_file_owners_batch(&file_ids).await?;
+
+        let res: Vec<(FileUpload, Vec<User>)> = results
+            .into_iter()
+            .map(|upload| {
+                let owners = owners_map
+                    .get(upload.id.as_slice())
+                    .cloned()
+                    .unwrap_or_default();
+                (upload, owners)
+            })
+            .collect();
         Ok((res, count))
     }
 }

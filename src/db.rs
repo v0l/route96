@@ -298,6 +298,47 @@ impl Database {
         .await
     }
 
+    /// Fetch owners for multiple files in a single query, returning a map
+    /// keyed by file id.
+    pub async fn get_file_owners_batch(
+        &self,
+        file_ids: &[&[u8]],
+    ) -> Result<std::collections::HashMap<Vec<u8>, Vec<User>>, Error> {
+        use std::collections::HashMap;
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        // We need the file id in the result to group by, so select it alongside user columns.
+        let mut qb = sqlx::QueryBuilder::new(
+            "select uu.file, u.* from users u \
+             join user_uploads uu on u.id = uu.user_id \
+             where uu.file in (",
+        );
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+        let rows: Vec<sqlx::mysql::MySqlRow> = qb.build().fetch_all(&self.pool).await?;
+        let mut map: HashMap<Vec<u8>, Vec<User>> = HashMap::new();
+        for row in rows {
+            use sqlx::Row;
+            let file_id: Vec<u8> = row.try_get("file")?;
+            let user = User {
+                id: row.try_get("id")?,
+                pubkey: row.try_get("pubkey")?,
+                created: row.try_get("created")?,
+                is_admin: row.try_get("is_admin")?,
+                #[cfg(feature = "payments")]
+                paid_until: row.try_get("paid_until")?,
+                #[cfg(feature = "payments")]
+                paid_size: row.try_get("paid_size")?,
+            };
+            map.entry(file_id).or_default().push(user);
+        }
+        Ok(map)
+    }
+
     #[cfg(feature = "labels")]
     pub async fn get_file_labels(&self, file: &Vec<u8>) -> Result<Vec<FileLabel>, Error> {
         sqlx::query_as("select * from upload_labels where file = ?")
@@ -313,11 +354,43 @@ impl Database {
     }
 
     #[cfg(feature = "labels")]
-    pub async fn populate_labels_vec(&self, files: &mut Vec<FileUpload>) -> Result<(), Error> {
+    pub async fn populate_labels_vec(&self, files: &mut [FileUpload]) -> Result<(), Error> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<&[u8]> = files.iter().map(|f| f.id.as_slice()).collect();
+        let labels = self.get_file_labels_batch(&ids).await?;
         for file in files.iter_mut() {
-            self.populate_labels(file).await?;
+            if let Some(fl) = labels.get(file.id.as_slice()) {
+                file.labels = fl.clone();
+            }
         }
         Ok(())
+    }
+
+    /// Fetch labels for multiple files in a single query, returning a map
+    /// keyed by file id.
+    #[cfg(feature = "labels")]
+    pub async fn get_file_labels_batch(
+        &self,
+        file_ids: &[&[u8]],
+    ) -> Result<std::collections::HashMap<Vec<u8>, Vec<FileLabel>>, Error> {
+        use std::collections::HashMap;
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut qb = sqlx::QueryBuilder::new("select * from upload_labels where file in (");
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+        let all_labels: Vec<FileLabel> = qb.build_query_as().fetch_all(&self.pool).await?;
+        let mut map: HashMap<Vec<u8>, Vec<FileLabel>> = HashMap::new();
+        for label in all_labels {
+            map.entry(label.file.clone()).or_default().push(label);
+        }
+        Ok(map)
     }
 
     pub async fn delete_file_owner(&self, file: &Vec<u8>, owner: u64) -> Result<(), Error> {
@@ -397,7 +470,8 @@ impl Database {
             "select count(uploads.id) from uploads, users, user_uploads \
             where users.pubkey = ? \
             and users.id = user_uploads.user_id \
-            and user_uploads.file = uploads.id",
+            and user_uploads.file = uploads.id \
+            and uploads.banned = false",
         )
         .bind(pubkey)
         .fetch_one(&self.pool)

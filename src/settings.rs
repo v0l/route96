@@ -50,9 +50,6 @@ pub struct Settings {
     /// Analytics tracking
     pub plausible_url: Option<String>,
 
-    /// Path to void.cat uploads (files-v2)
-    pub void_cat_files: Option<PathBuf>,
-
     /// Reject image uploads containing sensitive EXIF metadata (GPS, device info)
     #[cfg(feature = "blossom")]
     pub reject_sensitive_exif: Option<bool>,
