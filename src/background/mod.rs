@@ -7,8 +7,8 @@ use crate::settings::Settings;
     feature = "labels"
 ))]
 use log::{error, info};
-use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "media-compression")]
 mod media_metadata;
@@ -28,13 +28,13 @@ pub fn start_background_tasks(
         feature = "payments",
         feature = "labels"
     ))]
-    shutdown_rx: broadcast::Receiver<()>,
+    shutdown: CancellationToken,
     #[cfg(not(any(
         feature = "media-compression",
         feature = "payments",
         feature = "labels"
     )))]
-    _shutdown_rx: broadcast::Receiver<()>,
+    _shutdown: CancellationToken,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> Vec<JoinHandle<()>> {
     #[cfg(any(
@@ -54,11 +54,11 @@ pub fn start_background_tasks(
     {
         let db = db.clone();
         let fs = file_store.clone();
-        let rx = shutdown_rx.resubscribe();
+        let token = shutdown.clone();
         ret.push(tokio::spawn(async move {
             info!("Starting MediaMetadata background task");
             let mut m = media_metadata::MediaMetadata::new(db, fs);
-            if let Err(e) = m.process(rx).await {
+            if let Err(e) = m.process(token).await {
                 error!("MediaMetadata failed: {}", e);
             } else {
                 info!("MediaMetadata background task completed");
@@ -77,12 +77,12 @@ pub fn start_background_tasks(
                     .clone()
                     .unwrap_or_else(|| fs.storage_dir().join("models"));
                 let flag_terms = settings.label_flag_terms.clone().unwrap_or_default();
-                let rx = shutdown_rx.resubscribe();
+                let token = shutdown.clone();
                 ret.push(tokio::spawn(async move {
                     info!("Starting LabelFiles background task");
                     let task =
                         label_files::LabelFiles::new(db, fs, models_dir, label_models, flag_terms);
-                    task.process(rx).await;
+                    task.process(token).await;
                     info!("LabelFiles background task completed");
                 }));
             }
@@ -93,11 +93,11 @@ pub fn start_background_tasks(
     {
         if let Some(client) = client {
             let db = db.clone();
-            let rx = shutdown_rx.resubscribe();
+            let token = shutdown.clone();
             ret.push(tokio::spawn(async move {
                 info!("Starting PaymentsHandler background task");
                 let mut m = payments::PaymentsHandler::new(client, db);
-                if let Err(e) = m.process(rx).await {
+                if let Err(e) = m.process(token).await {
                     error!("PaymentsHandler failed: {}", e);
                 } else {
                     info!("PaymentsHandler background task completed");

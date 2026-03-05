@@ -62,18 +62,17 @@ pub struct Settings {
     pub payments: Option<PaymentConfig>,
 }
 
-/// Configuration for a single ViT labeling model.
+/// Configuration for a single labeling model / API endpoint.
 #[cfg(feature = "labels")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabelModelConfig {
-    /// HuggingFace repo id (e.g. `"google/vit-base-patch16-224"`).
-    /// The model files are downloaded into `models_dir` on first use and
-    /// reused on subsequent runs.
-    pub hf_repo: String,
-
     /// Human-readable name stored alongside each label this model produces
     /// (e.g. `"vit224"`, `"nsfw-detector"`).
     pub name: String,
+
+    /// Which labeling backend to use for this model.
+    #[serde(flatten)]
+    pub labeler_type: LabelerType,
 
     /// Labels to discard from this model's output (exact match, case-insensitive).
     /// Use this to suppress noise labels that are meaningless for a given model,
@@ -84,6 +83,19 @@ pub struct LabelModelConfig {
     /// Minimum confidence score for a label to be stored.
     /// Overrides the global default (0.25) for this model.
     pub min_confidence: Option<f32>,
+}
+
+/// The labeling backend type. Uses `#[serde(tag = "type")]` so each variant
+/// is selected by a `"type"` key in the YAML config.
+#[cfg(feature = "labels")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LabelerType {
+    /// Local ViT model downloaded from HuggingFace.
+    Vit {
+        /// HuggingFace repo id (e.g. `"google/vit-base-patch16-224"`).
+        hf_repo: String,
+    },
 }
 
 #[cfg(feature = "payments")]

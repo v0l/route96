@@ -22,7 +22,7 @@ use route96::routes;
 use route96::settings::Settings;
 use route96::whitelist::Whitelist;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
 
 #[derive(Parser, Debug)]
@@ -145,17 +145,17 @@ async fn main() -> Result<(), Error> {
         }
     }
 
-    let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+    let shutdown = CancellationToken::new();
     let mut jh = start_background_tasks(
         db.clone(),
         fs.clone(),
         settings.clone(),
-        shutdown_rx.resubscribe(),
+        shutdown.clone(),
         #[cfg(feature = "payments")]
         lnd.clone(),
     );
     if let Some(path) = settings.whitelist_file.clone() {
-        let wh = wl.start_file_watcher(path, shutdown_rx.resubscribe());
+        let wh = wl.start_file_watcher(path, shutdown.clone());
         jh.push(wh);
     }
 
@@ -169,9 +169,7 @@ async fn main() -> Result<(), Error> {
         })
         .await?;
 
-    shutdown_tx
-        .send(())
-        .expect("Failed to send shutdown signal");
+    shutdown.cancel();
 
     for j in jh {
         j.await?;

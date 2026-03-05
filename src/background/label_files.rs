@@ -1,19 +1,13 @@
 use crate::db::{Database, FileLabel, ReviewState};
 use crate::filesystem::FileStore;
-use crate::processing::labeling::{MIN_CONFIDENCE, VitModel};
-use crate::settings::LabelModelConfig;
+use crate::processing::labeling::{MediaLabeler, VitLabeler};
+use crate::settings::{LabelModelConfig, LabelerType};
 use candle_core::Device;
 use log::{error, info, warn};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::runtime::Handle;
-use tokio::sync::broadcast;
-
-/// A loaded model paired with its configuration.
-struct LoadedModel {
-    cfg: LabelModelConfig,
-    vit: VitModel,
-}
+use tokio_util::sync::CancellationToken;
 
 pub struct LabelFiles {
     db: Database,
@@ -40,168 +34,177 @@ impl LabelFiles {
         }
     }
 
-    /// Spawn a dedicated OS thread that owns all CUDA state for the lifetime
-    /// of the task. All model loading and inference runs on that thread;
-    /// async DB calls are driven via the current tokio runtime handle.
-    pub async fn process(self, mut shutdown: broadcast::Receiver<()>) {
+    /// Spawn a dedicated OS thread **per model** so they can process batches
+    /// in parallel. Each thread owns its labeler (and any CUDA state it holds).
+    pub async fn process(self, shutdown: CancellationToken) {
         let handle = Handle::current();
-        // Convert the broadcast receiver into a simple oneshot-style flag via
-        // a std channel so the blocking thread can poll it without .await.
-        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        let mut threads = Vec::new();
 
-        // Forward first shutdown signal to the blocking thread.
-        tokio::spawn(async move {
-            let _ = shutdown.recv().await;
-            let _ = stop_tx.send(());
-        });
+        for cfg in self.label_models.clone() {
+            let db = self.db.clone();
+            let fs = self.fs.clone();
+            let models_dir = self.models_dir.clone();
+            let flag_terms = self.label_flag_terms.clone();
+            let handle = handle.clone();
+            let token = shutdown.clone();
 
-        let thread = std::thread::spawn(move || {
-            let device = Device::cuda_if_available(0).unwrap_or_else(|e| {
-                error!("Failed to initialize CUDA device: {}", e);
-                Device::Cpu
-            });
+            threads.push(std::thread::spawn(move || {
+                let labeler = match Self::build_labeler(&cfg, &models_dir) {
+                    Some(l) => l,
+                    None => return,
+                };
 
-            // Load all models on this thread so the CUDA context is created
-            // here and never migrated to another thread.
-            let mut models: Vec<LoadedModel> = Vec::new();
-            for cfg in &self.label_models {
-                info!("Loading label model '{}'", cfg.name);
-                match VitModel::load_from_dir(&self.models_dir, &cfg.hf_repo, device.clone()) {
-                    Ok(vit) => models.push(LoadedModel {
-                        cfg: cfg.clone(),
-                        vit,
-                    }),
+                info!("Label worker '{}' started", labeler.name());
+
+                loop {
+                    Self::run_batch(labeler.as_ref(), &db, &fs, &flag_terms, &handle);
+
+                    // Sleep 60s, waking early on shutdown.
+                    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+                    loop {
+                        if token.is_cancelled() {
+                            info!("Label worker '{}' shutting down", labeler.name());
+                            return;
+                        }
+                        let remaining =
+                            deadline.saturating_duration_since(std::time::Instant::now());
+                        if remaining.is_zero() {
+                            break;
+                        }
+                        std::thread::sleep(remaining.min(Duration::from_millis(200)));
+                    }
+                }
+            }));
+        }
+
+        // Await all model threads.
+        if let Err(e) = tokio::task::spawn_blocking(move || {
+            for t in threads {
+                if let Err(e) = t.join() {
+                    error!("Label worker thread panicked: {:?}", e);
+                }
+            }
+        })
+        .await
+        {
+            error!("LabelFiles spawn_blocking failed: {:?}", e);
+        }
+    }
+
+    /// Construct the appropriate [`MediaLabeler`] for a given config entry.
+    fn build_labeler(cfg: &LabelModelConfig, models_dir: &Path) -> Option<Box<dyn MediaLabeler>> {
+        match &cfg.labeler_type {
+            LabelerType::Vit { hf_repo } => {
+                info!("Loading ViT label model '{}'", cfg.name);
+                let device = Device::cuda_if_available(0).unwrap_or_else(|e| {
+                    error!("Failed to initialize CUDA device: {}", e);
+                    Device::Cpu
+                });
+                match VitLabeler::load(
+                    models_dir,
+                    hf_repo,
+                    cfg.name.clone(),
+                    cfg.label_exclude.clone(),
+                    cfg.min_confidence,
+                    device,
+                ) {
+                    Ok(v) => Some(Box::new(v)),
                     Err(e) => {
                         error!("Failed to load label model '{}': {}", cfg.name, e);
+                        None
                     }
                 }
             }
-
-            if models.is_empty() {
-                return;
-            }
-
-            loop {
-                Self::run_batch(&models, &self.db, &self.fs, &self.label_flag_terms, &handle);
-
-                // Sleep 60 s, waking early on shutdown.
-                let deadline = std::time::Instant::now() + Duration::from_secs(60);
-                loop {
-                    if stop_rx.try_recv().is_ok() {
-                        return;
-                    }
-                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                    if remaining.is_zero() {
-                        break;
-                    }
-                    std::thread::sleep(remaining.min(Duration::from_millis(200)));
-                }
-            }
-        });
-
-        // Await the thread so the task handle stays alive.
-        if let Err(e) = tokio::task::spawn_blocking(move || thread.join()).await {
-            error!("LabelFiles thread panicked: {:?}", e);
         }
     }
 
     fn run_batch(
-        models: &[LoadedModel],
+        labeler: &dyn MediaLabeler,
         db: &Database,
         fs: &FileStore,
         label_flag_terms: &[String],
         handle: &Handle,
     ) {
-        for loaded in models {
-            let to_label = match handle.block_on(db.get_files_missing_labels(&loaded.cfg.name)) {
-                Ok(v) => v,
+        let model_name = labeler.name();
+        let to_label = match handle.block_on(db.get_files_missing_labels(model_name)) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to query missing labels for '{}': {}", model_name, e);
+                return;
+            }
+        };
+
+        if !to_label.is_empty() {
+            info!(
+                "{} files missing labels for model '{}'",
+                to_label.len(),
+                model_name
+            );
+        }
+
+        for file in to_label {
+            let path = fs.get(&file.id);
+            if !path.exists() {
+                warn!("Skipping missing file: {}", hex::encode(&file.id));
+                Self::sync_mark_labeled(db, &file.id, model_name, handle);
+                continue;
+            }
+
+            let new_labels = match labeler.label_file(&path, &file.mime_type) {
+                Ok(results) => results
+                    .into_iter()
+                    .filter(|(label, _)| {
+                        let lower = label.to_lowercase();
+                        !labeler
+                            .label_exclude()
+                            .iter()
+                            .any(|ex| ex.to_lowercase() == lower)
+                    })
+                    .map(|(label, score)| {
+                        info!(
+                            "Label: file={} model={} label={} score={:.4}",
+                            hex::encode(&file.id),
+                            model_name,
+                            label,
+                            score
+                        );
+                        FileLabel::new(label, model_name.to_string())
+                    })
+                    .collect::<Vec<_>>(),
                 Err(e) => {
                     error!(
-                        "Failed to query missing labels for '{}': {}",
-                        loaded.cfg.name, e
+                        "Label model '{}' failed on {}: {}",
+                        model_name,
+                        hex::encode(&file.id),
+                        e
                     );
+                    Self::sync_mark_labeled(db, &file.id, model_name, handle);
                     continue;
                 }
             };
 
-            if !to_label.is_empty() {
-                info!(
-                    "{} files missing labels for model '{}'",
-                    to_label.len(),
-                    loaded.cfg.name
-                );
+            for label in &new_labels {
+                if let Err(e) = handle.block_on(db.add_file_label(&file.id, label)) {
+                    error!(
+                        "Failed to save label '{}' for {}: {}",
+                        label.label,
+                        hex::encode(&file.id),
+                        e
+                    );
+                }
             }
 
-            for file in to_label {
-                let path = fs.get(&file.id);
-                if !path.exists() {
-                    warn!("Skipping missing file: {}", hex::encode(&file.id));
-                    Self::sync_mark_labeled(db, &file.id, &loaded.cfg.name, handle);
-                    continue;
-                }
+            Self::sync_mark_labeled(db, &file.id, model_name, handle);
 
-                let min_confidence = loaded.cfg.min_confidence.unwrap_or(MIN_CONFIDENCE);
-
-                let new_labels = match loaded.vit.run(&path, &file.mime_type, min_confidence) {
-                    Ok(results) => results
-                        .into_iter()
-                        .filter(|(label, _)| {
-                            let lower = label.to_lowercase();
-                            !loaded
-                                .cfg
-                                .label_exclude
-                                .iter()
-                                .any(|ex| ex.to_lowercase() == lower)
-                        })
-                        .map(|(label, score)| {
-                            info!(
-                                "Label: file={} model={} label={} score={:.4}",
-                                hex::encode(&file.id),
-                                loaded.cfg.name,
-                                label,
-                                score
-                            );
-                            FileLabel::new(label, loaded.cfg.name.clone())
-                        })
-                        .collect::<Vec<_>>(),
-                    Err(e) => {
+            if !label_flag_terms.is_empty() && !new_labels.is_empty() {
+                let new_state = Database::review_state_for_labels(&new_labels, label_flag_terms);
+                if new_state != ReviewState::None {
+                    if let Err(e) = handle.block_on(db.set_file_review_state(&file.id, new_state)) {
                         error!(
-                            "Label model '{}' failed on {}: {}",
-                            loaded.cfg.name,
+                            "Failed to set review state for {}: {}",
                             hex::encode(&file.id),
                             e
                         );
-                        Self::sync_mark_labeled(db, &file.id, &loaded.cfg.name, handle);
-                        continue;
-                    }
-                };
-
-                for label in &new_labels {
-                    if let Err(e) = handle.block_on(db.add_file_label(&file.id, label)) {
-                        error!(
-                            "Failed to save label '{}' for {}: {}",
-                            label.label,
-                            hex::encode(&file.id),
-                            e
-                        );
-                    }
-                }
-
-                Self::sync_mark_labeled(db, &file.id, &loaded.cfg.name, handle);
-
-                if !label_flag_terms.is_empty() && !new_labels.is_empty() {
-                    let new_state =
-                        Database::review_state_for_labels(&new_labels, label_flag_terms);
-                    if new_state != ReviewState::None {
-                        if let Err(e) =
-                            handle.block_on(db.set_file_review_state(&file.id, new_state))
-                        {
-                            error!(
-                                "Failed to set review state for {}: {}",
-                                hex::encode(&file.id),
-                                e
-                            );
-                        }
                     }
                 }
             }

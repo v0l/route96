@@ -617,7 +617,9 @@ impl Database {
             q.push(") > 0 ");
         }
         if let Some(l) = &label {
-            q.push("and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ");
+            q.push(
+                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
+            );
             q.push_bind(l.clone());
             q.push(") ");
         }
@@ -628,24 +630,20 @@ impl Database {
 
         let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
 
-        let mut cq = QueryBuilder::new(
-            "select count(u.id) from uploads u where u.banned = false ",
-        );
+        let mut cq = QueryBuilder::new("select count(u.id) from uploads u where u.banned = false ");
         if let Some(m) = &mime_type {
             cq.push("and INSTR(u.mime_type,");
             cq.push_bind(m.clone());
             cq.push(") > 0 ");
         }
         if let Some(l) = &label {
-            cq.push("and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ");
+            cq.push(
+                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
+            );
             cq.push_bind(l.clone());
             cq.push(") ");
         }
-        let count: i64 = cq
-            .build()
-            .fetch_one(&self.pool)
-            .await?
-            .try_get(0)?;
+        let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
 
         let mut res = Vec::with_capacity(results.len());
         #[allow(unused_mut)]

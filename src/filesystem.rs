@@ -344,8 +344,10 @@ mod tests {
         // and no panic.
         let store = make_store(
             Some(vec![LabelModelConfig {
-                hf_repo: "this/does-not-exist-xyz".to_string(),
                 name: "test-model".to_string(),
+                labeler_type: crate::settings::LabelerType::Vit {
+                    hf_repo: "this/does-not-exist-xyz".to_string(),
+                },
                 label_exclude: vec![],
                 min_confidence: None,
             }]),

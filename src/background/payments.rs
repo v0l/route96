@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use log::{error, info};
 use payments_rs::lightning::{InvoiceUpdate, LightningNode};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 pub struct PaymentsHandler {
     node: Arc<dyn LightningNode>,
@@ -37,7 +37,7 @@ impl PaymentsHandler {
         Ok(())
     }
 
-    pub async fn process(mut self, mut rx: broadcast::Receiver<()>) -> Result<()> {
+    pub async fn process(mut self, shutdown: CancellationToken) -> Result<()> {
         let last_invoice = self.database.get_last_settle_index().await?;
         let mut invoices = self
             .node
@@ -50,7 +50,7 @@ impl PaymentsHandler {
 
         loop {
             tokio::select! {
-                Ok(_) = rx.recv() => {
+                _ = shutdown.cancelled() => {
                     break;
                 }
                 Some(msg) = invoices.next() => {

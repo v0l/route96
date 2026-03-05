@@ -4,9 +4,9 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime};
-use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Default)]
 pub struct Whitelist {
@@ -34,11 +34,7 @@ impl Whitelist {
         *guard = new_list;
     }
 
-    pub fn start_file_watcher(
-        &self,
-        path: PathBuf,
-        mut shutdown_rx: broadcast::Receiver<()>,
-    ) -> JoinHandle<()> {
+    pub fn start_file_watcher(&self, path: PathBuf, shutdown: CancellationToken) -> JoinHandle<()> {
         let this = self.clone();
         tokio::spawn(async move {
             let mut last_modified: Option<SystemTime> = None;
@@ -74,14 +70,14 @@ impl Whitelist {
                         "Falling back to polling: failed to create file watcher: {}",
                         e
                     );
-                    return fallback_polling(this, path, last_modified, shutdown_rx).await;
+                    return fallback_polling(this, path, last_modified, shutdown.clone()).await;
                 }
             };
             let target_name = match path.file_name().map(|s| s.to_os_string()) {
                 Some(n) => n,
                 None => {
                     warn!("Invalid whitelist file path: {}", path.display());
-                    return fallback_polling(this, path, last_modified, shutdown_rx).await;
+                    return fallback_polling(this, path, last_modified, shutdown.clone()).await;
                 }
             };
             let watch_path = path
@@ -95,7 +91,7 @@ impl Whitelist {
                     path.display(),
                     e
                 );
-                return fallback_polling(this, path, last_modified, shutdown_rx).await;
+                return fallback_polling(this, path, last_modified, shutdown.clone()).await;
             }
             let mut pending_change = false;
             let mut last_evt: Option<Instant> = None;
@@ -104,7 +100,7 @@ impl Whitelist {
             debounce.tick().await;
             loop {
                 tokio::select! {
-                    _ = shutdown_rx.recv() => {
+                    _ = shutdown.cancelled() => {
                         info!("Stopping whitelist watcher");
                         break;
                     }
@@ -156,11 +152,11 @@ async fn fallback_polling(
     this: Whitelist,
     path: PathBuf,
     mut last_modified: Option<SystemTime>,
-    mut shutdown_rx: broadcast::Receiver<()>,
+    shutdown: CancellationToken,
 ) {
     loop {
         tokio::select! {
-            _ = shutdown_rx.recv() => {
+            _ = shutdown.cancelled() => {
                 info!("Stopping whitelist watcher (polling)");
                 break;
             }

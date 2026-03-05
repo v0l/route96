@@ -19,6 +19,24 @@ pub const MIN_CONFIDENCE: f32 = 0.25;
 /// Maximum number of frames to sample from a video (1 per second, up to 60s)
 const MAX_VIDEO_FRAMES: usize = 60;
 
+/// Trait for any media labeling backend (local ViT, external API, etc.).
+///
+/// Implementations must be `Send` so they can be moved to dedicated worker
+/// threads. Each labeler is responsible for a single model / API endpoint.
+pub trait MediaLabeler: Send {
+    /// Human-readable name stored in the DB alongside each label (e.g. `"vit224"`).
+    fn name(&self) -> &str;
+
+    /// Labels to exclude from this labeler's output (exact match, case-insensitive).
+    fn label_exclude(&self) -> &[String];
+
+    /// Minimum confidence threshold for this labeler.
+    fn min_confidence(&self) -> f32;
+
+    /// Classify a file on disk and return `(label, confidence)` pairs.
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>>;
+}
+
 #[derive(Deserialize)]
 struct MyVitConfig {
     pub id2label: HashMap<usize, String>,
@@ -123,6 +141,52 @@ impl VitModel {
             let image = unsafe { load_frame_224(path, &self.device)? };
             self.classify(&image, min_confidence)
         }
+    }
+}
+
+/// A [`VitModel`] wrapped with its configuration so it implements [`MediaLabeler`].
+pub struct VitLabeler {
+    vit: VitModel,
+    model_name: String,
+    label_exclude: Vec<String>,
+    min_confidence: f32,
+}
+
+impl VitLabeler {
+    /// Load a ViT labeler from a HuggingFace repo, caching under `models_dir`.
+    pub fn load(
+        models_dir: &Path,
+        hf_repo: &str,
+        model_name: String,
+        label_exclude: Vec<String>,
+        min_confidence: Option<f32>,
+        device: Device,
+    ) -> Result<Self> {
+        let vit = VitModel::load_from_dir(models_dir, hf_repo, device)?;
+        Ok(Self {
+            vit,
+            model_name,
+            label_exclude,
+            min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
+        })
+    }
+}
+
+impl MediaLabeler for VitLabeler {
+    fn name(&self) -> &str {
+        &self.model_name
+    }
+
+    fn label_exclude(&self) -> &[String] {
+        &self.label_exclude
+    }
+
+    fn min_confidence(&self) -> f32 {
+        self.min_confidence
+    }
+
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
+        self.vit.run(path, mime_type, self.min_confidence)
     }
 }
 

@@ -3,7 +3,7 @@ use crate::filesystem::FileStore;
 use crate::processing::probe_file;
 use anyhow::Result;
 use log::{error, info, warn};
-use tokio::sync::broadcast::Receiver;
+use tokio_util::sync::CancellationToken;
 
 pub struct MediaMetadata {
     db: Database,
@@ -15,13 +15,13 @@ impl MediaMetadata {
         Self { db, fs }
     }
 
-    pub async fn process(&mut self, mut shutdown: Receiver<()>) -> Result<()> {
+    pub async fn process(&mut self, shutdown: CancellationToken) -> Result<()> {
         let to_migrate = self.db.get_missing_media_metadata().await?;
 
         info!("{} files are missing metadata", to_migrate.len());
 
         for file in to_migrate {
-            if shutdown.try_recv().is_ok() {
+            if shutdown.is_cancelled() {
                 break;
             }
             // probe file and update metadata

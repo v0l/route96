@@ -28,13 +28,16 @@ public_url: "http://localhost:8000"
 # Each model downloads from HuggingFace into models_dir on first use.
 # Multiple models can be listed; their results are merged.
 label_models:
-  - hf_repo: "google/vit-base-patch16-224"
+  - type: vit
+    hf_repo: "google/vit-base-patch16-224"
     name: "vit224"
-  - hf_repo: "Falconsai/nsfw_image_detection"
+  - type: vit
+    hf_repo: "Falconsai/nsfw_image_detection"
     name: "nsfw"
     label_exclude:
       - "normal"
-  - hf_repo: "dima806/fairface_age_image_detection"
+  - type: vit
+    hf_repo: "dima806/fairface_age_image_detection"
     name: "age"
     min_confidence: 0.3
 
