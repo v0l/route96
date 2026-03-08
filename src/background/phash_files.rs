@@ -1,10 +1,10 @@
 //! Background task: compute perceptual hashes for images that are missing them.
 
+use super::{BatchResult, next_sleep};
 use crate::db::Database;
 use crate::filesystem::FileStore;
 use crate::phash::phash_image;
 use log::{error, info, warn};
-use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub struct PhashFiles {
@@ -19,7 +19,8 @@ impl PhashFiles {
 
     /// Run the background phash-computation loop.
     ///
-    /// Processes up to 100 images per cycle, sleeping 2 s between cycles.
+    /// Processes up to 100 images per cycle, sleeping between cycles.
+    /// Backs off exponentially when the same files keep reappearing.
     /// Shuts down cleanly when `shutdown` is cancelled.
     pub async fn process(self, shutdown: CancellationToken) {
         let db = self.db.clone();
@@ -27,9 +28,36 @@ impl PhashFiles {
 
         tokio::spawn(async move {
             info!("PhashFiles worker started");
+
+            let mut prev_count: usize = 0;
+            let mut stall_rounds: u32 = 0;
+
             loop {
+                let sleep_dur;
+
                 tokio::select! {
-                    _ = Self::run_batch(&db, &fs) => {}
+                    batch_result = Self::run_batch(&db, &fs) => {
+                        sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
+                        if let BatchResult::Processed { found } = batch_result
+                            && stall_rounds > 0
+                        {
+                            warn!(
+                                "PhashFiles: stalled on {} files, backing off {:.0?}",
+                                found,
+                                sleep_dur,
+                            );
+                        }
+                    }
+                    _ = shutdown.cancelled() => {
+                        info!("PhashFiles worker shutting down");
+                        return;
+                    }
+                }
+
+                // Sleep outside the select so the cancellation token can
+                // still interrupt us during the wait.
+                tokio::select! {
+                    _ = tokio::time::sleep(sleep_dur) => {}
                     _ = shutdown.cancelled() => {
                         info!("PhashFiles worker shutting down");
                         return;
@@ -41,19 +69,21 @@ impl PhashFiles {
         .unwrap_or_else(|e| error!("PhashFiles task failed: {:?}", e));
     }
 
-    async fn run_batch(db: &Database, fs: &FileStore) {
+    async fn run_batch(db: &Database, fs: &FileStore) -> BatchResult {
         let to_process = match db.get_images_missing_phash().await {
             Ok(v) => v,
             Err(e) => {
                 error!("PhashFiles: failed to query missing phashes: {}", e);
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                return;
+                return BatchResult::Idle;
             }
         };
 
-        if !to_process.is_empty() {
-            info!("{} images missing phash", to_process.len());
+        if to_process.is_empty() {
+            return BatchResult::Idle;
         }
+
+        let found = to_process.len();
+        info!("{} images missing phash", found);
 
         for file in to_process {
             let path = fs.get(&file.id);
@@ -126,6 +156,6 @@ impl PhashFiles {
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        BatchResult::Processed { found }
     }
 }

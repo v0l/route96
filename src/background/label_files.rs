@@ -1,3 +1,4 @@
+use super::{BatchResult, next_sleep};
 use crate::db::{Database, FileLabel, ReviewState};
 use crate::filesystem::FileStore;
 use crate::processing::labeling::{MediaLabeler, VitLabeler};
@@ -56,9 +57,36 @@ impl LabelFiles {
 
                 info!("Label worker '{}' started", labeler.name());
 
+                let mut prev_count: usize = 0;
+                let mut stall_rounds: u32 = 0;
+
                 loop {
+                    let sleep_dur;
+
                     tokio::select! {
-                        _ = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms) => {}
+                        batch_result = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms) => {
+                            sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
+                            if let BatchResult::Processed { found } = batch_result
+                                && stall_rounds > 0
+                            {
+                                warn!(
+                                    "Label worker '{}': stalled on {} files, backing off {:.0?}",
+                                    labeler.name(),
+                                    found,
+                                    sleep_dur,
+                                );
+                            }
+                        }
+                        _ = token.cancelled() => {
+                            info!("Label worker '{}' shutting down", labeler.name());
+                            return;
+                        }
+                    }
+
+                    // Sleep outside the select so the cancellation token can
+                    // still interrupt us during the wait.
+                    tokio::select! {
+                        _ = tokio::time::sleep(sleep_dur) => {}
                         _ = token.cancelled() => {
                             info!("Label worker '{}' shutting down", labeler.name());
                             return;
@@ -106,24 +134,22 @@ impl LabelFiles {
         db: &Database,
         fs: &FileStore,
         label_flag_terms: &[String],
-    ) {
+    ) -> BatchResult {
         let model_name = labeler.name().to_string();
         let to_label = match db.get_files_missing_labels(&model_name).await {
             Ok(v) => v,
             Err(e) => {
                 error!("Failed to query missing labels for '{}': {}", model_name, e);
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                return;
+                return BatchResult::Idle;
             }
         };
 
-        if !to_label.is_empty() {
-            info!(
-                "{} files missing labels for model '{}'",
-                to_label.len(),
-                model_name
-            );
+        if to_label.is_empty() {
+            return BatchResult::Idle;
         }
+
+        let found = to_label.len();
+        info!("{} files missing labels for model '{}'", found, model_name);
 
         for file in to_label {
             let path = fs.get(&file.id);
@@ -250,6 +276,6 @@ impl LabelFiles {
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        BatchResult::Processed { found }
     }
 }
