@@ -23,7 +23,7 @@ const MAX_VIDEO_FRAMES: usize = 60;
 ///
 /// Implementations must be `Send` so they can be moved to dedicated worker
 /// threads. Each labeler is responsible for a single model / API endpoint.
-pub trait MediaLabeler: Send {
+pub trait MediaLabeler: Send + Sync {
     /// Human-readable name stored in the DB alongside each label (e.g. `"vit224"`).
     fn name(&self) -> &str;
 

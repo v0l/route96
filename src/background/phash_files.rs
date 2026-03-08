@@ -5,7 +5,6 @@ use crate::filesystem::FileStore;
 use crate::phash::phash_image;
 use log::{error, info, warn};
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 
 pub struct PhashFiles {
@@ -23,29 +22,27 @@ impl PhashFiles {
     /// Processes up to 100 images per cycle, sleeping 2 s between cycles.
     /// Shuts down cleanly when `shutdown` is cancelled.
     pub async fn process(self, shutdown: CancellationToken) {
-        let handle = Handle::current();
-
         let db = self.db.clone();
         let fs = self.fs.clone();
 
-        tokio::task::spawn_blocking(move || {
+        tokio::spawn(async move {
             info!("PhashFiles worker started");
             loop {
-                Self::run_batch(&db, &fs, &handle);
-
-                if shutdown.is_cancelled() {
-                    info!("PhashFiles worker shutting down");
-                    return;
+                tokio::select! {
+                    _ = Self::run_batch(&db, &fs) => {}
+                    _ = shutdown.cancelled() => {
+                        info!("PhashFiles worker shutting down");
+                        return;
+                    }
                 }
-                std::thread::sleep(Duration::from_secs(2));
             }
         })
         .await
-        .unwrap_or_else(|e| error!("PhashFiles spawn_blocking failed: {:?}", e));
+        .unwrap_or_else(|e| error!("PhashFiles task failed: {:?}", e));
     }
 
-    fn run_batch(db: &Database, fs: &FileStore, handle: &Handle) {
-        let to_process = match handle.block_on(db.get_images_missing_phash()) {
+    async fn run_batch(db: &Database, fs: &FileStore) {
+        let to_process = match db.get_images_missing_phash().await {
             Ok(v) => v,
             Err(e) => {
                 error!("PhashFiles: failed to query missing phashes: {}", e);
@@ -64,10 +61,7 @@ impl PhashFiles {
                     "PhashFiles: skipping missing file {}",
                     hex::encode(&file.id)
                 );
-                // Insert a dummy sentinel so we don't keep retrying.
-                // Re-use upsert_phash with hash=0; Hamming distance to any
-                // real image will be large and it won't surface in results.
-                if let Err(e) = handle.block_on(db.upsert_phash(&file.id, &[0u8; 8])) {
+                if let Err(e) = db.upsert_phash(&file.id, &[0u8; 8]).await {
                     error!(
                         "PhashFiles: failed to mark missing file {}: {}",
                         hex::encode(&file.id),
@@ -77,33 +71,60 @@ impl PhashFiles {
                 continue;
             }
 
-            match phash_image(&path, &file.mime_type) {
-                Ok(hash) => {
-                    let bytes: &[u8; 8] = hash.as_bytes().try_into().unwrap();
-                    if let Err(e) = handle.block_on(db.upsert_phash(&file.id, bytes)) {
-                        error!(
-                            "PhashFiles: failed to store phash for {}: {}",
-                            hex::encode(&file.id),
-                            e
-                        );
-                    } else {
-                        info!(
-                            "PhashFiles: computed phash {} for {}",
-                            hex::encode(bytes),
-                            hex::encode(&file.id)
-                        );
-                    }
-                }
-                Err(e) => {
+            let hash = match tokio::task::spawn_blocking(move || {
+                phash_image(&path, &file.mime_type)
+            })
+            .await
+            {
+                Ok(Ok(hash)) => hash,
+                Ok(Err(e)) => {
                     warn!(
                         "PhashFiles: failed to hash {}: {}",
                         hex::encode(&file.id),
                         e
                     );
-                    // Store zeroed hash so we don't retry broken files forever.
-                    let _ = handle.block_on(db.upsert_phash(&file.id, &[0u8; 8]));
+                    if let Err(e) = db.upsert_phash(&file.id, &[0u8; 8]).await {
+                        error!(
+                            "PhashFiles: failed to mark broken file {}: {}",
+                            hex::encode(&file.id),
+                            e
+                        );
+                    }
+                    continue;
                 }
+                Err(e) => {
+                    error!(
+                        "PhashFiles: task panicked for {}: {}",
+                        hex::encode(&file.id),
+                        e
+                    );
+                    if let Err(e) = db.upsert_phash(&file.id, &[0u8; 8]).await {
+                        error!(
+                            "PhashFiles: failed to mark file after panic {}: {}",
+                            hex::encode(&file.id),
+                            e
+                        );
+                    }
+                    continue;
+                }
+            };
+
+            let bytes: &[u8; 8] = hash.as_bytes().try_into().unwrap();
+            if let Err(e) = db.upsert_phash(&file.id, bytes).await {
+                error!(
+                    "PhashFiles: failed to store phash for {}: {}",
+                    hex::encode(&file.id),
+                    e
+                );
+            } else {
+                info!(
+                    "PhashFiles: computed phash {} for {}",
+                    hex::encode(bytes),
+                    hex::encode(&file.id)
+                );
             }
         }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
