@@ -112,6 +112,7 @@ impl LabelFiles {
             Ok(v) => v,
             Err(e) => {
                 error!("Failed to query missing labels for '{}': {}", model_name, e);
+                tokio::time::sleep(Duration::from_secs(2)).await;
                 return;
             }
         };

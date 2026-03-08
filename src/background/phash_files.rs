@@ -46,6 +46,7 @@ impl PhashFiles {
             Ok(v) => v,
             Err(e) => {
                 error!("PhashFiles: failed to query missing phashes: {}", e);
+                tokio::time::sleep(Duration::from_secs(2)).await;
                 return;
             }
         };
