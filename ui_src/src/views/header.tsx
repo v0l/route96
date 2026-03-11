@@ -1,9 +1,8 @@
 import { NostrLink } from "@snort/system";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Button from "../components/button";
 import Profile from "../components/profile";
-import LoginDialog from "../components/login-dialog";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Login } from "../login";
@@ -14,11 +13,15 @@ export default function Header() {
   const pub = usePublisher();
   const location = useLocation();
   const [self, setSelf] = useState<AdminSelf>();
-  const [showLogin, setShowLogin] = useState(false);
+  const navigate = useNavigate();
 
   const url =
     import.meta.env.VITE_API_URL ||
     `${window.location.protocol}//${window.location.host}`;
+
+  useEffect(() => {
+    setSelf(undefined);
+  }, [login?.publicKey]);
 
   useEffect(() => {
     if (pub && self === undefined) {
@@ -110,42 +113,23 @@ export default function Header() {
             </svg>
             SKILL.md
           </a>
-          {login ? (
+          {login && (
             <div className="flex items-center gap-2">
               <Profile link={NostrLink.publicKey(login.publicKey)} />
               <Button
-                onClick={() => Login.logout()}
+                onClick={() => {
+                  Login.logout();
+                  navigate("/");
+                }}
                 variant="secondary"
                 size="sm"
               >
                 Logout
               </Button>
             </div>
-          ) : (
-            <Button onClick={() => setShowLogin(true)} size="sm">
-              Login
-            </Button>
           )}
         </div>
       </div>
-      {showLogin && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowLogin(false);
-          }}
-        >
-          <div className="w-full max-w-md relative">
-            <button
-              className="absolute -top-8 right-0 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
-              onClick={() => setShowLogin(false)}
-            >
-              ✕ Close
-            </button>
-            <LoginDialog onSuccess={() => setShowLogin(false)} />
-          </div>
-        </div>
-      )}
     </header>
   );
 }

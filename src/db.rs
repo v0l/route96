@@ -498,6 +498,52 @@ impl Database {
         Ok(results.into_iter().map(|(id,)| id).collect())
     }
 
+    /// Delete all files owned by a user and return their IDs so the caller can
+    /// remove the physical files. Runs in a single transaction:
+    ///   1. collect the file IDs
+    ///   2. delete all user_uploads rows for this user
+    ///   3. delete all uploads rows that now have no remaining owners
+    pub async fn purge_user_files(&self, pubkey: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        let mut tx = self.pool.begin().await?;
+
+        // Collect file IDs owned by this user
+        let ids: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select uu.file from user_uploads uu \
+             join users u on u.id = uu.user_id \
+             where u.pubkey = ?",
+        )
+        .bind(pubkey)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Remove ownership records for this user
+        sqlx::query(
+            "delete uu from user_uploads uu \
+             join users u on u.id = uu.user_id \
+             where u.pubkey = ?",
+        )
+        .bind(pubkey)
+        .execute(&mut *tx)
+        .await?;
+
+        // Remove upload rows that have no remaining owners
+        sqlx::query(
+            "delete u from uploads u \
+             left join user_uploads uu on uu.file = u.id \
+             where uu.file is null and u.banned = false",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(ids.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Add a new report to the database
     pub async fn add_report(
         &self,

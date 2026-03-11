@@ -1,12 +1,13 @@
 import { useContext, useRef, useState } from "react";
 import { PrivateKeySigner, EventKind, EventPublisher } from "@snort/system";
+import { hexToBech32 } from "@snort/shared";
 import { SnortContext } from "@snort/system-react";
 import Button from "./button";
 import { Login } from "../login";
 import { Blossom } from "../upload/blossom";
 import { ServerUrl } from "../const";
 
-type Step = "setup" | "publishing";
+type Step = "setup" | "save-key" | "publishing";
 
 export default function CreateAccountDialog({
   onBack,
@@ -24,6 +25,8 @@ export default function CreateAccountDialog({
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState("");
+  const [signer, setSigner] = useState<PrivateKeySigner | null>(null);
+  const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
@@ -33,18 +36,29 @@ export default function CreateAccountDialog({
     setAvatarPreview(URL.createObjectURL(f));
   }
 
-  async function create() {
+  function generateKey() {
+    const s = PrivateKeySigner.random();
+    setSigner(s);
+    setStep("save-key");
+  }
+
+  async function copyNsec() {
+    if (!signer) return;
+    await navigator.clipboard.writeText(hexToBech32("nsec", signer.privateKey));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function publish() {
+    if (!signer) return;
     setError(null);
     setStep("publishing");
 
     try {
-      // 1. Generate keypair
-      setStatusMsg("Generating keys…");
-      const signer = PrivateKeySigner.random();
       const pubkeyHex = signer.getPubKey();
       const publisher = new EventPublisher(signer, pubkeyHex);
 
-      // 2. Optionally upload avatar via Blossom
+      // 1. Optionally upload avatar via Blossom
       let picture: string | undefined;
       if (avatarFile) {
         setStatusMsg("Uploading avatar…");
@@ -53,26 +67,34 @@ export default function CreateAccountDialog({
         picture = blob.url;
       }
 
-      // 3. Build and broadcast kind-0
+      // 2. Build and broadcast kind-0
       setStatusMsg("Publishing profile…");
       const metadata: Record<string, string> = {};
       if (name.trim()) metadata.name = name.trim();
       if (about.trim()) metadata.about = about.trim();
       if (picture) metadata.picture = picture;
 
-      const event = await publisher.generic((eb) =>
+      const profileEvent = await publisher.generic((eb) =>
         eb.kind(EventKind.SetMetadata).content(JSON.stringify(metadata)),
       );
-      await system.BroadcastEvent(event);
+      await system.BroadcastEvent(profileEvent);
 
-      // 4. Log in with the new key
+      // 3. Publish kind-10063 blossom server list
+      const serverListEvent = await publisher.generic((eb) =>
+        eb.kind(10_063 as EventKind).tag(["server", ServerUrl]),
+      );
+      await system.BroadcastEvent(serverListEvent);
+
+      // 4. Log in
       Login.loginPrivateKey(signer.privateKey);
       onSuccess?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
-      setStep("setup");
+      setStep("save-key");
     }
   }
+
+  const nsec = signer ? hexToBech32("nsec", signer.privateKey) : "";
 
   return (
     <div className="space-y-4">
@@ -150,15 +172,52 @@ export default function CreateAccountDialog({
             maxLength={256}
           />
 
-          {error && <p className="text-red-400 text-xs">{error}</p>}
-
-          <Button className="w-full" onClick={create}>
-            Create account
+          <Button className="w-full" onClick={generateKey}>
+            Next
           </Button>
 
           <p className="text-xs text-neutral-600 text-center">
             Name and avatar can be changed any time after signup.
           </p>
+        </>
+      )}
+
+      {step === "save-key" && (
+        <>
+          <button
+            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            onClick={() => setStep("setup")}
+          >
+            ← Back
+          </button>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-white">
+              Save your private key
+            </p>
+            <p className="text-xs text-neutral-400">
+              This is the only time your key will be shown. Store it somewhere
+              safe — anyone who has it controls your account.
+            </p>
+          </div>
+
+          <div className="bg-neutral-800 border border-neutral-700 rounded-sm p-3 space-y-2">
+            <p className="text-xs text-neutral-500 font-mono break-all select-all">
+              {nsec}
+            </p>
+            <button
+              className="text-xs text-neutral-400 hover:text-white transition-colors"
+              onClick={copyNsec}
+            >
+              {copied ? "Copied!" : "Copy to clipboard"}
+            </button>
+          </div>
+
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+
+          <Button className="w-full" onClick={publish}>
+            I've saved my key — continue
+          </Button>
         </>
       )}
 

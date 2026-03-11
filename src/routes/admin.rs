@@ -445,60 +445,29 @@ async fn admin_purge_user(
         Err(_) => return AdminResponse::error("Invalid pubkey format"),
     };
 
-    // Get all file IDs for the target user
-    let file_ids = match state.db.get_user_file_ids(&target_pubkey).await {
+    // Bulk-delete DB records and get back the file IDs to remove from disk
+    let file_ids = match state.db.purge_user_files(&target_pubkey).await {
         Ok(ids) => ids,
-        Err(e) => return AdminResponse::error(&format!("Failed to get user files: {}", e)),
+        Err(e) => return AdminResponse::error(&format!("Failed to purge user files: {}", e)),
     };
 
-    let mut deleted_count = 0;
-    let mut failed_count = 0;
+    let count = file_ids.len();
 
-    // Delete each file
-    for file_id in file_ids {
-        // Delete file ownership records
-        if let Err(e) = state.db.delete_all_file_owner(&file_id).await {
-            log::warn!(
-                "Failed to delete file ownership for file {}: {}",
-                hex::encode(&file_id),
-                e
-            );
-            failed_count += 1;
-            continue;
+    // Delete physical files in the background so we can return immediately
+    let fs = state.fs.clone();
+    tokio::spawn(async move {
+        for id in file_ids {
+            if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
+                log::warn!("Failed to delete physical file {}: {}", hex::encode(&id), e);
+            }
         }
+    });
 
-        // Delete file record from database
-        if let Err(e) = state.db.delete_file(&file_id).await {
-            log::warn!(
-                "Failed to delete file record for file {}: {}",
-                hex::encode(&file_id),
-                e
-            );
-            failed_count += 1;
-            continue;
-        }
-
-        // Delete physical file
-        if let Err(e) = tokio::fs::remove_file(state.fs.get(&file_id)).await {
-            log::warn!(
-                "Failed to delete physical file {}: {}",
-                hex::encode(&file_id),
-                e
-            );
-            // Don't increment failed_count here as the DB record is already deleted
-        }
-
-        deleted_count += 1;
-    }
-
-    if failed_count > 0 {
-        AdminResponse::error(&format!(
-            "Partially completed: {} files deleted, {} failed",
-            deleted_count, failed_count
-        ))
-    } else {
-        AdminResponse::success(())
-    }
+    AdminResponse::Ok(Json(AdminResponseBase {
+        status: "success".to_string(),
+        message: Some(format!("Deleting {} files", count)),
+        data: None,
+    }))
 }
 
 #[derive(Deserialize)]

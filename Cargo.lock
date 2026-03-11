@@ -3736,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "route96"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "axum",

@@ -120,24 +120,11 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
   }, [memoizedServers, pub, login?.publicKey]);
 
   useEffect(() => {
-    if (
-      isExpanded &&
-      memoizedServers.length > 1 &&
-      pub &&
-      login?.publicKey &&
-      !hasFetched
-    ) {
+    if (isExpanded && memoizedServers.length > 1 && pub && login?.publicKey) {
       fetchSuggestions();
       setHasFetched(true);
     }
-  }, [
-    isExpanded,
-    memoizedServers,
-    pub,
-    login?.publicKey,
-    fetchSuggestions,
-    hasFetched,
-  ]);
+  }, [isExpanded, memoizedServers, pub, login?.publicKey, fetchSuggestions]);
 
   async function mirrorAll() {
     if (!pub || suggestions.length === 0) return;

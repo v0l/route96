@@ -23,6 +23,7 @@ export default function Upload() {
   const [listedFiles, setListedFiles] = useState<Nip96FileList>();
   const [listedPage, setListedPage] = useState(0);
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
+  const [paymentsEnabled, setPaymentsEnabled] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>();
 
@@ -55,6 +56,7 @@ export default function Upload() {
         ? await uploader.media(file, onProgress)
         : await uploader.upload(file, onProgress);
       setResults((s) => [...s, result]);
+      setListedFiles(undefined);
     } catch (e) {
       if (e instanceof Error) {
         setError(e.message || "Upload failed - no error details provided");
@@ -130,6 +132,16 @@ export default function Upload() {
     }
   }
 
+  // Reset all account-specific state when the logged-in pubkey changes
+  useEffect(() => {
+    setListedFiles(undefined);
+    setListedPage(0);
+    setSelf(undefined);
+    setPaymentsEnabled(false);
+    setShowPaymentFlow(false);
+    setResults([]);
+  }, [login?.publicKey]);
+
   useEffect(() => {
     if (pub && !listedFiles) {
       listUploads(listedPage);
@@ -140,6 +152,10 @@ export default function Upload() {
     if (pub && !self) {
       const r96 = new Route96(ServerUrl, pub);
       r96.getSelf().then((v) => setSelf(v.data));
+      r96
+        .getPaymentInfo()
+        .then(() => setPaymentsEnabled(true))
+        .catch(() => setPaymentsEnabled(false));
     }
   }, [pub, self]);
 
@@ -191,91 +207,91 @@ export default function Upload() {
         </div>
 
         {/* Storage Usage Widget */}
-        {self && (
-          <div className="flex-1 min-w-72 bg-neutral-900 border border-neutral-800 rounded-sm">
-            <div className="p-3">
-              <h3 className="text-sm font-medium mb-3 text-white">Storage</h3>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Files:</span>
-                  <span className="text-white">
-                    {self.file_count.toLocaleString()}
-                  </span>
-                </div>
+        <div className="flex-1 min-w-72 bg-neutral-900 border border-neutral-800 rounded-sm">
+          <div className="p-3">
+            <h3 className="text-sm font-medium mb-3 text-white">Storage</h3>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Files:</span>
+                <span className="text-white">
+                  {(self?.file_count ?? 0).toLocaleString()}
+                </span>
+              </div>
 
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Size:</span>
-                  <span className="text-white">
-                    {FormatBytes(self.total_size)}
-                  </span>
-                </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Size:</span>
+                <span className="text-white">
+                  {FormatBytes(self?.total_size ?? 0)}
+                </span>
+              </div>
 
-                {self.total_available_quota &&
-                  self.total_available_quota > 0 && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-neutral-500">Quota:</span>
+              {self &&
+                self.total_available_quota &&
+                self.total_available_quota > 0 && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500">Quota:</span>
+                      <span className="text-white">
+                        {FormatBytes(self.total_size)} /{" "}
+                        {FormatBytes(self.total_available_quota)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-neutral-800 rounded-sm h-1.5">
+                      <div
+                        className="bg-white h-1.5 rounded-sm transition-all"
+                        style={{
+                          width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-neutral-500">
+                      <span>
+                        {(
+                          (self.total_size / self.total_available_quota) *
+                          100
+                        ).toFixed(1)}
+                        %
+                      </span>
+                      <span
+                        className={
+                          self.total_size / self.total_available_quota > 0.8
+                            ? "text-red-400"
+                            : self.total_size / self.total_available_quota > 0.6
+                              ? "text-yellow-400"
+                              : "text-green-400"
+                        }
+                      >
+                        {FormatBytes(
+                          Math.max(
+                            0,
+                            self.total_available_quota - self.total_size,
+                          ),
+                        )}{" "}
+                        free
+                      </span>
+                    </div>
+
+                    {(self.quota ?? 0) > 0 && (
+                      <div className="flex justify-between pt-2 border-t border-neutral-800">
+                        <span className="text-neutral-500">Paid:</span>
                         <span className="text-white">
-                          {FormatBytes(self.total_size)} /{" "}
-                          {FormatBytes(self.total_available_quota)}
+                          {FormatBytes(self.quota!)}
                         </span>
                       </div>
-                      <div className="w-full bg-neutral-800 rounded-sm h-1.5">
-                        <div
-                          className="bg-white h-1.5 rounded-sm transition-all"
-                          style={{
-                            width: `${Math.min(100, (self.total_size / self.total_available_quota) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-neutral-500">
-                        <span>
-                          {(
-                            (self.total_size / self.total_available_quota) *
-                            100
-                          ).toFixed(1)}
-                          %
-                        </span>
-                        <span
-                          className={
-                            self.total_size / self.total_available_quota > 0.8
-                              ? "text-red-400"
-                              : self.total_size / self.total_available_quota >
-                                  0.6
-                                ? "text-yellow-400"
-                                : "text-green-400"
-                          }
-                        >
-                          {FormatBytes(
-                            Math.max(
-                              0,
-                              self.total_available_quota - self.total_size,
-                            ),
-                          )}{" "}
-                          free
+                    )}
+                    {(self.paid_until ?? 0) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-neutral-500">Expires:</span>
+                        <span className="text-white">
+                          {new Date(
+                            self.paid_until! * 1000,
+                          ).toLocaleDateString()}
                         </span>
                       </div>
-
-                      {(self.quota ?? 0) > 0 && (
-                        <div className="flex justify-between pt-2 border-t border-neutral-800">
-                          <span className="text-neutral-500">Paid:</span>
-                          <span className="text-white">
-                            {FormatBytes(self.quota!)}
-                          </span>
-                        </div>
-                      )}
-                      {(self.paid_until ?? 0) > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">Expires:</span>
-                          <span className="text-white">
-                            {new Date(
-                              self.paid_until! * 1000,
-                            ).toLocaleDateString()}
-                          </span>
-                        </div>
-                      )}
-                    </>
-                  )}
+                    )}
+                  </>
+                )}
+              {paymentsEnabled && (
                 <Button
                   onClick={() => setShowPaymentFlow(!showPaymentFlow)}
                   className="w-full mt-2"
@@ -284,10 +300,10 @@ export default function Upload() {
                 >
                   {showPaymentFlow ? "Hide" : "Payment Options"}
                 </Button>
-              </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Payment Flow Widget */}
         {showPaymentFlow && pub && (

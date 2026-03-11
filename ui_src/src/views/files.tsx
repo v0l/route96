@@ -52,6 +52,8 @@ export default function FileList({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!onPage || pages === undefined || page === undefined) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === "ArrowLeft" && page > 0) {
         onPage(page - 1);
       } else if (e.key === "ArrowRight" && page < pages - 1) {
