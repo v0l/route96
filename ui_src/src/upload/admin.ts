@@ -47,6 +47,11 @@ export interface Report {
   reviewed: boolean;
 }
 
+export interface WhitelistEntry {
+  pubkey: string;
+  created: string;
+}
+
 export interface PaymentInfo {
   unit: string;
   interval: {
@@ -191,6 +196,34 @@ export class Route96 {
       await this.#handleResponse<AdminResponse<Array<SimilarFile>>>(rsp);
     if (!data.data) throw new Error(data.message || "Find similar failed");
     return data.data;
+  }
+
+  async listWhitelist() {
+    const rsp = await this.#req("admin/whitelist", "GET");
+    const data =
+      await this.#handleResponse<AdminResponse<WhitelistEntry[]>>(rsp);
+    if (!data.data) throw new Error(data.message || "List whitelist failed");
+    return data.data;
+  }
+
+  async addToWhitelist(pubkey: string) {
+    const rsp = await this.#req(
+      "admin/whitelist",
+      "POST",
+      JSON.stringify({ pubkey }),
+    );
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async removeFromWhitelist(pubkey: string) {
+    const rsp = await this.#req(
+      "admin/whitelist",
+      "DELETE",
+      JSON.stringify({ pubkey }),
+    );
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
   }
 
   async getPaymentInfo() {

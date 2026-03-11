@@ -145,6 +145,12 @@ pub struct Payment {
 }
 
 #[derive(Clone, FromRow, Serialize)]
+pub struct WhitelistEntry {
+    pub pubkey: String,
+    pub created: DateTime<Utc>,
+}
+
+#[derive(Clone, FromRow, Serialize)]
 pub struct Report {
     pub id: u64,
     #[serde(with = "hex")]
@@ -713,6 +719,51 @@ impl Database {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    // ── Database-backed whitelist ───────────────────────────────────────────
+
+    /// Add a pubkey (hex) to the database whitelist.
+    /// Uses `INSERT IGNORE` so calling this for an already-present pubkey is safe.
+    pub async fn whitelist_add(&self, pubkey_hex: &str) -> Result<(), Error> {
+        sqlx::query("insert ignore into whitelist(pubkey) values(?)")
+            .bind(pubkey_hex)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Remove a pubkey (hex) from the database whitelist.
+    pub async fn whitelist_remove(&self, pubkey_hex: &str) -> Result<(), Error> {
+        sqlx::query("delete from whitelist where pubkey = ?")
+            .bind(pubkey_hex)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Return all entries in the database whitelist, ordered by creation time.
+    pub async fn whitelist_list(&self) -> Result<Vec<WhitelistEntry>, Error> {
+        sqlx::query_as("select pubkey, created from whitelist order by created asc")
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Return true if `pubkey_hex` is present in the database whitelist.
+    pub async fn whitelist_contains(&self, pubkey_hex: &str) -> Result<bool, Error> {
+        let row = sqlx::query("select 1 from whitelist where pubkey = ?")
+            .bind(pubkey_hex)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
+    /// Return true if the database whitelist has at least one entry.
+    pub async fn whitelist_is_enabled(&self) -> Result<bool, Error> {
+        let row = sqlx::query("select 1 from whitelist limit 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
     }
 
     /// Mark multiple reports as reviewed in a single query.

@@ -13,12 +13,16 @@ max_upload_bytes: 5e+9
 # Public facing url
 public_url: "http://localhost:8000"
 
-# (Optional) Whitelisted pubkeys, leave out to disable
+# (Optional) Whitelist — controls who may upload files. Leave out to allow everyone.
+#
+# Database-backed (managed via admin UI):
+# whitelist: true
+#
+# Inline static list of hex pubkeys:
 # whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
-
-# (Optional) Path to a whitelist file (one hex pubkey per line, '#' comments allowed)
-# If set, the server auto-reloads changes about every 10 seconds
-# whitelist_file: "./whitelist.txt"
+#
+# Hot-reloaded file (one hex pubkey per line, '#' comments allowed):
+# whitelist: "./whitelist.txt"
 
 # Directory where HuggingFace model files are cached.
 # Defaults to <storage_dir>/models when not set.
@@ -62,7 +66,7 @@ label_flag_terms:
 # (Optional) Payment system config
 # Remove this entire section to disable storage quotas and enable unlimited uploads
 payments:
-  # (Optional) Free quota in bytes for users without payments (default: 100MB) 
+  # (Optional) Free quota in bytes for users without payments (default: 100MB)
   free_quota_bytes: 104857600
   # (Optional) Fiat currency used to track exchange rate along with invoices
   # If [cost] is using a fiat currency, exchange rates will always be stored
