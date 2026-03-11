@@ -1,5 +1,6 @@
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{Database, FileUpload, Report, ReviewState, User};
+use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
     Json, Router,
@@ -23,6 +24,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                 .patch(admin_review_files)
                 .delete(admin_delete_files),
         )
+        .route("/admin/files/{file_id}/stats", get(admin_file_stats))
         .route("/admin/reports", get(admin_list_reports))
         .route("/admin/reports", delete(admin_acknowledge_reports))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
@@ -105,6 +107,8 @@ pub struct AdminNip94File {
     #[serde(flatten)]
     pub inner: Nip94Event,
     pub uploader: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<FileStats>,
 }
 
 #[derive(Serialize)]
@@ -263,6 +267,7 @@ async fn admin_list_files(
                 .map(|f| AdminNip94File {
                     inner: Nip94Event::from_upload(&state.settings, &f.0),
                     uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    stats: None,
                 })
                 .collect(),
         }),
@@ -376,6 +381,7 @@ async fn admin_get_user_info(
             .map(|f| AdminNip94File {
                 inner: Nip94Event::from_upload(&state.settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
+                stats: None,
             })
             .collect(),
     };
@@ -503,6 +509,7 @@ async fn admin_list_pending_review(
                 .map(|f| AdminNip94File {
                     inner: Nip94Event::from_upload(&state.settings, &f.0),
                     uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    stats: None,
                 })
                 .collect(),
         }),
@@ -632,6 +639,34 @@ async fn admin_similar_files(
     }
 
     AdminResponse::success(results)
+}
+
+/// GET /admin/files/{file_id}/stats
+///
+/// Returns persisted access statistics (last access time and cumulative egress
+/// bytes) for a single file.  Requires admin auth.
+async fn admin_file_stats(
+    auth: Nip98Auth,
+    Path(file_id): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<FileStats> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let id = match hex::decode(&file_id) {
+        Ok(id) => id,
+        Err(_) => return AdminResponse::error("Invalid file id"),
+    };
+
+    match state.db.get_file_stats(&id).await {
+        Ok(Some(stats)) => AdminResponse::success(stats),
+        Ok(None) => AdminResponse::success(FileStats {
+            last_accessed: None,
+            egress_bytes: 0,
+        }),
+        Err(e) => AdminResponse::error(&format!("DB error: {}", e)),
+    }
 }
 
 impl Database {

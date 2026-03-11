@@ -1,3 +1,4 @@
+use crate::file_stats::{FileStatSnapshot, FileStats};
 use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -966,6 +967,41 @@ impl Database {
 
         // Check if upload would exceed quota
         Ok(user_stats.total_size + upload_size <= available_quota)
+    }
+}
+
+// ── File access statistics ──────────────────────────────────────────────────
+
+impl Database {
+    /// Upsert a file stats snapshot into the `file_stats` table.
+    ///
+    /// If a row already exists for the file, `last_accessed` is updated to the
+    /// maximum of the stored and incoming value, and `egress_bytes` is
+    /// incremented by the snapshot's value.
+    pub async fn upsert_file_stats(&self, snap: &FileStatSnapshot) -> Result<(), Error> {
+        sqlx::query(
+            "insert into file_stats(file, last_accessed, egress_bytes) \
+             values(?, ?, ?) \
+             on duplicate key update \
+               last_accessed  = greatest(coalesce(last_accessed, values(last_accessed)), values(last_accessed)), \
+               egress_bytes   = egress_bytes + values(egress_bytes)",
+        )
+        .bind(&snap.file_id)
+        .bind(snap.last_accessed)
+        .bind(snap.egress_bytes)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch persisted stats for a single file from the `file_stats` table.
+    ///
+    /// Returns `None` when no row exists (file has never been accessed).
+    pub async fn get_file_stats(&self, file_id: &Vec<u8>) -> Result<Option<FileStats>, Error> {
+        sqlx::query_as("select last_accessed, egress_bytes from file_stats where file = ?")
+            .bind(file_id)
+            .fetch_optional(&self.pool)
+            .await
     }
 }
 

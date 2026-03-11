@@ -1,4 +1,5 @@
 use crate::db::Database;
+use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
 use crate::settings::Settings;
 use log::{error, info};
@@ -68,9 +69,13 @@ pub fn start_background_tasks(
     file_store: FileStore,
     settings: Settings,
     shutdown: CancellationToken,
+    file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> Vec<JoinHandle<()>> {
     let mut ret = vec![];
+
+    // Always start the file-stats flush task.
+    ret.push(file_stats.start_flush_task(db.clone(), shutdown.clone()));
 
     #[cfg(feature = "media-compression")]
     {

@@ -50,6 +50,7 @@ url = "2"
 notify = "8.2"
 kamadak-exif = "0.6"
 http-range-header = "0.4"
+dashmap = "6"
 
 image = { version = "0.25", default-features = false }
 image_hasher = "3"

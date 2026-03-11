@@ -17,6 +17,7 @@ use route96::analytics::plausible::PlausibleAnalytics;
 use route96::background::start_background_tasks;
 use route96::cors::cors_layer;
 use route96::db::Database;
+use route96::file_stats::FileStatsTracker;
 use route96::filesystem::FileStore;
 use route96::routes;
 use route96::settings::Settings;
@@ -61,6 +62,7 @@ async fn main() -> Result<(), Error> {
 
     let fs = FileStore::new(settings.clone());
     let wl = Whitelist::new(settings.whitelist.clone());
+    let file_stats = FileStatsTracker::new();
 
     #[cfg(feature = "payments")]
     let lnd = {
@@ -129,6 +131,7 @@ async fn main() -> Result<(), Error> {
         db: db.clone(),
         settings: settings.clone(),
         wl: wl.clone(),
+        file_stats: file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd: lnd.clone(),
     }));
@@ -152,6 +155,7 @@ async fn main() -> Result<(), Error> {
         fs.clone(),
         settings.clone(),
         shutdown.clone(),
+        file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd.clone(),
     );
