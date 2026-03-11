@@ -290,7 +290,7 @@ async fn upload(
     }
 
     // check whitelist
-    if !state.wl.contains_hex(&auth.event.pubkey.to_hex()) {
+    if !state.wl.is_allowed(&auth.event.pubkey.to_hex()).await {
         return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 

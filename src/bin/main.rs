@@ -20,7 +20,7 @@ use route96::db::Database;
 use route96::file_stats::FileStatsTracker;
 use route96::filesystem::FileStore;
 use route96::routes;
-use route96::settings::Settings;
+use route96::settings::{Settings, WhitelistMode};
 use route96::whitelist::Whitelist;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Error> {
     };
 
     let fs = FileStore::new(settings.clone());
-    let wl = Whitelist::new(settings.whitelist.clone());
+    let wl = Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db));
     let file_stats = FileStatsTracker::new();
 
     #[cfg(feature = "payments")]
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Error> {
         #[cfg(feature = "payments")]
         lnd.clone(),
     );
-    if let Some(path) = settings.whitelist_file.clone() {
+    if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
         let wh = wl.start_file_watcher(path, shutdown.clone());
         jh.push(wh);
     }

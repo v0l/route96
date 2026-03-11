@@ -311,7 +311,6 @@ mod tests {
             max_upload_bytes: 0,
             public_url: String::new(),
             whitelist: None,
-            whitelist_file: None,
             models_dir: None,
             label_models: None,
             label_flag_terms: None,

@@ -148,8 +148,8 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
     false
 }
 
-fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<BlossomResponse> {
-    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+async fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<BlossomResponse> {
+    if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
         return Some(BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::FORBIDDEN,
             message: Some("Not on whitelist".to_string()),
@@ -193,7 +193,7 @@ async fn list_files(
 }
 
 async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
-    check_head(auth, &state.wl, &state.settings)
+    check_head(auth, &state.wl, &state.settings).await
 }
 
 async fn upload(
@@ -212,7 +212,7 @@ async fn mirror(
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
-    if let Some(e) = check_whitelist(&auth, &state.wl) {
+    if let Some(e) = check_whitelist(&auth, &state.wl).await {
         return e;
     }
 
@@ -280,7 +280,7 @@ async fn mirror(
 
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
-    check_head(auth, &state.wl, &state.settings)
+    check_head(auth, &state.wl, &state.settings).await
 }
 
 #[cfg(feature = "media-compression")]
@@ -292,7 +292,11 @@ async fn upload_media(
     process_upload("media", true, auth, state, body).await
 }
 
-fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
+async fn check_head(
+    auth: BlossomAuth,
+    whitelist: &Whitelist,
+    settings: &Settings,
+) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -324,7 +328,7 @@ fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> 
     }
 
     // check whitelist
-    if !whitelist.contains_hex(&auth.event.pubkey.to_hex()) {
+    if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
         return BlossomHead {
             msg: Some("Not on whitelist"),
         };
@@ -365,7 +369,7 @@ async fn process_upload(
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl) {
+    if let Some(e) = check_whitelist(&auth, &state.wl).await {
         return e;
     }
 
@@ -551,7 +555,7 @@ async fn report_file(
     }
 
     // Check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl) {
+    if let Some(e) = check_whitelist(&auth, &state.wl).await {
         return e;
     }
 

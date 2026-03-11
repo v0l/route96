@@ -1,5 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, FileUploadWithStats, Report, ReviewState, User};
+use crate::db::{Database, FileUpload, FileUploadWithStats, Report, ReviewState, User, WhitelistEntry};
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -28,7 +28,13 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/admin/reports", get(admin_list_reports))
         .route("/admin/reports", delete(admin_acknowledge_reports))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
-        .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user));
+        .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
+        .route(
+            "/admin/whitelist",
+            get(admin_list_whitelist)
+                .post(admin_add_whitelist)
+                .delete(admin_remove_whitelist),
+        );
 
     #[cfg(feature = "media-compression")]
     {
@@ -802,6 +808,13 @@ impl Database {
         Ok((res, count))
     }
 
+    // ── Database-backed whitelist queries ──────────────────────────────────
+
+    /// Return all entries in the database whitelist.
+    pub async fn list_whitelist_entries(&self) -> Result<Vec<WhitelistEntry>, Error> {
+        self.whitelist_list().await
+    }
+
     /// List files whose `review_state` is not `None` and not `Reviewed`,
     /// ordered oldest-first so the backlog drains naturally.
     pub async fn list_files_pending_review(
@@ -846,5 +859,65 @@ impl Database {
             })
             .collect();
         Ok((res, count))
+    }
+}
+
+// ── Whitelist admin handlers ────────────────────────────────────────────────
+
+/// GET /admin/whitelist — list all DB whitelist entries
+async fn admin_list_whitelist(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<Vec<WhitelistEntry>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.whitelist_list().await {
+        Ok(entries) => AdminResponse::success(entries),
+        Err(e) => AdminResponse::error(&format!("Failed to list whitelist: {}", e)),
+    }
+}
+
+/// Request body for adding/removing a pubkey from the whitelist.
+#[derive(Deserialize)]
+struct WhitelistPubkeyBody {
+    pubkey: String,
+}
+
+/// POST /admin/whitelist — add a pubkey to the DB whitelist
+async fn admin_add_whitelist(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<WhitelistPubkeyBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    // Validate: must be a 64-char hex string (32-byte pubkey)
+    if body.pubkey.len() != 64 || hex::decode(&body.pubkey).is_err() {
+        return AdminResponse::error("Invalid pubkey: must be a 64-character hex string");
+    }
+
+    match state.db.whitelist_add(&body.pubkey).await {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Failed to add to whitelist: {}", e)),
+    }
+}
+
+/// DELETE /admin/whitelist — remove a pubkey from the DB whitelist
+async fn admin_remove_whitelist(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<WhitelistPubkeyBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.whitelist_remove(&body.pubkey).await {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Failed to remove from whitelist: {}", e)),
     }
 }

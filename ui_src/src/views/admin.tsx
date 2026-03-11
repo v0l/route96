@@ -11,11 +11,12 @@ import {
   Route96,
   Report,
   SimilarFile,
+  WhitelistEntry,
 } from "../upload/admin";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 
-type Tab = "files" | "reports" | "review";
+type Tab = "files" | "reports" | "review" | "whitelist";
 
 type AdminFileList = {
   count: number;
@@ -45,6 +46,11 @@ export default function Admin() {
   // Review tab
   const [pendingReview, setPendingReview] = useState<AdminFileList>();
   const [pendingReviewPage, setPendingReviewPage] = useState(0);
+
+  // Whitelist tab
+  const [whitelist, setWhitelist] = useState<WhitelistEntry[]>();
+  const [whitelistInput, setWhitelistInput] = useState("");
+  const [whitelistLoading, setWhitelistLoading] = useState(false);
 
   // Similar images modal
   const [similarFiles, setSimilarFiles] = useState<SimilarFile[]>();
@@ -114,6 +120,59 @@ export default function Admin() {
     },
     [pub, url],
   );
+
+  const listWhitelist = useCallback(async () => {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      const result = await route96.listWhitelist();
+      setWhitelist(result);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "List whitelist failed"
+          : "List whitelist failed",
+      );
+    }
+  }, [pub, url]);
+
+  async function addToWhitelist() {
+    if (!pub || !whitelistInput.trim()) return;
+    const pubkey = whitelistInput.trim().toLowerCase();
+    setWhitelistLoading(true);
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.addToWhitelist(pubkey);
+      setWhitelistInput("");
+      await listWhitelist();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Add to whitelist failed"
+          : "Add to whitelist failed",
+      );
+    } finally {
+      setWhitelistLoading(false);
+    }
+  }
+
+  async function removeFromWhitelist(pubkey: string) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.removeFromWhitelist(pubkey);
+      await listWhitelist();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Remove from whitelist failed"
+          : "Remove from whitelist failed",
+      );
+    }
+  }
 
   async function acknowledgeReport(reportId: number) {
     if (!pub) return;
@@ -287,6 +346,12 @@ export default function Admin() {
     }
   }, [tab, pendingReviewPage, pub, self?.is_admin, listPendingReview]);
 
+  useEffect(() => {
+    if (pub && self?.is_admin && tab === "whitelist") {
+      listWhitelist();
+    }
+  }, [tab, pub, self?.is_admin, listWhitelist]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-48">
@@ -316,6 +381,7 @@ export default function Admin() {
     { id: "files", label: "Files" },
     { id: "reports", label: "Reports" },
     { id: "review", label: "Review" },
+    { id: "whitelist", label: "Whitelist" },
   ];
 
   return (
@@ -450,6 +516,68 @@ export default function Admin() {
             </>
           )}
         </>
+      )}
+
+      {tab === "whitelist" && (
+        <div className="space-y-4">
+          <p className="text-xs text-neutral-500">
+            Pubkeys listed here are allowed to upload files. When this list is
+            empty and no static whitelist is configured, the server is open to
+            everyone.
+          </p>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Add pubkey (64-char hex)..."
+              className="flex-1 h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 placeholder-neutral-600 font-mono"
+              value={whitelistInput}
+              onChange={(e) => setWhitelistInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addToWhitelist();
+              }}
+            />
+            <button
+              onClick={addToWhitelist}
+              disabled={whitelistLoading || !whitelistInput.trim()}
+              className="bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-white px-3 py-1 rounded-sm text-xs"
+            >
+              Add
+            </button>
+          </div>
+
+          {whitelist && whitelist.length === 0 && (
+            <div className="text-xs text-neutral-500 text-center py-6">
+              No entries — server is open to all users.
+            </div>
+          )}
+
+          {whitelist && whitelist.length > 0 && (
+            <div className="space-y-1">
+              {whitelist.map((entry) => (
+                <div
+                  key={entry.pubkey}
+                  className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-sm px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs text-neutral-300 truncate">
+                      {entry.pubkey}
+                    </div>
+                    <div className="text-xs text-neutral-600 mt-0.5">
+                      Added {new Date(entry.created).toLocaleString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeFromWhitelist(entry.pubkey)}
+                    className="ml-3 shrink-0 bg-neutral-800 hover:bg-red-900 text-neutral-400 hover:text-red-200 px-2 py-0.5 rounded-sm text-xs transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {(similarFiles || similarLoading) && similarSource && (
