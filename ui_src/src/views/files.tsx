@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { FormatBytes } from "../const";
 import classNames from "classnames";
 import Profile from "../components/profile";
-import type { AdminNip94File } from "../upload/admin";
+import type { AdminNip94File, FileStats } from "../upload/admin";
 
 export interface FileInfo {
   id: string;
@@ -14,6 +14,7 @@ export interface FileInfo {
   dim?: string;
   uploader?: Array<string>;
   labels?: Array<string>;
+  stats?: FileStats;
 }
 
 export default function FileList({
@@ -126,6 +127,7 @@ export default function FileList({
         dim: f.tags.find((a) => a[0] === "dim")?.at(1),
         uploader: "uploader" in f ? (f.uploader as Array<string>) : undefined,
         labels: f.tags.filter((a) => a[0] === "t").map((a) => a[1]),
+        stats: "stats" in f ? (f as AdminNip94File).stats : undefined,
       };
     } else {
       return {
@@ -262,6 +264,25 @@ export default function FileList({
                     : ""}
                 </div>
                 <div className="text-neutral-500 mb-1">{info.type}</div>
+                {info.stats && (
+                  <div className="text-neutral-500 mb-1 text-xs space-y-0.5">
+                    <div>Egress: {FormatBytes(info.stats.egress_bytes, 2)}</div>
+                    {info.size && info.size > 0 && (
+                      <div>
+                        Downloads:{" "}
+                        {Math.floor(info.stats.egress_bytes / info.size)}
+                      </div>
+                    )}
+                    {info.stats.last_accessed && (
+                      <div>
+                        Accessed:{" "}
+                        {new Date(
+                          info.stats.last_accessed,
+                        ).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {info.labels && info.labels.length > 0 && (
                   <div className="flex flex-wrap gap-0.5 justify-center mb-2">
                     {info.labels.map((l, i) => (
@@ -364,6 +385,21 @@ export default function FileList({
               <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Size
               </th>
+              {files.some(
+                (i) => "stats" in i && (i as AdminNip94File).stats,
+              ) && (
+                <>
+                  <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                    Egress
+                  </th>
+                  <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                    Downloads
+                  </th>
+                  <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                    Last Accessed
+                  </th>
+                </>
+              )}
               {files.some((i) => "uploader" in i) && (
                 <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                   Uploader
@@ -405,6 +441,25 @@ export default function FileList({
                       ? FormatBytes(info.size, 2)
                       : ""}
                   </td>
+                  {info.stats && (
+                    <>
+                      <td className="px-2 py-1.5 text-neutral-500">
+                        {FormatBytes(info.stats.egress_bytes, 2)}
+                      </td>
+                      <td className="px-2 py-1.5 text-neutral-500">
+                        {info.size && info.size > 0
+                          ? Math.floor(info.stats.egress_bytes / info.size)
+                          : "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-neutral-500">
+                        {info.stats.last_accessed
+                          ? new Date(
+                              info.stats.last_accessed,
+                            ).toLocaleDateString()
+                          : "—"}
+                      </td>
+                    </>
+                  )}
                   {info.uploader && (
                     <td className="px-2 py-1.5">
                       {info.uploader.map((a, idx) => (

@@ -12,11 +12,17 @@ export interface AdminSelf {
   total_available_quota?: number;
 }
 
+export interface FileStats {
+  last_accessed?: string;
+  egress_bytes: number;
+}
+
 export interface AdminNip94File {
   created_at: number;
   content?: string;
   tags: Array<Array<string>>;
   uploader: Array<string>;
+  stats?: FileStats;
 }
 
 export interface AdminUserInfo {
@@ -79,6 +85,9 @@ export interface PaymentResponse {
   pr: string;
 }
 
+export type FileStatSort = "created" | "egress_bytes" | "last_accessed";
+export type SortOrder = "asc" | "desc";
+
 export class Route96 {
   constructor(
     readonly url: string,
@@ -98,9 +107,11 @@ export class Route96 {
     count = 10,
     mime: string | undefined,
     label: string | undefined = undefined,
+    sort: FileStatSort = "created",
+    order: SortOrder = "desc",
   ) {
     const rsp = await this.#req(
-      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}${label ? `&label=${encodeURIComponent(label)}` : ""}`,
+      `admin/files?page=${page}&count=${count}${mime ? `&mime_type=${mime}` : ""}${label ? `&label=${encodeURIComponent(label)}` : ""}&sort=${sort}&order=${order}`,
       "GET",
     );
     const data = await this.#handleResponse<AdminResponseFileList>(rsp);

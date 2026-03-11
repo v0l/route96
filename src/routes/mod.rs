@@ -55,6 +55,16 @@ pub struct FilePayload {
     pub info: FileUpload,
 }
 
+impl IntoResponse for FilePayload {
+    fn into_response(self) -> Response {
+        let stream = ReaderStream::with_capacity(self.file, STREAM_CHUNK_SIZE);
+        let file_stream = FileStream::new(stream).content_size(self.info.size);
+        let mut response = file_stream.into_response();
+        set_file_headers(&mut response, &self.info);
+        response
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Default)]
 struct Nip94Event {
     pub created_at: i64,
@@ -164,16 +174,6 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
         response
             .headers_mut()
             .insert(header::CONTENT_DISPOSITION, disposition);
-    }
-}
-
-impl IntoResponse for FilePayload {
-    fn into_response(self) -> Response {
-        let stream = ReaderStream::with_capacity(self.file, STREAM_CHUNK_SIZE);
-        let file_stream = FileStream::new(stream).content_size(self.info.size);
-        let mut response = file_stream.into_response();
-        set_file_headers(&mut response, &self.info);
-        response
     }
 }
 

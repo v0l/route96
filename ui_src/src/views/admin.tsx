@@ -12,6 +12,8 @@ import {
   Report,
   SimilarFile,
   WhitelistEntry,
+  FileStatSort,
+  SortOrder,
 } from "../upload/admin";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
@@ -36,6 +38,8 @@ export default function Admin() {
   const [adminListedPage, setAdminListedPage] = useState(0);
   const [mimeFilter, setMimeFilter] = useState<string>();
   const [labelFilter, setLabelFilter] = useState<string>();
+  const [sortBy, setSortBy] = useState<FileStatSort>("created");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [bulkProgress, setBulkProgress] = useState<string>();
 
   // Reports tab
@@ -69,7 +73,14 @@ export default function Admin() {
       try {
         setError(undefined);
         const route96 = new Route96(url, pub);
-        const result = await route96.listFiles(n, 50, mimeFilter, labelFilter);
+        const result = await route96.listFiles(
+          n,
+          50,
+          mimeFilter,
+          labelFilter,
+          sortBy,
+          sortOrder,
+        );
         setAdminListedFiles(result);
       } catch (e) {
         setError(
@@ -79,7 +90,7 @@ export default function Admin() {
         );
       }
     },
-    [pub, url, mimeFilter, labelFilter],
+    [pub, url, mimeFilter, labelFilter, sortBy, sortOrder],
   );
 
   const listReports = useCallback(
@@ -434,6 +445,23 @@ export default function Admin() {
               value={labelFilter || ""}
               onChange={(e) => setLabelFilter(e.target.value || undefined)}
             />
+            <select
+              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as FileStatSort)}
+            >
+              <option value="created">Created</option>
+              <option value="egress_bytes">Egress</option>
+              <option value="last_accessed">Last Accessed</option>
+            </select>
+            <select
+              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+            >
+              <option value="desc">Desc</option>
+              <option value="asc">Asc</option>
+            </select>
           </div>
           {adminListedFiles && (
             <FileList
