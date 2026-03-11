@@ -110,7 +110,7 @@ impl WebpProcessor {
                 {
                     continue;
                 }
-                while let Ok(results) = decoder.decode_pkt(pkt.as_ref()) {
+                if let Ok(results) = decoder.decode_pkt(pkt.as_ref()) {
                     if let Some((frame, _)) = results.into_iter().next() {
                         let frame_save = sws.process_frame(&frame, w, h, AV_PIX_FMT_YUV420P)?;
                         enc.save_picture(&frame_save, out_path.to_str().unwrap())?;

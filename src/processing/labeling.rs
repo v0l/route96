@@ -349,27 +349,39 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
     decoder.setup_decoder(image_stream, None)?;
 
     let mut scaler = Scaler::new();
+
+    macro_rules! try_frame {
+        ($decoded:expr) => {
+            if let Some((frame, _)) = $decoded.into_iter().next() {
+                let new_frame =
+                    scaler.process_frame(&frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
+                let mut dst_vec = Vec::with_capacity(3 * width * height);
+                for row in 0..height {
+                    let line_size = new_frame.linesize[0] as usize;
+                    let row_offset = line_size * row;
+                    let row_slice = unsafe {
+                        slice::from_raw_parts(new_frame.data[0].add(row_offset), 3 * width)
+                    };
+                    dst_vec.extend_from_slice(row_slice);
+                }
+                return Ok(dst_vec);
+            }
+        };
+    }
+
     while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
             None => break,
         };
         let decoded = decoder.decode_pkt(Some(&pkt))?;
-        if let Some((frame, _)) = decoded.into_iter().next() {
-            let new_frame =
-                scaler.process_frame(&frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
-            let mut dst_vec = Vec::with_capacity(3 * width * height);
-
-            for row in 0..height {
-                let line_size = new_frame.linesize[0] as usize;
-                let row_offset = line_size * row;
-                let row_slice =
-                    unsafe { slice::from_raw_parts(new_frame.data[0].add(row_offset), 3 * width) };
-                dst_vec.extend_from_slice(row_slice);
-            }
-            return Ok(dst_vec);
-        }
+        try_frame!(decoded);
     }
+
+    // Flush any frame the decoder was buffering
+    let flushed = decoder.decode_pkt(None)?;
+    try_frame!(flushed);
+
     Err(Error::msg("No image data found"))
 }
 
