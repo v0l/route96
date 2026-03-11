@@ -171,7 +171,13 @@ impl FileStore {
     ) -> String {
         if let Some(p) = p {
             let mime = if p.format.contains("mp4") {
-                Some("video/mp4")
+                // audio-only MP4 containers (e.g. DASH audio segments) must not be
+                // labelled as video/mp4 or thumbnail generation will attempt and fail
+                if stream.is_some() {
+                    Some("video/mp4")
+                } else {
+                    Some("audio/mp4")
+                }
             } else if p.format.contains("webp") {
                 Some("image/webp")
             } else if p.format.contains("jpeg") {
