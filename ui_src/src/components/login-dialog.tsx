@@ -3,8 +3,9 @@ import { Nip7Signer, PrivateKeySigner } from "@snort/system";
 import { hexToBech32, bech32ToHex } from "@snort/shared";
 import Button from "./button";
 import { Login } from "../login";
+import CreateAccountDialog from "./create-account";
 
-type LoginMethod = "nsec" | "nip46";
+type LoginMethod = "nsec" | "nip46" | "create";
 
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);
@@ -146,6 +147,23 @@ export default function LoginDialog({
               Connect via a NIP-46 bunker:// URL
             </div>
           </button>
+
+          <div className="border-t border-neutral-800 pt-2">
+            <button
+              className="w-full text-left px-3 py-2.5 rounded-sm border border-neutral-700 bg-neutral-800 hover:border-neutral-500 transition-colors"
+              onClick={() => {
+                setError(undefined);
+                setMethod("create");
+              }}
+            >
+              <div className="text-sm font-medium text-white">
+                Create account
+              </div>
+              <div className="text-xs text-neutral-400 mt-0.5">
+                Generate a new Nostr keypair and set up your profile
+              </div>
+            </button>
+          </div>
         </div>
       )}
 
@@ -222,7 +240,13 @@ export default function LoginDialog({
         </div>
       )}
 
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {method === "create" && (
+        <CreateAccountDialog onBack={back} onSuccess={onSuccess} />
+      )}
+
+      {method !== "create" && error && (
+        <p className="text-red-400 text-xs">{error}</p>
+      )}
     </div>
   );
 }

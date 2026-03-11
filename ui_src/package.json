@@ -11,8 +11,8 @@
   "dependencies": {
     "@scure/base": "^2.0.0",
     "@snort/shared": "^2.0.0-pre.3",
-    "@snort/system": "^2.0.0-pre.8",
-    "@snort/system-react": "^2.0.0-pre.11",
+    "@snort/system": "^2.0.0-pre.9",
+    "@snort/system-react": "^2.0.0-pre.12",
     "classnames": "^2.5.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

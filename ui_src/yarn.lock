@@ -754,80 +754,34 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@snort/system-react@npm:^2.0.0-pre.11":
-  version: 2.0.0-pre.11
-  resolution: "@snort/system-react@npm:2.0.0-pre.11"
+"@snort/system-react@npm:^2.0.0-pre.12":
+  version: 2.0.0-pre.12
+  resolution: "@snort/system-react@npm:2.0.0-pre.12"
   dependencies:
     "@snort/shared": "npm:^2.0.0-pre.3"
-    "@snort/system": "npm:^2.0.0-pre.8"
+    "@snort/system": "npm:^2.0.0-pre.9"
     react: "npm:^19.2.3"
     react-dom: "npm:^19.2.3"
-  checksum: 10c0/8d12c4a2f283ee1e7097e9f083301f6d1e300ab85ab0c5093208065ccd31825ded4b3f3d6f6d08adf181be42339bc8ae0d48dfbd9f89d80100f1981fc59b2d07
+  checksum: 10c0/a975b0c54b0789109770f1ffd2d7394c78cb2f72ed58e07fe3ea9a7c089f50ede7a2bffdb89aaa10c5880cb0bdcf7da21414506fbe731959a0c98a15c79646e4
   languageName: node
   linkType: hard
 
-"@snort/system@npm:^2.0.0-pre.8":
-  version: 2.0.0-pre.8
-  resolution: "@snort/system@npm:2.0.0-pre.8"
+"@snort/system@npm:^2.0.0-pre.9":
+  version: 2.0.0-pre.9
+  resolution: "@snort/system@npm:2.0.0-pre.9"
   dependencies:
     "@noble/ciphers": "npm:^2.0.1"
     "@noble/curves": "npm:^2.0.1"
     "@noble/hashes": "npm:^2.0.1"
     "@scure/base": "npm:^2.0.0"
     "@snort/shared": "npm:^2.0.0-pre.3"
-    "@stablelib/xchacha20": "npm:^2.0.1"
     debug: "npm:^4.4.3"
     eventemitter3: "npm:^5.0.1"
     isomorphic-ws: "npm:^5.0.0"
     nostr-social-graph: "npm:^1.0.33"
     typescript-lru-cache: "npm:^2.0.0"
-    uuid: "npm:^13.0.0"
     ws: "npm:^8.18.3"
-  checksum: 10c0/7c29158b4980eceaddc81416577671d0f5adc8e14c38e965b58b7c0c6ef6f12cb74af1dbc76d142c3533ed3f31344516e2f14bb43841a475b49a3463159c97b5
-  languageName: node
-  linkType: hard
-
-"@stablelib/binary@npm:^2.0.1":
-  version: 2.0.1
-  resolution: "@stablelib/binary@npm:2.0.1"
-  dependencies:
-    "@stablelib/int": "npm:^2.0.1"
-  checksum: 10c0/6c6a5c84e523fefa98ae50bb1dfe03d03df5d346a9f65da07d784901eb1f3df0d4f9382429ec56df2833c133a77be106e04c72254c9b9471c4f15da993cde24e
-  languageName: node
-  linkType: hard
-
-"@stablelib/chacha@npm:^2.0.1":
-  version: 2.0.1
-  resolution: "@stablelib/chacha@npm:2.0.1"
-  dependencies:
-    "@stablelib/binary": "npm:^2.0.1"
-    "@stablelib/wipe": "npm:^2.0.1"
-  checksum: 10c0/f6a4416bdb9b89e587da7490c4bccc2d41165328a29120af82fd1dca9c838aecf601b2552f1e1684022316c9909d997b45c4f206574549c5debce89f6e0a4971
-  languageName: node
-  linkType: hard
-
-"@stablelib/int@npm:^2.0.1":
-  version: 2.0.1
-  resolution: "@stablelib/int@npm:2.0.1"
-  checksum: 10c0/bf70d40b910dcc19e15e23eb6ce0beddb9bcc8bda958184490753b5e757c8028f5f1d7ccc056766129e02c416665ce474b95031c84f285105a8d7e1da781059a
-  languageName: node
-  linkType: hard
-
-"@stablelib/wipe@npm:^2.0.1":
-  version: 2.0.1
-  resolution: "@stablelib/wipe@npm:2.0.1"
-  checksum: 10c0/f0b76e98f773e5a9875a53fd5d3f311f2585aead8578c4cbd82719154ecf7ec98c9575e6c4068339b7bf445341180312f3a73b5c80b92eb24810c3511b5a4927
-  languageName: node
-  linkType: hard
-
-"@stablelib/xchacha20@npm:^2.0.1":
-  version: 2.0.1
-  resolution: "@stablelib/xchacha20@npm:2.0.1"
-  dependencies:
-    "@stablelib/binary": "npm:^2.0.1"
-    "@stablelib/chacha": "npm:^2.0.1"
-    "@stablelib/wipe": "npm:^2.0.1"
-  checksum: 10c0/4fb631e027da79e2f5d3067f181cecec927c6c3994697a21ff186abb952f6cf6c5ba3c43822dd520ff604bd4b242b5b4ca983664a74e126892e872c3535aa6f9
+  checksum: 10c0/784a0b293af42ec2f28ae547c055c01551af80fabff59669d22437859f60f479ba2fce7c75fefec97211cfeeda5cf964e398142787dc1a4b3cfe46762634f32a
   languageName: node
   linkType: hard
 
@@ -2347,8 +2301,8 @@ __metadata:
   dependencies:
     "@scure/base": "npm:^2.0.0"
     "@snort/shared": "npm:^2.0.0-pre.3"
-    "@snort/system": "npm:^2.0.0-pre.8"
-    "@snort/system-react": "npm:^2.0.0-pre.11"
+    "@snort/system": "npm:^2.0.0-pre.9"
+    "@snort/system-react": "npm:^2.0.0-pre.12"
     "@tailwindcss/vite": "npm:^4.1.18"
     "@types/react": "npm:^19.2.13"
     "@types/react-dom": "npm:^19.2.3"
@@ -2403,15 +2357,6 @@ __metadata:
   bin:
     update-browserslist-db: cli.js
   checksum: 10c0/13a00355ea822388f68af57410ce3255941d5fb9b7c49342c4709a07c9f230bbef7f7499ae0ca7e0de532e79a82cc0c4edbd125f1a323a1845bf914efddf8bec
-  languageName: node
-  linkType: hard
-
-"uuid@npm:^13.0.0":
-  version: 13.0.0
-  resolution: "uuid@npm:13.0.0"
-  bin:
-    uuid: dist-node/bin/uuid
-  checksum: 10c0/950e4c18d57fef6c69675344f5700a08af21e26b9eff2bf2180427564297368c538ea11ac9fb2e6528b17fc3966a9fd2c5049361b0b63c7d654f3c550c9b3d67
   languageName: node
   linkType: hard
 
