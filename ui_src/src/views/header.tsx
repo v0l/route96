@@ -1,8 +1,9 @@
-import { Nip7Signer, NostrLink } from "@snort/system";
+import { NostrLink } from "@snort/system";
 import { Link, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import Button from "../components/button";
 import Profile from "../components/profile";
+import LoginDialog from "../components/login-dialog";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Login } from "../login";
@@ -13,20 +14,11 @@ export default function Header() {
   const pub = usePublisher();
   const location = useLocation();
   const [self, setSelf] = useState<AdminSelf>();
+  const [showLogin, setShowLogin] = useState(false);
 
   const url =
     import.meta.env.VITE_API_URL ||
     `${window.location.protocol}//${window.location.host}`;
-
-  async function tryLogin() {
-    try {
-      const n7 = new Nip7Signer();
-      const pubkey = await n7.getPubKey();
-      Login.login(pubkey);
-    } catch {
-      //ignore
-    }
-  }
 
   useEffect(() => {
     if (pub && self === undefined) {
@@ -130,12 +122,30 @@ export default function Header() {
               </Button>
             </div>
           ) : (
-            <Button onClick={tryLogin} size="sm">
+            <Button onClick={() => setShowLogin(true)} size="sm">
               Login
             </Button>
           )}
         </div>
       </div>
+      {showLogin && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowLogin(false);
+          }}
+        >
+          <div className="w-full max-w-md relative">
+            <button
+              className="absolute -top-8 right-0 text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+              onClick={() => setShowLogin(false)}
+            >
+              ✕ Close
+            </button>
+            <LoginDialog onSuccess={() => setShowLogin(false)} />
+          </div>
+        </div>
+      )}
     </header>
   );
 }

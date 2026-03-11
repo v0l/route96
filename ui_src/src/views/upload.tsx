@@ -4,6 +4,7 @@ import FileList from "./files";
 import PaymentFlow from "../components/payment";
 import ProgressBar from "../components/progress-bar";
 import MirrorSuggestions from "../components/mirror-suggestions";
+import LoginDialog from "../components/login-dialog";
 import { useBlossomServers } from "../hooks/use-blossom-servers";
 import { openFiles } from "../upload";
 import { Blossom, BlobDescriptor } from "../upload/blossom";
@@ -143,16 +144,7 @@ export default function Upload() {
   }, [pub, self]);
 
   if (!login) {
-    return (
-      <div className="max-w-md mx-auto bg-neutral-900 border border-neutral-800 rounded-sm p-4">
-        <h2 className="text-lg font-medium mb-2 text-white">
-          Welcome to {window.location.hostname}
-        </h2>
-        <p className="text-neutral-400 text-sm">
-          Please log in to start uploading files.
-        </p>
-      </div>
-    );
+    return <LoginDialog />;
   }
 
   return (
