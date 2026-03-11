@@ -767,7 +767,7 @@ impl Database {
 
         let mut q = QueryBuilder::new(
             "select u.*, coalesce(fs.last_accessed, null) as last_accessed, \
-             coalesce(fs.egress_bytes, 0) as egress_bytes \
+             cast(coalesce(fs.egress_bytes, 0) as unsigned) as egress_bytes \
              from uploads u ",
         );
         q.push(join_sql);
