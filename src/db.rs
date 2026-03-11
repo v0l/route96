@@ -1,3 +1,4 @@
+use crate::file_stats::{FileStatSnapshot, FileStats};
 use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,19 @@ pub enum ReviewState {
     Reported = 2,
     /// An admin has reviewed the file and cleared it. Value = 3.
     Reviewed = 3,
+}
+
+/// A [`FileUpload`] row joined with its [`FileStats`] row.
+///
+/// Used by queries that select `u.*, fs.last_accessed, fs.egress_bytes` in one
+/// go so that `query_as` can deserialise both structs without manual field
+/// extraction.
+#[derive(Clone, FromRow)]
+pub struct FileUploadWithStats {
+    #[sqlx(flatten)]
+    pub upload: FileUpload,
+    #[sqlx(flatten)]
+    pub stats: FileStats,
 }
 
 #[derive(Clone, FromRow, Default, Serialize)]
@@ -966,6 +980,84 @@ impl Database {
 
         // Check if upload would exceed quota
         Ok(user_stats.total_size + upload_size <= available_quota)
+    }
+}
+
+// ── File access statistics ──────────────────────────────────────────────────
+
+impl Database {
+    /// Upsert a file stats snapshot into the `file_stats` table.
+    ///
+    /// If a row already exists for the file, `last_accessed` is updated to the
+    /// maximum of the stored and incoming value, and `egress_bytes` is
+    /// incremented by the snapshot's value.
+    pub async fn upsert_file_stats(&self, snap: &FileStatSnapshot) -> Result<(), Error> {
+        sqlx::query(
+            "insert into file_stats(file, last_accessed, egress_bytes) \
+             values(?, ?, ?) \
+             on duplicate key update \
+               last_accessed  = greatest(coalesce(last_accessed, values(last_accessed)), values(last_accessed)), \
+               egress_bytes   = egress_bytes + values(egress_bytes)",
+        )
+        .bind(&snap.file_id)
+        .bind(snap.last_accessed)
+        .bind(snap.egress_bytes)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch persisted stats for a single file from the `file_stats` table.
+    ///
+    /// Returns `None` when no row exists (file has never been accessed).
+    pub async fn get_file_stats(&self, file_id: &Vec<u8>) -> Result<Option<FileStats>, Error> {
+        sqlx::query_as("select last_accessed, egress_bytes from file_stats where file = ?")
+            .bind(file_id)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    /// Fetch persisted stats for a batch of files.
+    ///
+    /// Returns a map keyed by file id.  Files with no stats row are absent
+    /// from the map; callers should treat a missing entry as all-zero stats.
+    pub async fn get_file_stats_batch(
+        &self,
+        file_ids: &[&[u8]],
+    ) -> Result<std::collections::HashMap<Vec<u8>, FileStats>, Error> {
+        use std::collections::HashMap;
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut qb = QueryBuilder::new(
+            "select file, last_accessed, egress_bytes from file_stats where file in (",
+        );
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            file: Vec<u8>,
+            last_accessed: Option<chrono::DateTime<chrono::Utc>>,
+            egress_bytes: u64,
+        }
+
+        let rows: Vec<Row> = qb.build_query_as().fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.file,
+                    FileStats {
+                        last_accessed: r.last_accessed,
+                        egress_bytes: r.egress_bytes,
+                    },
+                )
+            })
+            .collect())
     }
 }
 

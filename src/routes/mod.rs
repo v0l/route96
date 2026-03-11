@@ -1,4 +1,5 @@
 use crate::db::{Database, FileUpload};
+use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
 #[cfg(feature = "media-compression")]
 use crate::processing::WebpProcessor;
@@ -16,6 +17,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use axum_extra::response::file_stream::FileStream;
+use chrono::Utc;
 use http_range_header::{EndPosition, StartPosition, parse_range_header};
 use log::warn;
 use nostr::Event;
@@ -43,6 +45,7 @@ pub struct AppState {
     pub db: Database,
     pub settings: Settings,
     pub wl: Whitelist,
+    pub file_stats: FileStatsTracker,
     #[cfg(feature = "payments")]
     pub lnd: Option<fedimint_tonic_lnd::Client>,
 }
@@ -320,8 +323,14 @@ pub async fn get_blob(
         && let Some(range_str) = range_header
         && let Some((start, end)) = get_range_from_header(range_str, info.size)
     {
+        // Record range-request stats (bytes = range length).
+        let bytes_served = end - start + 1;
+        state.file_stats.record(&id, bytes_served, Utc::now());
         return build_range_response(file_path, info, start, end).await;
     }
+
+    // Record full-file access stats.
+    state.file_stats.record(&id, info.size, Utc::now());
 
     // Full file response
     let file = File::open(&file_path)

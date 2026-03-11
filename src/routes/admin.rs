@@ -1,5 +1,6 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, Report, ReviewState, User};
+use crate::db::{Database, FileUpload, FileUploadWithStats, Report, ReviewState, User};
+use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
     Json, Router,
@@ -23,6 +24,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                 .patch(admin_review_files)
                 .delete(admin_delete_files),
         )
+        .route("/admin/files/{file_id}/stats", get(admin_file_stats))
         .route("/admin/reports", get(admin_list_reports))
         .route("/admin/reports", delete(admin_acknowledge_reports))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
@@ -105,6 +107,7 @@ pub struct AdminNip94File {
     #[serde(flatten)]
     pub inner: Nip94Event,
     pub uploader: Vec<String>,
+    pub stats: FileStats,
 }
 
 #[derive(Serialize)]
@@ -218,6 +221,26 @@ async fn admin_get_self(
     }
 }
 
+/// Column to sort files by.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum FileStatSort {
+    /// Sort by upload creation time (default).
+    #[default]
+    Created,
+    EgressBytes,
+    LastAccessed,
+}
+
+/// Sort direction.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum SortOrder {
+    #[default]
+    Desc,
+    Asc,
+}
+
 #[derive(Deserialize)]
 struct AdminListFilesQuery {
     #[serde(default)]
@@ -228,6 +251,10 @@ struct AdminListFilesQuery {
     /// Filter to files that have at least one label containing this substring
     /// (case-insensitive). Only available when the `labels` feature is enabled.
     label: Option<String>,
+    #[serde(default)]
+    sort: FileStatSort,
+    #[serde(default)]
+    order: SortOrder,
 }
 
 fn default_count() -> u32 {
@@ -251,6 +278,8 @@ async fn admin_list_files(
             server_count,
             params.mime_type,
             params.label,
+            params.sort,
+            params.order,
         )
         .await
     {
@@ -260,9 +289,10 @@ async fn admin_list_files(
             total: count as u32,
             files: files
                 .into_iter()
-                .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(&state.settings, &f.0),
-                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                .map(|(upload, stats, owners)| AdminNip94File {
+                    stats,
+                    inner: Nip94Event::from_upload(&state.settings, &upload),
+                    uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
                 })
                 .collect(),
         }),
@@ -367,6 +397,12 @@ async fn admin_get_user_info(
         Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
     };
 
+    let ids: Vec<&[u8]> = files.iter().map(|f| f.id.as_slice()).collect();
+    let stats_map = state
+        .db
+        .get_file_stats_batch(&ids)
+        .await
+        .unwrap_or_default();
     let files_result = PagedResult {
         count: files.len() as u32,
         page,
@@ -374,6 +410,7 @@ async fn admin_get_user_info(
         files: files
             .into_iter()
             .map(|f| AdminNip94File {
+                stats: stats_map.get(f.id.as_slice()).cloned().unwrap_or_default(),
                 inner: Nip94Event::from_upload(&state.settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
             })
@@ -494,18 +531,30 @@ async fn admin_list_pending_review(
         .list_files_pending_review(params.page * server_count, server_count)
         .await
     {
-        Ok((files, total)) => AdminResponse::success(PagedResult {
-            count: files.len() as u32,
-            page: params.page,
-            total: total as u32,
-            files: files
-                .into_iter()
-                .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(&state.settings, &f.0),
-                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
-                })
-                .collect(),
-        }),
+        Ok((files, total)) => {
+            let ids: Vec<&[u8]> = files.iter().map(|f| f.0.id.as_slice()).collect();
+            let stats_map = state
+                .db
+                .get_file_stats_batch(&ids)
+                .await
+                .unwrap_or_default();
+            AdminResponse::success(PagedResult {
+                count: files.len() as u32,
+                page: params.page,
+                total: total as u32,
+                files: files
+                    .into_iter()
+                    .map(|f| AdminNip94File {
+                        stats: stats_map
+                            .get(f.0.id.as_slice())
+                            .cloned()
+                            .unwrap_or_default(),
+                        inner: Nip94Event::from_upload(&state.settings, &f.0),
+                        uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list pending review files: {}", e)),
     }
 }
@@ -634,6 +683,34 @@ async fn admin_similar_files(
     AdminResponse::success(results)
 }
 
+/// GET /admin/files/{file_id}/stats
+///
+/// Returns persisted access statistics (last access time and cumulative egress
+/// bytes) for a single file.  Requires admin auth.
+async fn admin_file_stats(
+    auth: Nip98Auth,
+    Path(file_id): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<FileStats> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let id = match hex::decode(&file_id) {
+        Ok(id) => id,
+        Err(_) => return AdminResponse::error("Invalid file id"),
+    };
+
+    match state.db.get_file_stats(&id).await {
+        Ok(Some(stats)) => AdminResponse::success(stats),
+        Ok(None) => AdminResponse::success(FileStats {
+            last_accessed: None,
+            egress_bytes: 0,
+        }),
+        Err(e) => AdminResponse::error(&format!("DB error: {}", e)),
+    }
+}
+
 impl Database {
     /// Build the shared WHERE clause for `list_all_files` queries.
     fn build_all_files_where<'a>(
@@ -661,35 +738,65 @@ impl Database {
         limit: u32,
         mime_type: Option<String>,
         label: Option<String>,
-    ) -> Result<(Vec<(FileUpload, Vec<User>)>, i64), Error> {
-        let mut q = QueryBuilder::new("select u.* from uploads u where u.banned = false ");
+        sort: FileStatSort,
+        order: SortOrder,
+    ) -> Result<(Vec<(FileUpload, FileStats, Vec<User>)>, i64), Error> {
+        let order_sql = match order {
+            SortOrder::Desc => "desc",
+            SortOrder::Asc => "asc",
+        };
+        // For stats sorts use INNER JOIN so nulls never appear in the sort column.
+        // For created (default) use LEFT JOIN so all files are returned.
+        let (join_sql, sort_col) = match sort {
+            FileStatSort::Created => ("left join file_stats fs on fs.file = u.id", "u.created"),
+            FileStatSort::EgressBytes => (
+                "inner join file_stats fs on fs.file = u.id",
+                "fs.egress_bytes",
+            ),
+            FileStatSort::LastAccessed => (
+                "inner join file_stats fs on fs.file = u.id",
+                "fs.last_accessed",
+            ),
+        };
+
+        let mut q = QueryBuilder::new(
+            "select u.*, coalesce(fs.last_accessed, null) as last_accessed, \
+             coalesce(fs.egress_bytes, 0) as egress_bytes \
+             from uploads u ",
+        );
+        q.push(join_sql);
+        q.push(" where u.banned = false ");
         Self::build_all_files_where(&mut q, &mime_type, &label);
-        q.push("order by u.created desc limit ");
+        q.push(format!("order by {} {} limit ", sort_col, order_sql));
         q.push_bind(limit);
         q.push(" offset ");
         q.push_bind(offset);
-        let results: Vec<FileUpload> = q.build_query_as().fetch_all(&self.pool).await?;
+        let mut rows: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
 
         let mut cq = QueryBuilder::new("select count(u.id) from uploads u where u.banned = false ");
         Self::build_all_files_where(&mut cq, &mime_type, &label);
         let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
 
-        #[allow(unused_mut)]
-        let mut results = results;
         #[cfg(feature = "labels")]
-        self.populate_labels_vec(&mut results).await?;
+        {
+            let mut uploads: Vec<FileUpload> = rows.iter().map(|r| r.upload.clone()).collect();
+            self.populate_labels_vec(&mut uploads).await?;
+            for (row, upload) in rows.iter_mut().zip(uploads) {
+                row.upload.labels = upload.labels;
+            }
+        }
 
-        let file_ids: Vec<&[u8]> = results.iter().map(|f| f.id.as_slice()).collect();
+        let file_ids: Vec<&[u8]> = rows.iter().map(|r| r.upload.id.as_slice()).collect();
         let owners_map = self.get_file_owners_batch(&file_ids).await?;
 
-        let res: Vec<(FileUpload, Vec<User>)> = results
+        let res = rows
             .into_iter()
-            .map(|upload| {
+            .map(|row| {
                 let owners = owners_map
-                    .get(upload.id.as_slice())
+                    .get(row.upload.id.as_slice())
                     .cloned()
                     .unwrap_or_default();
-                (upload, owners)
+                (row.upload, row.stats, owners)
             })
             .collect();
         Ok((res, count))

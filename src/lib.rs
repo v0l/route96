@@ -7,6 +7,7 @@ pub mod cors;
 pub mod db;
 #[cfg(feature = "blossom")]
 pub mod exif_validator;
+pub mod file_stats;
 pub mod filesystem;
 #[cfg(feature = "payments")]
 pub mod payments;
