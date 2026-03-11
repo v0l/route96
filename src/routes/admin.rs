@@ -24,6 +24,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                 .patch(admin_review_files)
                 .delete(admin_delete_files),
         )
+        .route("/admin/files/stats", get(admin_list_files_by_stats))
         .route("/admin/files/{file_id}/stats", get(admin_file_stats))
         .route("/admin/reports", get(admin_list_reports))
         .route("/admin/reports", delete(admin_acknowledge_reports))
@@ -641,6 +642,79 @@ async fn admin_similar_files(
     AdminResponse::success(results)
 }
 
+/// Column to sort by when listing files by access statistics.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum FileStatSort {
+    #[default]
+    EgressBytes,
+    LastAccessed,
+}
+
+/// Sort direction.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum SortOrder {
+    #[default]
+    Desc,
+    Asc,
+}
+
+#[derive(Deserialize)]
+struct AdminListFilesByStatsQuery {
+    #[serde(default)]
+    sort: FileStatSort,
+    #[serde(default)]
+    order: SortOrder,
+    #[serde(default)]
+    page: u32,
+    #[serde(default = "default_count")]
+    count: u32,
+}
+
+/// GET /admin/files/stats
+///
+/// Returns files ordered by their access statistics (egress bytes or last
+/// access time).  Only files that have been accessed at least once are
+/// included.  Requires admin auth.
+async fn admin_list_files_by_stats(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListFilesByStatsQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<PagedResult<AdminNip94File>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let server_count = params.count.clamp(1, 5_000);
+
+    match state
+        .db
+        .list_files_by_stats(
+            params.sort,
+            params.order,
+            params.page * server_count,
+            server_count,
+        )
+        .await
+    {
+        Ok((files, total)) => AdminResponse::success(PagedResult {
+            count: files.len() as u32,
+            page: params.page,
+            total: total as u32,
+            files: files
+                .into_iter()
+                .map(|(upload, stats, owners)| AdminNip94File {
+                    inner: Nip94Event::from_upload(&state.settings, &upload),
+                    uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    stats: Some(stats),
+                })
+                .collect(),
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list files by stats: {}", e)),
+    }
+}
+
 /// GET /admin/files/{file_id}/stats
 ///
 /// Returns persisted access statistics (last access time and cumulative egress
@@ -773,6 +847,103 @@ impl Database {
                 (upload, owners)
             })
             .collect();
+        Ok((res, count))
+    }
+
+    /// List files ordered by a stats column (egress_bytes or last_accessed).
+    ///
+    /// Only files that have a row in `file_stats` are returned — files that
+    /// have never been accessed are excluded.
+    #[allow(private_interfaces)]
+    pub async fn list_files_by_stats(
+        &self,
+        sort: FileStatSort,
+        order: SortOrder,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<(FileUpload, FileStats, Vec<User>)>, i64), Error> {
+        let order_sql = match order {
+            SortOrder::Desc => "desc",
+            SortOrder::Asc => "asc",
+        };
+        let sort_col = match sort {
+            FileStatSort::EgressBytes => "fs.egress_bytes",
+            FileStatSort::LastAccessed => "fs.last_accessed",
+        };
+
+        let mut q = QueryBuilder::new(
+            "select u.*, fs.last_accessed, fs.egress_bytes \
+             from uploads u \
+             inner join file_stats fs on fs.file = u.id \
+             where u.banned = false \
+             order by ",
+        );
+        q.push(sort_col);
+        q.push(format!(" {} limit ", order_sql));
+        q.push_bind(limit);
+        q.push(" offset ");
+        q.push_bind(offset);
+
+        let rows: Vec<sqlx::mysql::MySqlRow> = q.build().fetch_all(&self.pool).await?;
+
+        let count: i64 = sqlx::query(
+            "select count(u.id) \
+             from uploads u \
+             inner join file_stats fs on fs.file = u.id \
+             where u.banned = false",
+        )
+        .fetch_one(&self.pool)
+        .await?
+        .try_get(0)?;
+
+        let mut uploads: Vec<FileUpload> = Vec::with_capacity(rows.len());
+        let mut stats_list: Vec<FileStats> = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            use sqlx::Row as _;
+            let upload = FileUpload {
+                id: row.try_get("id")?,
+                name: row.try_get("name")?,
+                size: row.try_get("size")?,
+                mime_type: row.try_get("mime_type")?,
+                created: row.try_get("created")?,
+                width: row.try_get("width")?,
+                height: row.try_get("height")?,
+                blur_hash: row.try_get("blur_hash")?,
+                alt: row.try_get("alt")?,
+                duration: row.try_get("duration")?,
+                bitrate: row.try_get("bitrate")?,
+                review_state: row.try_get("review_state")?,
+                banned: row.try_get("banned")?,
+                #[cfg(feature = "labels")]
+                labels: vec![],
+            };
+            let stats = FileStats {
+                last_accessed: row.try_get("last_accessed")?,
+                egress_bytes: row.try_get("egress_bytes")?,
+            };
+            uploads.push(upload);
+            stats_list.push(stats);
+        }
+
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut uploads).await?;
+
+        let file_ids: Vec<&[u8]> = uploads.iter().map(|f| f.id.as_slice()).collect();
+        let owners_map = self.get_file_owners_batch(&file_ids).await?;
+
+        let res = uploads
+            .into_iter()
+            .zip(stats_list)
+            .map(|(upload, stats)| {
+                let owners = owners_map
+                    .get(upload.id.as_slice())
+                    .cloned()
+                    .unwrap_or_default();
+                (upload, stats, owners)
+            })
+            .collect();
+
         Ok((res, count))
     }
 }
