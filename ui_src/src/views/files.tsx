@@ -1,5 +1,5 @@
 import { NostrEvent, NostrLink } from "@snort/system";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { FormatBytes } from "../const";
 import classNames from "classnames";
 import Profile from "../components/profile";
@@ -48,6 +48,23 @@ export default function FileList({
   useEffect(() => {
     localStorage.setItem("file-grid-columns", gridCols.toString());
   }, [gridCols]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!onPage || pages === undefined || page === undefined) return;
+      if (e.key === "ArrowLeft" && page > 0) {
+        onPage(page - 1);
+      } else if (e.key === "ArrowRight" && page < pages - 1) {
+        onPage(page + 1);
+      }
+    },
+    [onPage, page, pages],
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   if (files.length === 0) {
     return <span className="text-neutral-500 text-sm">No Files</span>;
