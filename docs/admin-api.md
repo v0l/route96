@@ -29,16 +29,20 @@ Returns info and storage stats for the authenticated admin user.
 
 ### `GET /admin/files`
 
-List all files (excluding banned), newest first.
+List all files (excluding banned).
 
 **Query parameters**
 
-| Parameter   | Type   | Default | Description                                         |
-| ----------- | ------ | ------- | --------------------------------------------------- |
-| `page`      | int    | `0`     | Page number (zero-based)                            |
-| `count`     | int    | `50`    | Results per page (max 5000)                         |
-| `mime_type` | string | —       | Filter by MIME type substring                       |
-| `label`     | string | —       | Filter to files whose labels contain this substring |
+| Parameter   | Type   | Default   | Description                                                |
+| ----------- | ------ | --------- | ---------------------------------------------------------- |
+| `page`      | int    | `0`       | Page number (zero-based)                                   |
+| `count`     | int    | `50`      | Results per page (max 5000)                                |
+| `mime_type` | string | —         | Filter by MIME type substring                              |
+| `label`     | string | —         | Filter to files whose labels contain this substring        |
+| `sort`      | string | `created` | Sort column: `created`, `egress_bytes`, or `last_accessed` |
+| `order`     | string | `desc`    | Sort direction: `desc` or `asc`                            |
+
+When `sort` is `egress_bytes` or `last_accessed`, only files that have been accessed at least once are included (inner join on `file_stats`).
 
 **Response**
 
@@ -70,23 +74,6 @@ Each file in `files` is a NIP-94 event with two extra fields:
 
 - `uploader` — list of hex pubkeys that own the file
 - `stats` — access statistics; `last_accessed` is `null` and `egress_bytes` is `0` for files that have never been served
-
----
-
-### `GET /admin/files/stats`
-
-List files ordered by their access statistics. Only files that have been accessed at least once are included.
-
-**Query parameters**
-
-| Parameter | Type   | Default        | Description                                          |
-| --------- | ------ | -------------- | ---------------------------------------------------- |
-| `sort`    | string | `egress_bytes` | Column to sort by: `egress_bytes` or `last_accessed` |
-| `order`   | string | `desc`         | Sort direction: `desc` or `asc`                      |
-| `page`    | int    | `0`            | Page number (zero-based)                             |
-| `count`   | int    | `50`           | Results per page (max 5000)                          |
-
-**Response** — same shape as `GET /admin/files`.
 
 ---
 
