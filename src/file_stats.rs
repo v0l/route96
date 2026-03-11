@@ -173,7 +173,7 @@ impl Default for FileStatsTracker {
 }
 
 /// Database-level stats for a single file, returned by queries.
-#[derive(Clone, Serialize, FromRow)]
+#[derive(Clone, Default, Serialize, FromRow)]
 pub struct FileStats {
     pub last_accessed: Option<DateTime<Utc>>,
     pub egress_bytes: u64,

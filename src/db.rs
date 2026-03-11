@@ -22,6 +22,19 @@ pub enum ReviewState {
     Reviewed = 3,
 }
 
+/// A [`FileUpload`] row joined with its [`FileStats`] row.
+///
+/// Used by queries that select `u.*, fs.last_accessed, fs.egress_bytes` in one
+/// go so that `query_as` can deserialise both structs without manual field
+/// extraction.
+#[derive(Clone, FromRow)]
+pub struct FileUploadWithStats {
+    #[sqlx(flatten)]
+    pub upload: FileUpload,
+    #[sqlx(flatten)]
+    pub stats: FileStats,
+}
+
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
     /// SHA-256 hash of the file
@@ -1002,6 +1015,49 @@ impl Database {
             .bind(file_id)
             .fetch_optional(&self.pool)
             .await
+    }
+
+    /// Fetch persisted stats for a batch of files.
+    ///
+    /// Returns a map keyed by file id.  Files with no stats row are absent
+    /// from the map; callers should treat a missing entry as all-zero stats.
+    pub async fn get_file_stats_batch(
+        &self,
+        file_ids: &[&[u8]],
+    ) -> Result<std::collections::HashMap<Vec<u8>, FileStats>, Error> {
+        use std::collections::HashMap;
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut qb = QueryBuilder::new(
+            "select file, last_accessed, egress_bytes from file_stats where file in (",
+        );
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            file: Vec<u8>,
+            last_accessed: Option<chrono::DateTime<chrono::Utc>>,
+            egress_bytes: u64,
+        }
+
+        let rows: Vec<Row> = qb.build_query_as().fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.file,
+                    FileStats {
+                        last_accessed: r.last_accessed,
+                        egress_bytes: r.egress_bytes,
+                    },
+                )
+            })
+            .collect())
     }
 }
 

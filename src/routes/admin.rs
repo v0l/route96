@@ -1,5 +1,5 @@
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, Report, ReviewState, User};
+use crate::db::{Database, FileUpload, FileUploadWithStats, Report, ReviewState, User};
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -108,8 +108,7 @@ pub struct AdminNip94File {
     #[serde(flatten)]
     pub inner: Nip94Event,
     pub uploader: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stats: Option<FileStats>,
+    pub stats: FileStats,
 }
 
 #[derive(Serialize)]
@@ -259,19 +258,30 @@ async fn admin_list_files(
         )
         .await
     {
-        Ok((files, count)) => AdminResponse::success(PagedResult {
-            count: files.len() as u32,
-            page: params.page,
-            total: count as u32,
-            files: files
-                .into_iter()
-                .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(&state.settings, &f.0),
-                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
-                    stats: None,
-                })
-                .collect(),
-        }),
+        Ok((files, count)) => {
+            let ids: Vec<&[u8]> = files.iter().map(|f| f.0.id.as_slice()).collect();
+            let stats_map = state
+                .db
+                .get_file_stats_batch(&ids)
+                .await
+                .unwrap_or_default();
+            AdminResponse::success(PagedResult {
+                count: files.len() as u32,
+                page: params.page,
+                total: count as u32,
+                files: files
+                    .into_iter()
+                    .map(|f| AdminNip94File {
+                        stats: stats_map
+                            .get(f.0.id.as_slice())
+                            .cloned()
+                            .unwrap_or_default(),
+                        inner: Nip94Event::from_upload(&state.settings, &f.0),
+                        uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
     }
 }
@@ -373,6 +383,12 @@ async fn admin_get_user_info(
         Err(e) => return AdminResponse::error(&format!("Failed to load user files: {}", e)),
     };
 
+    let ids: Vec<&[u8]> = files.iter().map(|f| f.id.as_slice()).collect();
+    let stats_map = state
+        .db
+        .get_file_stats_batch(&ids)
+        .await
+        .unwrap_or_default();
     let files_result = PagedResult {
         count: files.len() as u32,
         page,
@@ -380,9 +396,9 @@ async fn admin_get_user_info(
         files: files
             .into_iter()
             .map(|f| AdminNip94File {
+                stats: stats_map.get(f.id.as_slice()).cloned().unwrap_or_default(),
                 inner: Nip94Event::from_upload(&state.settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
-                stats: None,
             })
             .collect(),
     };
@@ -501,19 +517,30 @@ async fn admin_list_pending_review(
         .list_files_pending_review(params.page * server_count, server_count)
         .await
     {
-        Ok((files, total)) => AdminResponse::success(PagedResult {
-            count: files.len() as u32,
-            page: params.page,
-            total: total as u32,
-            files: files
-                .into_iter()
-                .map(|f| AdminNip94File {
-                    inner: Nip94Event::from_upload(&state.settings, &f.0),
-                    uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
-                    stats: None,
-                })
-                .collect(),
-        }),
+        Ok((files, total)) => {
+            let ids: Vec<&[u8]> = files.iter().map(|f| f.0.id.as_slice()).collect();
+            let stats_map = state
+                .db
+                .get_file_stats_batch(&ids)
+                .await
+                .unwrap_or_default();
+            AdminResponse::success(PagedResult {
+                count: files.len() as u32,
+                page: params.page,
+                total: total as u32,
+                files: files
+                    .into_iter()
+                    .map(|f| AdminNip94File {
+                        stats: stats_map
+                            .get(f.0.id.as_slice())
+                            .cloned()
+                            .unwrap_or_default(),
+                        inner: Nip94Event::from_upload(&state.settings, &f.0),
+                        uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list pending review files: {}", e)),
     }
 }
@@ -707,7 +734,7 @@ async fn admin_list_files_by_stats(
                 .map(|(upload, stats, owners)| AdminNip94File {
                     inner: Nip94Event::from_upload(&state.settings, &upload),
                     uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
-                    stats: Some(stats),
+                    stats,
                 })
                 .collect(),
         }),
@@ -884,7 +911,7 @@ impl Database {
         q.push(" offset ");
         q.push_bind(offset);
 
-        let rows: Vec<sqlx::mysql::MySqlRow> = q.build().fetch_all(&self.pool).await?;
+        let mut rows: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
 
         let count: i64 = sqlx::query(
             "select count(u.id) \
@@ -896,51 +923,26 @@ impl Database {
         .await?
         .try_get(0)?;
 
-        let mut uploads: Vec<FileUpload> = Vec::with_capacity(rows.len());
-        let mut stats_list: Vec<FileStats> = Vec::with_capacity(rows.len());
-
-        for row in rows {
-            use sqlx::Row as _;
-            let upload = FileUpload {
-                id: row.try_get("id")?,
-                name: row.try_get("name")?,
-                size: row.try_get("size")?,
-                mime_type: row.try_get("mime_type")?,
-                created: row.try_get("created")?,
-                width: row.try_get("width")?,
-                height: row.try_get("height")?,
-                blur_hash: row.try_get("blur_hash")?,
-                alt: row.try_get("alt")?,
-                duration: row.try_get("duration")?,
-                bitrate: row.try_get("bitrate")?,
-                review_state: row.try_get("review_state")?,
-                banned: row.try_get("banned")?,
-                #[cfg(feature = "labels")]
-                labels: vec![],
-            };
-            let stats = FileStats {
-                last_accessed: row.try_get("last_accessed")?,
-                egress_bytes: row.try_get("egress_bytes")?,
-            };
-            uploads.push(upload);
-            stats_list.push(stats);
+        #[cfg(feature = "labels")]
+        {
+            let mut uploads: Vec<FileUpload> = rows.iter().map(|r| r.upload.clone()).collect();
+            self.populate_labels_vec(&mut uploads).await?;
+            for (row, upload) in rows.iter_mut().zip(uploads) {
+                row.upload.labels = upload.labels;
+            }
         }
 
-        #[cfg(feature = "labels")]
-        self.populate_labels_vec(&mut uploads).await?;
-
-        let file_ids: Vec<&[u8]> = uploads.iter().map(|f| f.id.as_slice()).collect();
+        let file_ids: Vec<&[u8]> = rows.iter().map(|r| r.upload.id.as_slice()).collect();
         let owners_map = self.get_file_owners_batch(&file_ids).await?;
 
-        let res = uploads
+        let res = rows
             .into_iter()
-            .zip(stats_list)
-            .map(|(upload, stats)| {
+            .map(|row| {
                 let owners = owners_map
-                    .get(upload.id.as_slice())
+                    .get(row.upload.id.as_slice())
                     .cloned()
                     .unwrap_or_default();
-                (upload, stats, owners)
+                (row.upload, row.stats, owners)
             })
             .collect();
 
