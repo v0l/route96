@@ -61,22 +61,37 @@ pub async fn watch_config(
     let config_path_clone = config_path.clone();
     let watcher_result: anyhow::Result<RecommendedWatcher> = (|| {
         let tx = fs_tx.clone();
+        let watch_path = PathBuf::from(&config_path_clone);
+        // Canonicalise so we can compare paths reliably in the callback.
+        let canonical = watch_path.canonicalize().unwrap_or(watch_path.clone());
+        // Clone before the closure moves `watch_path`.
+        let watch_path_for_closure = watch_path.clone();
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
                 if let Ok(event) = res {
                     use notify::EventKind::*;
-                    match event.kind {
-                        Create(_) | Modify(_) | Remove(_) => {
-                            let _ = tx.try_send(());
-                        }
-                        _ => {}
+                    // Only react to modify events (data changes and atomic
+                    // renames that editors use to save files).  Ignore
+                    // access/open events and unrelated creates/removes.
+                    let is_modify = matches!(event.kind, Modify(_));
+                    if !is_modify {
+                        return;
+                    }
+                    // Filter to events that involve the config file itself,
+                    // ignoring other files in the same watched directory.
+                    let affects_config = event.paths.iter().any(|p| {
+                        p.canonicalize().ok().as_deref() == Some(&canonical)
+                            || p == &watch_path_for_closure
+                    });
+                    if affects_config {
+                        let _ = tx.try_send(());
                     }
                 }
             },
             notify::Config::default(),
         )?;
-        // Watch the parent directory so atomic-rename writes are caught.
-        let watch_path = PathBuf::from(&config_path_clone);
+        // Watch the parent directory so atomic-rename writes (used by most
+        // editors) are caught.  The callback above filters to the config file.
         let parent = watch_path.parent().unwrap_or(std::path::Path::new("."));
         watcher.watch(parent, RecursiveMode::NonRecursive)?;
         Ok(watcher)
