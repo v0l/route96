@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { EventPublisher } from "@snort/system";
+import useLogin from "../hooks/login";
 import { NostrLink, tryParseNostrLink } from "@snort/system";
 import { ConfigEntry, Route96, WhitelistEntry } from "../upload/admin";
 import { FormatBytes } from "../const";
@@ -307,10 +308,13 @@ function WhitelistEditor({
   pub: EventPublisher;
   url: string;
 }) {
+  const login = useLogin();
   const [entries, setEntries] = useState<WhitelistEntry[]>();
   const [input, setInput] = useState("");
   const [inputError, setInputError] = useState<string>();
   const [loading, setLoading] = useState(false);
+
+  const selfHex = login?.publicKey?.toLowerCase();
 
   const load = useCallback(async () => {
     try {
@@ -322,6 +326,8 @@ function WhitelistEditor({
   }, [pub, url]);
 
   useEffect(() => { load(); }, [load]);
+
+  const selfInList = selfHex !== undefined && entries?.some((e) => e.pubkey === selfHex);
 
   async function add() {
     const hex = resolveToHex(input);
@@ -369,6 +375,19 @@ function WhitelistEditor({
           <BtnSmall onClick={add} disabled={loading || !input.trim()}>
             {loading ? "Adding…" : "Add"}
           </BtnSmall>
+          {selfHex && !selfInList && (
+            <BtnSmall onClick={async () => {
+              setLoading(true);
+              try {
+                await new Route96(url, pub).addToWhitelist(selfHex);
+                await load();
+              } finally {
+                setLoading(false);
+              }
+            }}>
+              Add me
+            </BtnSmall>
+          )}
         </div>
         {inputError && (
           <p className="text-xs text-red-400">{inputError}</p>
