@@ -44,6 +44,8 @@ pub mod payment;
 pub struct AppState {
     pub fs: FileStore,
     pub db: Database,
+    /// Path to the static config file, used for on-demand reloads.
+    pub config_path: String,
     /// Live settings, hot-reloaded by the config watcher background task.
     /// Use `.settings()` to get a snapshot for the current request.
     pub settings: Arc<RwLock<Settings>>,
@@ -69,6 +71,20 @@ impl AppState {
     /// Cloning is cheap — `Whitelist` is a plain value type.
     pub async fn wl(&self) -> Whitelist {
         self.wl.read().await.clone()
+    }
+
+    /// Rebuild settings from the config file + env + DB immediately.
+    ///
+    /// Called by admin config handlers so changes take effect at once
+    /// rather than waiting for the next poll cycle.
+    pub async fn reload_config(&self) {
+        crate::config_watcher::reload(
+            &self.config_path,
+            &self.db,
+            &self.settings,
+            &self.wl,
+        )
+        .await;
     }
 }
 

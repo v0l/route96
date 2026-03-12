@@ -143,6 +143,7 @@ async fn main() -> Result<(), Error> {
     let mut app = app.with_state(Arc::new(routes::AppState {
         fs: fs.clone(),
         db: db.clone(),
+        config_path: config_path.clone(),
         settings: live_settings.clone(),
         wl: live_wl.clone(),
         file_stats: file_stats.clone(),

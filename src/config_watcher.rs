@@ -14,7 +14,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::RwLock;
 
 use config::{Config, Environment, File};
@@ -27,10 +26,6 @@ use crate::db::Database;
 use crate::db_config::DbConfigSource;
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
-
-/// How often to poll the database for config changes (in addition to
-/// file-system events from `notify`).
-const DB_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Build a fresh [`Settings`] from the config file + environment + database.
 ///
@@ -120,9 +115,6 @@ pub async fn watch_config(
         }
     };
 
-    let mut db_poll = tokio::time::interval(DB_POLL_INTERVAL);
-    db_poll.tick().await; // consume the immediate first tick
-
     loop {
         tokio::select! {
             biased;
@@ -138,16 +130,11 @@ pub async fn watch_config(
                 while fs_rx.try_recv().is_ok() {}
                 reload(&config_path, &db, &settings, &whitelist).await;
             }
-
-            // Periodic DB poll.
-            _ = db_poll.tick() => {
-                reload(&config_path, &db, &settings, &whitelist).await;
-            }
         }
     }
 }
 
-async fn reload(
+pub async fn reload(
     config_path: &str,
     db: &Database,
     settings: &Arc<RwLock<Settings>>,

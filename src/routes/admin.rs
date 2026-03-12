@@ -1044,7 +1044,10 @@ async fn admin_set_config(
     }
 
     match state.db.config_set(&key, &body.value).await {
-        Ok(()) => AdminResponse::success(()),
+        Ok(()) => {
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
         Err(e) => AdminResponse::error(&format!("Failed to set config key '{}': {}", key, e)),
     }
 }
@@ -1061,7 +1064,10 @@ async fn admin_delete_config(
     }
 
     match state.db.config_delete(&key).await {
-        Ok(()) => AdminResponse::success(()),
+        Ok(()) => {
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
         Err(e) => AdminResponse::error(&format!("Failed to delete config key '{}': {}", key, e)),
     }
 }
