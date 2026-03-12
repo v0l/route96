@@ -40,13 +40,6 @@ const KNOWN_FIELDS: KnownField[] = [
     type: "url",
   },
   {
-    key: "listen",
-    label: "Listen address",
-    description: "Socket address the server binds to (e.g. 0.0.0.0:8000).",
-    type: "text",
-    optional: true,
-  },
-  {
     key: "webhook_url",
     label: "Webhook URL",
     description: "HTTP endpoint notified on upload events.",
@@ -62,13 +55,6 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
-    key: "storage_dir",
-    label: "Storage directory",
-    description:
-      "Filesystem path where uploaded blobs are stored. Changing this does not move existing files.",
-    type: "text",
-  },
-  {
     key: "whitelist",
     label: "Whitelist mode",
     description:
@@ -78,7 +64,11 @@ const KNOWN_FIELDS: KnownField[] = [
   },
 ];
 
-const KNOWN_KEYS = new Set(KNOWN_FIELDS.map((f) => f.key));
+// Keys hidden from the UI entirely (not shown as structured fields and not
+// shown in the raw fallback either — too dangerous or deployment-specific).
+const HIDDEN_KEYS = new Set(["listen", "storage_dir", "database", "models_dir"]);
+
+const KNOWN_KEYS = new Set([...KNOWN_FIELDS.map((f) => f.key), ...HIDDEN_KEYS]);
 
 // ── byte helpers ──────────────────────────────────────────────────────────────
 

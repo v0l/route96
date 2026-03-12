@@ -133,8 +133,8 @@ fn should_skip(key: &str) -> bool {
     // Secrets and deployment-specific paths that must not be overridden via UI
     const SKIP: &[&str] = &[
         "database",
-        "storage_dir",
-        "listen",
+        "storage_dir",  // server-local path, not safe to change via UI
+        "listen",       // requires restart, not a runtime config
         "models_dir",
         // whitelist serialises as a complex type; the UI manages it directly
         "whitelist",
