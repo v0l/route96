@@ -22,7 +22,7 @@ use std::path::PathBuf;
 /// # Hot-reloaded file (one hex pubkey per line, # comments ignored)
 /// whitelist: "/etc/route96/whitelist.txt"
 /// ```
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum WhitelistMode {
     /// Pubkeys are managed at runtime via the admin UI and stored in the database.
     Database,
@@ -84,7 +84,7 @@ impl<'de> Deserialize<'de> for WhitelistMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// Listen addr:port
     pub listen: Option<String>,
@@ -138,7 +138,7 @@ pub struct Settings {
 
 /// Configuration for a single labeling model / API endpoint.
 #[cfg(feature = "labels")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LabelModelConfig {
     /// Human-readable name stored alongside each label this model produces
     /// (e.g. `"vit224"`, `"nsfw-detector"`).
@@ -162,7 +162,7 @@ pub struct LabelModelConfig {
 /// The labeling backend type. Uses `#[serde(tag = "type")]` so each variant
 /// is selected by a `"type"` key in the YAML config.
 #[cfg(feature = "labels")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LabelerType {
     /// Local ViT model downloaded from HuggingFace.

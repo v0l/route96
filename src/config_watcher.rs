@@ -17,7 +17,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use config::{Config, Environment, File};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -154,6 +154,20 @@ async fn reload(
 ) {
     match build_settings(config_path, db).await {
         Ok(new_settings) => {
+            // Only swap (and log) when something actually changed.
+            let changed = match settings.read() {
+                Ok(guard) => *guard != new_settings,
+                Err(e) => {
+                    error!("config_watcher: settings RwLock poisoned: {}", e);
+                    return;
+                }
+            };
+
+            if !changed {
+                debug!("config_watcher: no changes detected in '{}'", config_path);
+                return;
+            }
+
             // Rebuild the whitelist from the new settings so that mode changes
             // (e.g. enabling/disabling the whitelist) take effect immediately.
             let new_wl = Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
