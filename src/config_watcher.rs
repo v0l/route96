@@ -8,7 +8,9 @@
 //!
 //! On any change the full config is rebuilt from scratch (file → env → DB),
 //! deserialised into a fresh [`Settings`] value, and atomically swapped into
-//! the shared [`Arc<RwLock<Settings>>`].
+//! the shared [`Arc<RwLock<Settings>>`].  The [`Whitelist`] is rebuilt from the
+//! new settings at the same time so whitelist mode changes (e.g. enabling or
+//! disabling the whitelist) take effect immediately without a restart.
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -23,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use crate::db::Database;
 use crate::db_config::DbConfigSource;
 use crate::settings::Settings;
+use crate::whitelist::Whitelist;
 
 /// How often to poll the database for config changes (in addition to
 /// file-system events from `notify`).
@@ -44,13 +47,14 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
 
 /// Spawn a background task that watches `config_path` for file-system changes
 /// and polls the database every [`DB_POLL_INTERVAL`], rebuilding [`Settings`]
-/// on any change and writing the new value into `settings`.
+/// and [`Whitelist`] on any change.
 ///
 /// The task exits cleanly when `shutdown` is cancelled.
 pub async fn watch_config(
     config_path: String,
     db: Database,
     settings: Arc<RwLock<Settings>>,
+    whitelist: Arc<RwLock<Whitelist>>,
     shutdown: CancellationToken,
 ) {
     // Channel for file-system events from `notify` (capacity 32 is plenty).
@@ -131,29 +135,48 @@ pub async fn watch_config(
             Some(_) = fs_rx.recv() => {
                 // Drain any additional queued events to debounce rapid writes.
                 while fs_rx.try_recv().is_ok() {}
-                reload(&config_path, &db, &settings).await;
+                reload(&config_path, &db, &settings, &whitelist).await;
             }
 
             // Periodic DB poll.
             _ = db_poll.tick() => {
-                reload(&config_path, &db, &settings).await;
+                reload(&config_path, &db, &settings, &whitelist).await;
             }
         }
     }
 }
 
-async fn reload(config_path: &str, db: &Database, settings: &Arc<RwLock<Settings>>) {
+async fn reload(
+    config_path: &str,
+    db: &Database,
+    settings: &Arc<RwLock<Settings>>,
+    whitelist: &Arc<RwLock<Whitelist>>,
+) {
     match build_settings(config_path, db).await {
         Ok(new_settings) => {
+            // Rebuild the whitelist from the new settings so that mode changes
+            // (e.g. enabling/disabling the whitelist) take effect immediately.
+            let new_wl = Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
+
             match settings.write() {
                 Ok(mut guard) => {
                     *guard = new_settings;
-                    info!("config_watcher: settings reloaded from '{}'", config_path);
                 }
                 Err(e) => {
-                    error!("config_watcher: RwLock poisoned during reload: {}", e);
+                    error!("config_watcher: settings RwLock poisoned during reload: {}", e);
+                    return;
                 }
             }
+            match whitelist.write() {
+                Ok(mut guard) => {
+                    *guard = new_wl;
+                }
+                Err(e) => {
+                    error!("config_watcher: whitelist RwLock poisoned during reload: {}", e);
+                    return;
+                }
+            }
+            info!("config_watcher: settings reloaded from '{}'", config_path);
         }
         Err(e) => {
             error!(

@@ -65,11 +65,14 @@ async fn main() -> Result<(), Error> {
     };
 
     let fs = FileStore::new(settings.clone());
-    let wl = Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db));
     let file_stats = FileStatsTracker::new();
 
-    // Wrap settings in Arc<RwLock<>> so the watcher can hot-reload them.
+    // Wrap settings and whitelist in Arc<RwLock<>> so the watcher can
+    // hot-reload them without restarting the server.
     let live_settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(settings.clone()));
+    let live_wl: Arc<RwLock<Whitelist>> = Arc::new(RwLock::new(
+        Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db)),
+    ));
 
     #[cfg(feature = "payments")]
     let lnd = {
@@ -137,7 +140,7 @@ async fn main() -> Result<(), Error> {
         fs: fs.clone(),
         db: db.clone(),
         settings: live_settings.clone(),
-        wl: wl.clone(),
+        wl: live_wl.clone(),
         file_stats: file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd: lnd.clone(),
@@ -167,14 +170,20 @@ async fn main() -> Result<(), Error> {
         lnd.clone(),
     );
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
-        jh.spawn(wl.watch_file(path, shutdown.clone()));
+        // Clone the Whitelist out of the RwLock for the file watcher — the
+        // file watcher keeps its own internal state and updates the same Arc.
+        let wl_for_file = live_wl.read().expect("whitelist RwLock poisoned").clone();
+        jh.spawn(wl_for_file.watch_file(path, shutdown.clone()));
     }
 
-    // Start the config hot-reload watcher.
+    // Start the config hot-reload watcher.  It rebuilds both Settings and
+    // Whitelist on every change so runtime mode switches (e.g. enabling the
+    // whitelist) take effect without a restart.
     jh.spawn(watch_config(
         config_path,
         db.clone(),
         live_settings.clone(),
+        live_wl.clone(),
         shutdown.clone(),
     ));
 

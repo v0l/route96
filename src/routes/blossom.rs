@@ -195,7 +195,7 @@ async fn list_files(
 
 async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings();
-    check_head(auth, &state.wl, &settings).await
+    check_head(auth, &state.wl(), &settings).await
 }
 
 async fn upload(
@@ -214,7 +214,7 @@ async fn mirror(
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl()).await {
         return e;
     }
 
@@ -283,7 +283,7 @@ async fn mirror(
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings();
-    check_head(auth, &state.wl, &settings).await
+    check_head(auth, &state.wl(), &settings).await
 }
 
 #[cfg(feature = "media-compression")]
@@ -373,27 +373,8 @@ async fn process_upload(
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl()).await {
         return e;
-    }
-
-    // check quota (only if payments are configured)
-    #[cfg(feature = "payments")]
-    if let Some(payment_config) = &settings.payments {
-        let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
-        let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-        if size > 0 {
-            match state
-                .db
-                .check_user_quota(&pubkey_vec, size, free_quota)
-                .await
-            {
-                Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
-                Err(_) => return BlossomResponse::error("Failed to check quota"),
-                Ok(true) => {} // Quota check passed
-            }
-        }
     }
 
     let data_stream = body.into_data_stream();
@@ -559,7 +540,7 @@ async fn report_file(
     }
 
     // Check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl()).await {
         return e;
     }
 

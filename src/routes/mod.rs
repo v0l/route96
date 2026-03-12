@@ -44,9 +44,11 @@ pub struct AppState {
     pub fs: FileStore,
     pub db: Database,
     /// Live settings, hot-reloaded by the config watcher background task.
-    /// Use `.settings.read().unwrap()` to access the current value.
+    /// Use `.settings()` to get a snapshot for the current request.
     pub settings: Arc<RwLock<Settings>>,
-    pub wl: Whitelist,
+    /// Live whitelist, rebuilt by the config watcher whenever settings reload.
+    /// Use `.wl()` to get a snapshot for the current request.
+    pub wl: Arc<RwLock<Whitelist>>,
     pub file_stats: FileStatsTracker,
     #[cfg(feature = "payments")]
     pub lnd: Option<fedimint_tonic_lnd::Client>,
@@ -59,6 +61,13 @@ impl AppState {
     /// repeatedly.
     pub fn settings(&self) -> Settings {
         self.settings.read().expect("settings RwLock poisoned").clone()
+    }
+
+    /// Return a snapshot of the current whitelist.
+    ///
+    /// Cloning is cheap — `Whitelist` wraps an `Arc` internally.
+    pub fn wl(&self) -> Whitelist {
+        self.wl.read().expect("whitelist RwLock poisoned").clone()
     }
 }
 
