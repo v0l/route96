@@ -58,6 +58,11 @@ export interface WhitelistEntry {
   created: string;
 }
 
+export interface ConfigEntry {
+  key: string;
+  value: string;
+}
+
 export interface PaymentInfo {
   unit: string;
   interval: {
@@ -237,6 +242,30 @@ export class Route96 {
     return data;
   }
 
+  async listConfig() {
+    const rsp = await this.#req("admin/config", "GET");
+    const data = await this.#handleResponse<AdminResponse<ConfigEntry[]>>(rsp);
+    if (!data.data) throw new Error(data.message || "List config failed");
+    return data.data;
+  }
+
+  async setConfig(key: string, value: string) {
+    const rsp = await this.#req(
+      `admin/config/${encodeURIComponent(key)}`,
+      "PUT",
+      JSON.stringify({ value }),
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async deleteConfig(key: string) {
+    const rsp = await this.#req(
+      `admin/config/${encodeURIComponent(key)}`,
+      "DELETE",
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
   async listUserFiles(
     page = 0,
     count = 50,
@@ -330,7 +359,7 @@ export class Route96 {
 
   async #req(
     path: string,
-    method: "GET" | "POST" | "DELETE" | "PATCH",
+    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH",
     body?: BodyInit,
   ) {
     throwIfOffline();
@@ -363,6 +392,7 @@ export class Route96 {
     });
   }
 }
+
 
 export interface AdminResponseBase {
   status: string;

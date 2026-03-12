@@ -12,6 +12,7 @@ import {
   Report,
   SimilarFile,
   WhitelistEntry,
+  ConfigEntry,
   FileStatSort,
   SortOrder,
 } from "../upload/admin";
@@ -19,7 +20,7 @@ import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import FileListControls from "../components/file-list-controls";
 
-type Tab = "files" | "reports" | "review" | "whitelist";
+type Tab = "files" | "reports" | "review" | "whitelist" | "config";
 
 type AdminFileList = {
   count: number;
@@ -56,6 +57,13 @@ export default function Admin() {
   const [whitelist, setWhitelist] = useState<WhitelistEntry[]>();
   const [whitelistInput, setWhitelistInput] = useState("");
   const [whitelistLoading, setWhitelistLoading] = useState(false);
+
+  // Config tab
+  const [config, setConfig] = useState<ConfigEntry[]>();
+  const [configKey, setConfigKey] = useState("");
+  const [configValue, setConfigValue] = useState("");
+  const [configLoading, setConfigLoading] = useState(false);
+  const [editingKey, setEditingKey] = useState<string>();
 
   // Similar images modal
   const [similarFiles, setSimilarFiles] = useState<SimilarFile[]>();
@@ -184,6 +192,59 @@ export default function Admin() {
           : "Remove from whitelist failed",
       );
     }
+  }
+
+  const listConfig = useCallback(async () => {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      setConfig(await route96.listConfig());
+    } catch (e) {
+      setError(e instanceof Error ? e.message || "List config failed" : "List config failed");
+    }
+  }, [pub, url]);
+
+  async function saveConfig() {
+    if (!pub || !configKey.trim() || !configValue.trim()) return;
+    setConfigLoading(true);
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.setConfig(configKey.trim(), configValue.trim());
+      setConfigKey("");
+      setConfigValue("");
+      setEditingKey(undefined);
+      await listConfig();
+    } catch (e) {
+      setError(e instanceof Error ? e.message || "Save config failed" : "Save config failed");
+    } finally {
+      setConfigLoading(false);
+    }
+  }
+
+  async function deleteConfig(key: string) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.deleteConfig(key);
+      await listConfig();
+    } catch (e) {
+      setError(e instanceof Error ? e.message || "Delete config failed" : "Delete config failed");
+    }
+  }
+
+  function startEdit(entry: ConfigEntry) {
+    setEditingKey(entry.key);
+    setConfigKey(entry.key);
+    setConfigValue(entry.value);
+  }
+
+  function cancelEdit() {
+    setEditingKey(undefined);
+    setConfigKey("");
+    setConfigValue("");
   }
 
   async function acknowledgeReport(reportId: number) {
@@ -364,6 +425,12 @@ export default function Admin() {
     }
   }, [tab, pub, self?.is_admin, listWhitelist]);
 
+  useEffect(() => {
+    if (pub && self?.is_admin && tab === "config") {
+      listConfig();
+    }
+  }, [tab, pub, self?.is_admin, listConfig]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-48">
@@ -394,6 +461,7 @@ export default function Admin() {
     { id: "reports", label: "Reports" },
     { id: "review", label: "Review" },
     { id: "whitelist", label: "Whitelist" },
+    { id: "config", label: "Config" },
   ];
 
   return (
@@ -573,6 +641,95 @@ export default function Admin() {
                   >
                     Remove
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "config" && (
+        <div className="space-y-4">
+          <p className="text-xs text-neutral-500">
+            These overrides are stored in the database and applied on top of{" "}
+            <code className="font-mono text-neutral-400">config.yaml</code>.
+            Changes take effect within 30 seconds without a restart. Keys use
+            dot-notation for nested values (e.g.{" "}
+            <code className="font-mono text-neutral-400">max_upload_bytes</code>).
+          </p>
+
+          {/* Add / edit form */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Key (e.g. max_upload_bytes)"
+              className="w-48 h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 placeholder-neutral-600 font-mono"
+              value={configKey}
+              disabled={editingKey !== undefined}
+              onChange={(e) => setConfigKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveConfig(); }}
+            />
+            <input
+              type="text"
+              placeholder="Value"
+              className="flex-1 h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 placeholder-neutral-600 font-mono"
+              value={configValue}
+              onChange={(e) => setConfigValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveConfig(); }}
+            />
+            <button
+              onClick={saveConfig}
+              disabled={configLoading || !configKey.trim() || !configValue.trim()}
+              className="bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-white px-3 py-1 rounded-sm text-xs"
+            >
+              {editingKey ? "Save" : "Add"}
+            </button>
+            {editingKey && (
+              <button
+                onClick={cancelEdit}
+                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 px-3 py-1 rounded-sm text-xs"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {config && config.length === 0 && (
+            <div className="text-xs text-neutral-500 text-center py-6">
+              No overrides — all values come from{" "}
+              <code className="font-mono">config.yaml</code>.
+            </div>
+          )}
+
+          {config && config.length > 0 && (
+            <div className="space-y-1">
+              {config.map((entry) => (
+                <div
+                  key={entry.key}
+                  className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-sm px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-xs text-neutral-300 truncate">
+                      {entry.key}
+                    </div>
+                    <div className="font-mono text-xs text-neutral-500 truncate mt-0.5">
+                      {entry.value}
+                    </div>
+                  </div>
+                  <div className="ml-3 shrink-0 flex gap-1">
+                    <button
+                      onClick={() => startEdit(entry)}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white px-2 py-0.5 rounded-sm text-xs transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteConfig(entry.key)}
+                      className="bg-neutral-800 hover:bg-red-900 text-neutral-400 hover:text-red-200 px-2 py-0.5 rounded-sm text-xs transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

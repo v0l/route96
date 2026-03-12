@@ -8,7 +8,7 @@ database: "mysql://root:root@localhost:3366/route96"
 storage_dir: "./data"
 
 # Maximum support filesize for uploading
-max_upload_bytes: 5e+10
+max_upload_bytes: 5e+9
 
 # Public facing url
 public_url: "http://localhost:8000"
@@ -16,7 +16,7 @@ public_url: "http://localhost:8000"
 # (Optional) Whitelist — controls who may upload files. Leave out to allow everyone.
 #
 # Database-backed (managed via admin UI):
-whitelist: true
+# whitelist: true
 #
 # Inline static list of hex pubkeys:
 # whitelist: ["63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed"]
@@ -52,14 +52,16 @@ label_flag_terms:
   - "nsfw"
   - "nipple"
   - "brassiere"
-  - "3-9"
 
 # (Optional) Analytics support
 # plausible_url: "https://plausible.com/"
 
+# (Optional) Legacy file path for void.cat uploads
+# void_cat_files: "/my/void.cat/data"
+
 # (Optional) Reject image uploads containing sensitive EXIF metadata (GPS coordinates, device info)
 # Default: false
-reject_sensitive_exif: true
+# reject_sensitive_exif: true
 
 # (Optional) Payment system config
 # Remove this entire section to disable storage quotas and enable unlimited uploads
