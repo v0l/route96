@@ -113,19 +113,10 @@ export class Route96 {
     return data;
   }
 
-  /** Submit initial setup configuration without authentication. */
-  static async postSetup(baseUrl: string, body: SetupRequest) {
-    const url = new URL(baseUrl).toString();
-    const rsp = await fetch(`${url}setup`, {
-      method: "POST",
-      headers: { accept: "application/json", "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!rsp.ok) {
-      const text = await rsp.text();
-      throw new Error(text || `${rsp.status} ${rsp.statusText}`);
-    }
-    return (await rsp.json()) as AdminResponse<void>;
+  /** Submit initial setup configuration (NIP-98 authenticated). */
+  async postSetup(body: SetupRequest) {
+    const rsp = await this.#req("setup", "POST", JSON.stringify(body));
+    return this.#handleResponse<AdminResponse<void>>(rsp);
   }
 
   async listFiles(

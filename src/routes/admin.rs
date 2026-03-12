@@ -273,6 +273,7 @@ async fn admin_get_self(
 /// Saves the provided configuration values to the database so they take
 /// effect immediately without a server restart.
 async fn post_setup(
+    auth: Nip98Auth,
     AxumState(state): AxumState<Arc<AppState>>,
     Json(body): Json<SetupRequest>,
 ) -> AdminResponse<()> {
@@ -287,6 +288,15 @@ async fn post_setup(
     }
     if !public_url.starts_with("http://") && !public_url.starts_with("https://") {
         return AdminResponse::error("public_url must start with http:// or https://");
+    }
+
+    // Create the submitting user and promote them to admin.
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    if let Err(e) = state.db.upsert_user(&pubkey_vec).await {
+        return AdminResponse::error(&format!("Failed to create user: {}", e));
+    }
+    if let Err(e) = state.db.promote_to_admin(&pubkey_vec).await {
+        return AdminResponse::error(&format!("Failed to promote user to admin: {}", e));
     }
 
     if let Err(e) = state.db.config_set("public_url", public_url).await {

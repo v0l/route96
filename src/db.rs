@@ -210,14 +210,16 @@ impl Database {
             Some(res) => res.try_get(0)?,
         };
 
-        // Make the first user (ID 1) an admin
-        if user_id == 1 {
-            sqlx::query("update users set is_admin = 1 where id = 1")
-                .execute(&self.pool)
-                .await?;
-        }
-
         Ok(user_id)
+    }
+
+    /// Grant admin privileges to the user identified by `pubkey`.
+    pub async fn promote_to_admin(&self, pubkey: &Vec<u8>) -> Result<(), Error> {
+        sqlx::query("update users set is_admin = 1 where pubkey = ?")
+            .bind(pubkey)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn get_user(&self, pubkey: &Vec<u8>) -> Result<User, Error> {
