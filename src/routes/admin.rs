@@ -8,7 +8,7 @@ use axum::{
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, put},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
@@ -36,6 +36,14 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             get(admin_list_whitelist)
                 .post(admin_add_whitelist)
                 .delete(admin_remove_whitelist),
+        )
+        .route(
+            "/admin/config",
+            get(admin_list_config),
+        )
+        .route(
+            "/admin/config/{key}",
+            put(admin_set_config).delete(admin_delete_config),
         );
 
     #[cfg(feature = "media-compression")]
@@ -200,7 +208,7 @@ async fn admin_get_self(
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                if let Some(payment_config) = &state.settings.payments {
+                if let Some(payment_config) = &state.settings().payments {
                     let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
                     let mut total_available = free_quota;
 
@@ -283,19 +291,22 @@ async fn admin_list_files(
         )
         .await
     {
-        Ok((files, count)) => AdminResponse::success(PagedResult {
-            count: files.len() as u32,
-            page: params.page,
-            total: count as u32,
-            files: files
-                .into_iter()
-                .map(|(upload, stats, owners)| Route96File {
-                    stats,
-                    inner: Nip94Event::from_upload(&state.settings, &upload),
-                    uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
-                })
-                .collect(),
-        }),
+        Ok((files, count)) => {
+            let settings = state.settings();
+            AdminResponse::success(PagedResult {
+                count: files.len() as u32,
+                page: params.page,
+                total: count as u32,
+                files: files
+                    .into_iter()
+                    .map(|(upload, stats, owners)| Route96File {
+                        stats,
+                        inner: Nip94Event::from_upload(&settings, &upload),
+                        uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
     }
 }
@@ -345,18 +356,21 @@ async fn user_list_files(
         )
         .await
     {
-        Ok((files, total)) => AdminResponse::success(PagedResult {
-            count: files.len() as u32,
-            page: params.page,
-            total: total as u32,
-            files: files
-                .into_iter()
-                .map(|(upload, stats)| UserFile {
-                    inner: Nip94Event::from_upload(&state.settings, &upload),
-                    stats,
-                })
-                .collect(),
-        }),
+        Ok((files, total)) => {
+            let settings = state.settings();
+            AdminResponse::success(PagedResult {
+                count: files.len() as u32,
+                page: params.page,
+                total: total as u32,
+                files: files
+                    .into_iter()
+                    .map(|(upload, stats)| UserFile {
+                        inner: Nip94Event::from_upload(&settings, &upload),
+                        stats,
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
     }
 }
@@ -464,6 +478,7 @@ async fn admin_get_user_info(
         .get_file_stats_batch(&ids)
         .await
         .unwrap_or_default();
+    let settings = state.settings();
     let files_result = PagedResult {
         count: files.len() as u32,
         page,
@@ -472,7 +487,7 @@ async fn admin_get_user_info(
             .into_iter()
             .map(|f| Route96File {
                 stats: stats_map.get(f.id.as_slice()).cloned().unwrap_or_default(),
-                inner: Nip94Event::from_upload(&state.settings, &f),
+                inner: Nip94Event::from_upload(&settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
             })
             .collect(),
@@ -480,7 +495,7 @@ async fn admin_get_user_info(
 
     #[cfg(feature = "payments")]
     let (free_quota, total_available_quota, payments) = {
-        if let Some(payment_config) = &state.settings.payments {
+        if let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
             let mut total_available = free_quota;
 
@@ -610,7 +625,7 @@ async fn admin_list_pending_review(
                             .get(f.0.id.as_slice())
                             .cloned()
                             .unwrap_or_default(),
-                        inner: Nip94Event::from_upload(&state.settings, &f.0),
+                        inner: Nip94Event::from_upload(&state.settings(), &f.0),
                         uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
                     })
                     .collect(),
@@ -735,7 +750,7 @@ async fn admin_similar_files(
     for (file_id_bytes, dist) in candidates {
         if let Ok(Some(upload)) = state.db.get_file(&file_id_bytes).await {
             results.push(SimilarFile {
-                inner: Nip94Event::from_upload(&state.settings, &upload),
+                inner: Nip94Event::from_upload(&state.settings(), &upload),
                 distance: dist,
             });
         }
@@ -974,6 +989,79 @@ async fn admin_remove_whitelist(
     match state.db.whitelist_remove(&body.pubkey).await {
         Ok(()) => AdminResponse::success(()),
         Err(e) => AdminResponse::error(&format!("Failed to remove from whitelist: {}", e)),
+    }
+}
+
+// ── Dynamic config endpoints ─────────────────────────────────────────────────
+
+/// A single key/value config entry returned by the list endpoint.
+#[derive(Serialize)]
+struct ConfigEntry {
+    pub key: String,
+    pub value: String,
+}
+
+/// `PUT /admin/config/{key}` body.
+#[derive(Deserialize)]
+struct SetConfigBody {
+    pub value: String,
+}
+
+/// `GET /admin/config` — list all database config overrides.
+async fn admin_list_config(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<Vec<ConfigEntry>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.config_list().await {
+        Ok(entries) => AdminResponse::success(
+            entries
+                .into_iter()
+                .map(|(key, value)| ConfigEntry { key, value })
+                .collect(),
+        ),
+        Err(e) => AdminResponse::error(&format!("Failed to list config: {}", e)),
+    }
+}
+
+/// `PUT /admin/config/{key}` — set (upsert) a single config key.
+///
+/// The change is persisted to the database and the in-memory settings are
+/// reloaded by the background watcher within [`DB_POLL_INTERVAL`] seconds (or
+/// immediately on the next file-system event).
+async fn admin_set_config(
+    auth: Nip98Auth,
+    Path(key): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<SetConfigBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.config_set(&key, &body.value).await {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Failed to set config key '{}': {}", key, e)),
+    }
+}
+
+/// `DELETE /admin/config/{key}` — remove a config override, reverting to the
+/// static file value on the next reload.
+async fn admin_delete_config(
+    auth: Nip98Auth,
+    Path(key): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.config_delete(&key).await {
+        Ok(()) => AdminResponse::success(()),
+        Err(e) => AdminResponse::error(&format!("Failed to delete config key '{}': {}", key, e)),
     }
 }
 

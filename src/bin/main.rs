@@ -1,4 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, RwLock};
 
 use anyhow::Error;
 use axum::{
@@ -16,6 +17,7 @@ use route96::analytics::AnalyticsLayer;
 #[cfg(feature = "analytics")]
 use route96::analytics::plausible::PlausibleAnalytics;
 use route96::background::start_background_tasks;
+use route96::config_watcher::{build_settings, watch_config};
 use route96::cors::cors_layer;
 use route96::db::Database;
 use route96::file_stats::FileStatsTracker;
@@ -23,7 +25,6 @@ use route96::filesystem::FileStore;
 use route96::routes;
 use route96::settings::{Settings, WhitelistMode};
 use route96::whitelist::Whitelist;
-use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -40,21 +41,23 @@ async fn main() -> Result<(), Error> {
 
     let args: Args = Args::parse();
 
+    let config_path = args.config.as_deref().unwrap_or("config.yaml").to_string();
+
+    // ── Step 1: load initial settings from file + env only (no DB yet) ──────
     let builder = Config::builder()
-        .add_source(config::File::with_name(if let Some(ref c) = args.config {
-            c.as_str()
-        } else {
-            "config.yaml"
-        }))
+        .add_source(config::File::with_name(&config_path))
         .add_source(config::Environment::with_prefix("APP"))
         .build()?;
 
-    let settings: Settings = builder.try_deserialize()?;
+    let initial_settings: Settings = builder.try_deserialize()?;
 
-    let db = Database::new(&settings.database).await?;
+    let db = Database::new(&initial_settings.database).await?;
 
     info!("Running DB migration");
     db.migrate().await?;
+
+    // ── Step 2: rebuild settings with DB overrides applied ──────────────────
+    let settings = build_settings(&config_path, &db).await?;
 
     let addr: SocketAddr = match &settings.listen {
         Some(i) => i.parse()?,
@@ -64,6 +67,9 @@ async fn main() -> Result<(), Error> {
     let fs = FileStore::new(settings.clone());
     let wl = Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db));
     let file_stats = FileStatsTracker::new();
+
+    // Wrap settings in Arc<RwLock<>> so the watcher can hot-reload them.
+    let live_settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(settings.clone()));
 
     #[cfg(feature = "payments")]
     let lnd = {
@@ -130,7 +136,7 @@ async fn main() -> Result<(), Error> {
     let mut app = app.with_state(Arc::new(routes::AppState {
         fs: fs.clone(),
         db: db.clone(),
-        settings: settings.clone(),
+        settings: live_settings.clone(),
         wl: wl.clone(),
         file_stats: file_stats.clone(),
         #[cfg(feature = "payments")]
@@ -163,6 +169,14 @@ async fn main() -> Result<(), Error> {
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
         jh.spawn(wl.watch_file(path, shutdown.clone()));
     }
+
+    // Start the config hot-reload watcher.
+    jh.spawn(watch_config(
+        config_path,
+        db.clone(),
+        live_settings.clone(),
+        shutdown.clone(),
+    ));
 
     info!("Starting server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;

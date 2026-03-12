@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -43,11 +43,23 @@ pub mod payment;
 pub struct AppState {
     pub fs: FileStore,
     pub db: Database,
-    pub settings: Settings,
+    /// Live settings, hot-reloaded by the config watcher background task.
+    /// Use `.settings.read().unwrap()` to access the current value.
+    pub settings: Arc<RwLock<Settings>>,
     pub wl: Whitelist,
     pub file_stats: FileStatsTracker,
     #[cfg(feature = "payments")]
     pub lnd: Option<fedimint_tonic_lnd::Client>,
+}
+
+impl AppState {
+    /// Return a snapshot of the current settings.
+    ///
+    /// Route handlers should call this once per request rather than locking
+    /// repeatedly.
+    pub fn settings(&self) -> Settings {
+        self.settings.read().expect("settings RwLock poisoned").clone()
+    }
 }
 
 pub struct FilePayload {

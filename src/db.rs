@@ -873,6 +873,40 @@ impl Database {
             .await
     }
 
+    // ── Database-backed dynamic config ─────────────────────────────────────
+
+    /// Return all key/value config overrides stored in the database.
+    pub async fn config_list(&self) -> Result<Vec<(String, String)>, Error> {
+        let rows = sqlx::query("select `key`, `value` from config order by `key` asc")
+            .fetch_all(&self.pool)
+            .await?;
+        rows.into_iter()
+            .map(|r| Ok((r.try_get(0)?, r.try_get(1)?)))
+            .collect()
+    }
+
+    /// Set (upsert) a single config key.
+    pub async fn config_set(&self, key: &str, value: &str) -> Result<(), Error> {
+        sqlx::query(
+            "insert into config(`key`, `value`) values(?, ?) \
+             on duplicate key update `value` = values(`value`), `updated` = current_timestamp",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a single config key (reverting to the static file value).
+    pub async fn config_delete(&self, key: &str) -> Result<(), Error> {
+        sqlx::query("delete from config where `key` = ?")
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Return true if `pubkey_hex` is present in the database whitelist.
     pub async fn whitelist_contains(&self, pubkey_hex: &str) -> Result<bool, Error> {
         let row = sqlx::query("select 1 from whitelist where pubkey = ?")
