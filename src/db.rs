@@ -5,6 +5,26 @@ use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
 use sqlx::{Error, Executor, FromRow, QueryBuilder, Row};
 
+/// Column to sort files by.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FileStatSort {
+    /// Sort by upload creation time (default).
+    #[default]
+    Created,
+    EgressBytes,
+    LastAccessed,
+}
+
+/// Sort direction.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    #[default]
+    Desc,
+    Asc,
+}
+
 /// Review/moderation state for an uploaded file.
 ///
 /// Stored as a `TINYINT UNSIGNED` in MySQL (0–3).
@@ -502,6 +522,110 @@ impl Database {
         self.populate_labels_vec(&mut results).await?;
 
         Ok((results, count))
+    }
+
+    /// List a user's own files joined with their access statistics.
+    ///
+    /// Returns a page of `(FileUpload, FileStats)` tuples ordered by the
+    /// requested column, plus the total un-paged count.
+    pub async fn list_files_with_stats(
+        &self,
+        pubkey: &[u8],
+        offset: u32,
+        limit: u32,
+        mime_type: Option<String>,
+        label: Option<String>,
+        sort: FileStatSort,
+        order: SortOrder,
+    ) -> Result<(Vec<(FileUpload, FileStats)>, i64), Error> {
+        let order_sql = match order {
+            SortOrder::Desc => "desc",
+            SortOrder::Asc => "asc",
+        };
+        // Use INNER JOIN on file_stats when sorting by a stats column so that
+        // nulls never appear in the sort key; LEFT JOIN otherwise so that files
+        // with no recorded downloads are still included.
+        let (stats_join, sort_col) = match sort {
+            FileStatSort::Created => (
+                "left join file_stats fs on fs.file = uploads.id",
+                "uploads.created",
+            ),
+            FileStatSort::EgressBytes => (
+                "inner join file_stats fs on fs.file = uploads.id",
+                "fs.egress_bytes",
+            ),
+            FileStatSort::LastAccessed => (
+                "inner join file_stats fs on fs.file = uploads.id",
+                "fs.last_accessed",
+            ),
+        };
+
+        let mut q = QueryBuilder::new(
+            "select uploads.*, \
+             coalesce(fs.last_accessed, null) as last_accessed, \
+             cast(coalesce(fs.egress_bytes, 0) as unsigned) as egress_bytes \
+             from uploads \
+             join users on users.pubkey = ",
+        );
+        q.push_bind(pubkey);
+        q.push(" join user_uploads on user_uploads.user_id = users.id and user_uploads.file = uploads.id ");
+        q.push(stats_join);
+        q.push(" where uploads.banned = false ");
+        Self::build_user_files_where(&mut q, &mime_type, &label);
+        q.push(format!("order by {} {} limit ", sort_col, order_sql));
+        q.push_bind(limit);
+        q.push(" offset ");
+        q.push_bind(offset);
+
+        #[allow(unused_mut)]
+        let mut results: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
+
+        let mut cq = QueryBuilder::new(
+            "select count(uploads.id) from uploads \
+             join users on users.pubkey = ",
+        );
+        cq.push_bind(pubkey);
+        cq.push(
+            " join user_uploads on user_uploads.user_id = users.id \
+             and user_uploads.file = uploads.id \
+             where uploads.banned = false ",
+        );
+        Self::build_user_files_where(&mut cq, &mime_type, &label);
+        let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
+
+        #[cfg(feature = "labels")]
+        {
+            let mut uploads: Vec<FileUpload> = results.iter().map(|r| r.upload.clone()).collect();
+            self.populate_labels_vec(&mut uploads).await?;
+            for (row, upload) in results.iter_mut().zip(uploads) {
+                row.upload.labels = upload.labels;
+            }
+        }
+
+        Ok((
+            results.into_iter().map(|r| (r.upload, r.stats)).collect(),
+            count,
+        ))
+    }
+
+    /// Append optional WHERE clauses for user file queries.
+    fn build_user_files_where<'a>(
+        qb: &mut QueryBuilder<'a, sqlx::MySql>,
+        mime_type: &'a Option<String>,
+        label: &'a Option<String>,
+    ) {
+        if let Some(m) = mime_type {
+            qb.push("and uploads.mime_type like ");
+            qb.push_bind(format!("%{}%", m));
+            qb.push(" ");
+        }
+        if let Some(l) = label {
+            qb.push(
+                "and exists (select 1 from upload_labels ul where ul.file = uploads.id and ul.label = ",
+            );
+            qb.push_bind(l.clone());
+            qb.push(") ");
+        }
     }
 
     pub async fn get_user_file_ids(&self, pubkey: &Vec<u8>) -> Result<Vec<Vec<u8>>, Error> {

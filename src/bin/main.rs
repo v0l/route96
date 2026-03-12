@@ -9,7 +9,8 @@ use clap::Parser;
 use config::Config;
 #[cfg(feature = "payments")]
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
-use log::info;
+use log::{info, warn};
+use std::time::Duration;
 #[cfg(feature = "analytics")]
 use route96::analytics::AnalyticsLayer;
 #[cfg(feature = "analytics")]
@@ -160,24 +161,48 @@ async fn main() -> Result<(), Error> {
         lnd.clone(),
     );
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
-        let wh = wl.start_file_watcher(path, shutdown.clone());
-        jh.push(wh);
+        jh.spawn(wl.watch_file(path, shutdown.clone()));
     }
 
     info!("Starting server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            tokio::signal::ctrl_c().await.ok();
-            info!("Shutdown signal received");
-        })
-        .await?;
+    // Wait for Ctrl+C, then cancel everything.
+    let shutdown_signal = shutdown.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        info!("Shutdown signal received");
+        shutdown_signal.cancel();
+    });
 
-    shutdown.cancel();
+    // Run until the shutdown token is cancelled.  Once cancelled, axum enters
+    // graceful-drain mode: it stops accepting new connections and waits for
+    // existing ones to close.  We give that drain up to 5 s; after that we
+    // abandon any lingering keep-alive connections.
+    let serve = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown.clone().cancelled_owned());
 
-    for j in jh {
-        j.await?;
+    tokio::select! {
+        res = serve => { res.ok(); }
+        _ = async {
+            shutdown.cancelled().await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        } => {
+            warn!("Graceful HTTP shutdown timed out; abandoning open connections");
+        }
     }
-    Ok(())
+
+    // Give background tasks up to 5 s to finish cleanly (e.g. final stats
+    // flush). After that, force-exit — CPU-bound work like model loading
+    // cannot be interrupted and should not hold up shutdown.
+    if tokio::time::timeout(Duration::from_secs(5), async move {
+        while jh.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        warn!("Background tasks did not finish in time; forcing exit");
+    }
+
+    std::process::exit(0);
 }

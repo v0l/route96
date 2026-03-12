@@ -7,7 +7,6 @@ use candle_core::Device;
 use log::{error, info, warn};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub struct LabelFiles {
@@ -41,6 +40,8 @@ impl LabelFiles {
         let models_dir = self.models_dir.clone();
         let label_flag_terms = self.label_flag_terms.clone();
 
+        let mut handles = vec![];
+
         for cfg in self.label_models {
             let db = self.db.clone();
             let fs = self.fs.clone();
@@ -49,11 +50,23 @@ impl LabelFiles {
             let token = shutdown.clone();
             let cfg_clone = cfg.clone();
 
-            tokio::spawn(async move {
-                let labeler = match Self::build_labeler(&cfg_clone, &models_dir) {
-                    Some(l) => Arc::new(l),
-                    None => return,
+            let handle = tokio::spawn(async move {
+                let labeler = match tokio::task::spawn_blocking(move || {
+                    Self::build_labeler(&cfg_clone, &models_dir)
+                })
+                .await
+                {
+                    Ok(Some(l)) => Arc::new(l),
+                    Ok(None) => return,
+                    Err(e) => {
+                        error!("Label worker panicked during model load: {:?}", e);
+                        return;
+                    }
                 };
+
+                if token.is_cancelled() {
+                    return;
+                }
 
                 info!("Label worker '{}' started", labeler.name());
 
@@ -64,7 +77,7 @@ impl LabelFiles {
                     let sleep_dur;
 
                     tokio::select! {
-                        batch_result = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms) => {
+                        batch_result = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms, &token) => {
                             sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                             if let BatchResult::Processed { found } = batch_result
                                 && stall_rounds > 0
@@ -83,8 +96,6 @@ impl LabelFiles {
                         }
                     }
 
-                    // Sleep outside the select so the cancellation token can
-                    // still interrupt us during the wait.
                     tokio::select! {
                         _ = tokio::time::sleep(sleep_dur) => {}
                         _ = token.cancelled() => {
@@ -94,9 +105,13 @@ impl LabelFiles {
                     }
                 }
             });
+
+            handles.push(handle);
         }
 
-        tokio::time::sleep(Duration::from_secs(365 * 24 * 60 * 60)).await;
+        for h in handles {
+            h.await.unwrap_or_else(|e| error!("Label worker task failed: {:?}", e));
+        }
     }
 
     /// Construct the appropriate [`MediaLabeler`] for a given config entry.
@@ -134,6 +149,7 @@ impl LabelFiles {
         db: &Database,
         fs: &FileStore,
         label_flag_terms: &[String],
+        shutdown: &CancellationToken,
     ) -> BatchResult {
         let model_name = labeler.name().to_string();
         let to_label = match db.get_files_missing_labels(&model_name).await {
@@ -152,6 +168,9 @@ impl LabelFiles {
         info!("{} files missing labels for model '{}'", found, model_name);
 
         for file in to_label {
+            if shutdown.is_cancelled() {
+                return BatchResult::Processed { found };
+            }
             let path = fs.get(&file.id);
             if !path.exists() {
                 warn!("Skipping missing file: {}", hex::encode(&file.id));

@@ -36,7 +36,7 @@ impl PhashFiles {
                 let sleep_dur;
 
                 tokio::select! {
-                    batch_result = Self::run_batch(&db, &fs) => {
+                    batch_result = Self::run_batch(&db, &fs, &shutdown) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                         if let BatchResult::Processed { found } = batch_result
                             && stall_rounds > 0
@@ -69,7 +69,7 @@ impl PhashFiles {
         .unwrap_or_else(|e| error!("PhashFiles task failed: {:?}", e));
     }
 
-    async fn run_batch(db: &Database, fs: &FileStore) -> BatchResult {
+    async fn run_batch(db: &Database, fs: &FileStore, shutdown: &CancellationToken) -> BatchResult {
         let to_process = match db.get_images_missing_phash().await {
             Ok(v) => v,
             Err(e) => {
@@ -86,6 +86,9 @@ impl PhashFiles {
         info!("{} images missing phash", found);
 
         for file in to_process {
+            if shutdown.is_cancelled() {
+                return BatchResult::Processed { found };
+            }
             let path = fs.get(&file.id);
             if !path.exists() {
                 warn!(

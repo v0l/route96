@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Button from "../components/button";
 import FileList from "./files";
 import PaymentFlow from "../components/payment";
@@ -10,8 +10,8 @@ import { openFiles } from "../upload";
 import { Blossom, BlobDescriptor } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
-import { Nip96, Nip96FileList } from "../upload/nip96";
-import { AdminSelf, Route96 } from "../upload/admin";
+import { Route96File, AdminSelf, Route96, FileStatSort, SortOrder } from "../upload/admin";
+import FileListControls from "../components/file-list-controls";
 import { FormatBytes, ServerUrl } from "../const";
 import { UploadProgress } from "../upload/progress";
 
@@ -20,8 +20,19 @@ export default function Upload() {
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
   const [results, setResults] = useState<Array<BlobDescriptor>>([]);
-  const [listedFiles, setListedFiles] = useState<Nip96FileList>();
+  const [listedFiles, setListedFiles] = useState<{
+    files: Array<Route96File>;
+    total: number;
+    count: number;
+    page: number;
+  }>();
+  const [mimeFilter, setMimeFilter] = useState<string>();
+  const [labelInput, setLabelInput] = useState<string>("");
+  const [labelFilter, setLabelFilter] = useState<string>();
+  const [sortBy, setSortBy] = useState<FileStatSort>("created");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [listedPage, setListedPage] = useState(0);
+  const labelDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [showPaymentFlow, setShowPaymentFlow] = useState(false);
   const [paymentsEnabled, setPaymentsEnabled] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -96,9 +107,8 @@ export default function Upload() {
       if (!pub) return;
       try {
         setError(undefined);
-        const uploader = new Nip96(ServerUrl, pub);
-        await uploader.loadInfo();
-        const result = await uploader.listFiles(n, 50);
+        const r96 = new Route96(ServerUrl, pub);
+        const result = await r96.listUserFiles(n, 50, mimeFilter, labelFilter, sortBy, sortOrder);
         setListedFiles(result);
       } catch (e) {
         if (e instanceof Error) {
@@ -112,7 +122,7 @@ export default function Upload() {
         }
       }
     },
-    [pub],
+    [pub, mimeFilter, labelFilter, sortBy, sortOrder],
   );
 
   async function deleteFile(id: string) {
@@ -136,11 +146,19 @@ export default function Upload() {
   useEffect(() => {
     setListedFiles(undefined);
     setListedPage(0);
+    setLabelInput("");
+    setLabelFilter(undefined);
     setSelf(undefined);
     setPaymentsEnabled(false);
     setShowPaymentFlow(false);
     setResults([]);
   }, [login?.publicKey]);
+
+  // Re-fetch when filters or sort change
+  useEffect(() => {
+    setListedFiles(undefined);
+    setListedPage(0);
+  }, [mimeFilter, labelFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     if (pub && !listedFiles) {
@@ -397,13 +415,25 @@ export default function Upload() {
         {/* Files Widget */}
         <div className="w-full bg-neutral-900 border border-neutral-800 rounded-sm">
           <div className="p-3">
-            <div className="flex justify-between items-center mb-3">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
               <h3 className="text-sm font-medium text-white">Your Files</h3>
-              {!listedFiles && (
-                <Button onClick={() => listUploads(0)} size="sm">
-                  Load
-                </Button>
-              )}
+              <FileListControls
+                mimeFilter={mimeFilter}
+                onMimeFilter={setMimeFilter}
+                labelFilter={labelInput}
+                onLabelFilter={(v) => {
+                  setLabelInput(v ?? "");
+                  clearTimeout(labelDebounceRef.current);
+                  labelDebounceRef.current = setTimeout(
+                    () => setLabelFilter(v || undefined),
+                    400,
+                  );
+                }}
+                sortBy={sortBy}
+                onSortBy={setSortBy}
+                sortOrder={sortOrder}
+                onSortOrder={setSortOrder}
+              />
             </div>
 
             {listedFiles && (
@@ -416,6 +446,7 @@ export default function Upload() {
                   await deleteFile(x);
                   await listUploads(listedPage);
                 }}
+                onLabelClick={(l) => { setLabelInput(l ?? ""); setLabelFilter(l || undefined); }}
               />
             )}
           </div>

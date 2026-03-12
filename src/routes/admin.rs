@@ -1,5 +1,6 @@
+use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileUpload, FileUploadWithStats, Report, ReviewState, User, WhitelistEntry};
+use crate::db::{Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User, WhitelistEntry};
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -17,6 +18,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
         .route("/admin/self", get(admin_get_self))
+        .route("/user/files", get(user_list_files))
         .route("/admin/files", get(admin_list_files))
         .route(
             "/admin/files/review",
@@ -109,10 +111,21 @@ pub struct SelfUser {
 }
 
 #[derive(Serialize)]
-pub struct AdminNip94File {
+pub struct Route96File {
     #[serde(flatten)]
     pub inner: Nip94Event,
     pub uploader: Vec<String>,
+    pub stats: FileStats,
+}
+
+/// A file entry returned by the user-facing list endpoint.
+///
+/// Similar to [`Route96File`] but without the `uploader` field — callers
+/// are always the owner by definition.
+#[derive(Serialize)]
+pub struct UserFile {
+    #[serde(flatten)]
+    pub inner: Nip94Event,
     pub stats: FileStats,
 }
 
@@ -133,7 +146,7 @@ pub struct AdminUserInfo {
     pub total_available_quota: u64,
     #[cfg(feature = "payments")]
     pub payments: Vec<crate::db::Payment>,
-    pub files: PagedResult<AdminNip94File>,
+    pub files: PagedResult<Route96File>,
 }
 
 /// Shared request body for batch file operations.
@@ -227,25 +240,6 @@ async fn admin_get_self(
     }
 }
 
-/// Column to sort files by.
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-enum FileStatSort {
-    /// Sort by upload creation time (default).
-    #[default]
-    Created,
-    EgressBytes,
-    LastAccessed,
-}
-
-/// Sort direction.
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-enum SortOrder {
-    #[default]
-    Desc,
-    Asc,
-}
 
 #[derive(Deserialize)]
 struct AdminListFilesQuery {
@@ -271,7 +265,7 @@ async fn admin_list_files(
     auth: Nip98Auth,
     Query(params): Query<AdminListFilesQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
-) -> AdminResponse<PagedResult<AdminNip94File>> {
+) -> AdminResponse<PagedResult<Route96File>> {
     let server_count = params.count.clamp(1, 5_000);
 
     if let Err(e) = require_admin(&auth, &state.db).await {
@@ -295,10 +289,71 @@ async fn admin_list_files(
             total: count as u32,
             files: files
                 .into_iter()
-                .map(|(upload, stats, owners)| AdminNip94File {
+                .map(|(upload, stats, owners)| Route96File {
                     stats,
                     inner: Nip94Event::from_upload(&state.settings, &upload),
                     uploader: owners.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
+                })
+                .collect(),
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list files: {}", e)),
+    }
+}
+
+/// Query parameters for `GET /user/files`.
+#[derive(Deserialize)]
+struct UserListFilesQuery {
+    #[serde(default)]
+    page: u32,
+    #[serde(default = "default_count")]
+    count: u32,
+    mime_type: Option<String>,
+    /// Filter to files that have at least one label containing this substring
+    /// (case-insensitive). Only available when the `labels` feature is enabled.
+    label: Option<String>,
+    #[serde(default)]
+    sort: FileStatSort,
+    #[serde(default)]
+    order: SortOrder,
+}
+
+/// `GET /user/files` — list the authenticated user's own files with full
+/// metadata and access statistics.
+///
+/// This endpoint is the non-admin equivalent of `GET /admin/files`.  It
+/// returns the same rich per-file information (NIP-94 tags, dimensions,
+/// duration, labels, …) plus download statistics, but is scoped to the
+/// calling user's files rather than the entire server.
+async fn user_list_files(
+    auth: BlossomAuth,
+    Query(params): Query<UserListFilesQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<PagedResult<UserFile>> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let server_count = params.count.clamp(1, 5_000);
+
+    match state
+        .db
+        .list_files_with_stats(
+            &pubkey_vec,
+            params.page * server_count,
+            server_count,
+            params.mime_type,
+            params.label,
+            params.sort,
+            params.order,
+        )
+        .await
+    {
+        Ok((files, total)) => AdminResponse::success(PagedResult {
+            count: files.len() as u32,
+            page: params.page,
+            total: total as u32,
+            files: files
+                .into_iter()
+                .map(|(upload, stats)| UserFile {
+                    inner: Nip94Event::from_upload(&state.settings, &upload),
+                    stats,
                 })
                 .collect(),
         }),
@@ -415,7 +470,7 @@ async fn admin_get_user_info(
         total: total_files as u32,
         files: files
             .into_iter()
-            .map(|f| AdminNip94File {
+            .map(|f| Route96File {
                 stats: stats_map.get(f.id.as_slice()).cloned().unwrap_or_default(),
                 inner: Nip94Event::from_upload(&state.settings, &f),
                 uploader: vec![hex::encode(&target_pubkey)],
@@ -525,7 +580,7 @@ async fn admin_list_pending_review(
     auth: Nip98Auth,
     Query(params): Query<AdminListPendingReviewQuery>,
     AxumState(state): AxumState<Arc<AppState>>,
-) -> AdminResponse<PagedResult<AdminNip94File>> {
+) -> AdminResponse<PagedResult<Route96File>> {
     let server_count = params.count.clamp(1, 5_000);
 
     if let Err(e) = require_admin(&auth, &state.db).await {
@@ -550,7 +605,7 @@ async fn admin_list_pending_review(
                 total: total as u32,
                 files: files
                     .into_iter()
-                    .map(|f| AdminNip94File {
+           .map(|f| Route96File {
                         stats: stats_map
                             .get(f.0.id.as_slice())
                             .cloned()
@@ -919,5 +974,177 @@ async fn admin_remove_whitelist(
     match state.db.whitelist_remove(&body.pubkey).await {
         Ok(()) => AdminResponse::success(()),
         Err(e) => AdminResponse::error(&format!("Failed to remove from whitelist: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{FileUpload, ReviewState};
+    use crate::file_stats::FileStats;
+    use crate::routes::Nip94Event;
+    use crate::settings::Settings;
+    use chrono::DateTime;
+
+    fn make_upload(id_byte: u8, mime: &str) -> FileUpload {
+        FileUpload {
+            id: vec![id_byte; 32],
+            name: Some("test.png".to_string()),
+            size: 1024,
+            mime_type: mime.to_string(),
+            created: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            width: Some(800),
+            height: Some(600),
+            blur_hash: Some("LEHV6nWB2yk8pyo0adR*.7kCMdnj".to_string()),
+            alt: None,
+            duration: None,
+            bitrate: None,
+            review_state: ReviewState::None,
+            banned: false,
+            #[cfg(feature = "labels")]
+            labels: vec![],
+        }
+    }
+
+    fn make_stats(egress: u64) -> FileStats {
+        FileStats {
+            last_accessed: Some(DateTime::from_timestamp(1_700_001_000, 0).unwrap()),
+            egress_bytes: egress,
+        }
+    }
+
+    fn default_settings() -> Settings {
+        Settings {
+            listen: None,
+            storage_dir: "/tmp".to_string(),
+            database: "mysql://localhost/test".to_string(),
+            max_upload_bytes: 104_857_600,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            webhook_url: None,
+            plausible_url: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            #[cfg(feature = "blossom")]
+            reject_sensitive_exif: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+        }
+    }
+
+    /// `UserFile` wraps `Nip94Event` + `FileStats`; confirm both are set.
+    #[test]
+    fn user_file_contains_nip94_and_stats() {
+        let upload = make_upload(1, "image/png");
+        let stats = make_stats(9999);
+        let settings = default_settings();
+
+        let user_file = UserFile {
+            inner: Nip94Event::from_upload(&settings, &upload),
+            stats: stats.clone(),
+        };
+
+        // The NIP-94 tags must include the url and sha256 hash.
+        let url_tag = user_file
+            .inner
+            .tags
+            .iter()
+            .find(|t| t.first().map(|s| s.as_str()) == Some("url"));
+        assert!(url_tag.is_some(), "url tag must be present");
+        let url_val = &url_tag.unwrap()[1];
+        assert!(url_val.starts_with("https://example.com/"), "url must use public_url");
+
+        let x_tag = user_file
+            .inner
+            .tags
+            .iter()
+            .find(|t| t.first().map(|s| s.as_str()) == Some("x"));
+        assert!(x_tag.is_some(), "sha256 (x) tag must be present");
+
+        // Stats should be carried through unchanged.
+        assert_eq!(user_file.stats.egress_bytes, 9999);
+        assert!(user_file.stats.last_accessed.is_some());
+    }
+
+    /// `UserFile` serialises to JSON without the `uploader` key.
+    #[test]
+    fn user_file_json_has_no_uploader_field() {
+        let upload = make_upload(2, "image/jpeg");
+        let settings = default_settings();
+
+        let user_file = UserFile {
+            inner: Nip94Event::from_upload(&settings, &upload),
+            stats: make_stats(0),
+        };
+
+        let json = serde_json::to_value(&user_file).expect("serialisation must succeed");
+        assert!(
+            json.get("uploader").is_none(),
+            "user file must not expose uploader"
+        );
+        // But it should have the stats object.
+        let stats = json.get("stats").expect("stats must be present");
+        assert!(
+            stats.get("egress_bytes").is_some(),
+            "egress_bytes must be present inside stats"
+        );
+    }
+
+    /// Verify the mapping from `(FileUpload, FileStats)` to `UserFile` used in the handler.
+    #[test]
+    fn user_file_mapping_preserves_all_fields() {
+        let settings = default_settings();
+        let pairs: Vec<(FileUpload, FileStats)> = vec![
+            (make_upload(3, "image/gif"), make_stats(100)),
+            (make_upload(4, "video/mp4"), make_stats(200)),
+        ];
+
+        let user_files: Vec<UserFile> = pairs
+            .into_iter()
+            .map(|(upload, stats)| UserFile {
+                inner: Nip94Event::from_upload(&settings, &upload),
+                stats,
+            })
+            .collect();
+
+        assert_eq!(user_files.len(), 2);
+        assert_eq!(user_files[0].stats.egress_bytes, 100);
+        assert_eq!(user_files[1].stats.egress_bytes, 200);
+    }
+
+    /// `UserListFilesQuery` default values: page=0, count=50, sort=created, order=desc.
+    #[test]
+    fn user_list_files_query_defaults() {
+        let q: UserListFilesQuery =
+            serde_json::from_str("{}").expect("empty object must deserialise with defaults");
+        assert_eq!(q.page, 0);
+        assert_eq!(q.count, 50);
+        assert!(matches!(q.sort, FileStatSort::Created));
+        assert!(matches!(q.order, SortOrder::Desc));
+        assert!(q.mime_type.is_none());
+        assert!(q.label.is_none());
+    }
+
+    /// `UserListFilesQuery` accepts all sort/order/filter variants.
+    #[test]
+    fn user_list_files_query_sort_and_filter_params() {
+        let q: UserListFilesQuery = serde_json::from_str(
+            r#"{"sort":"egress_bytes","order":"asc","mime_type":"image/","label":"nsfw"}"#,
+        )
+        .expect("must deserialise");
+        assert!(matches!(q.sort, FileStatSort::EgressBytes));
+        assert!(matches!(q.order, SortOrder::Asc));
+        assert_eq!(q.mime_type.as_deref(), Some("image/"));
+        assert_eq!(q.label.as_deref(), Some("nsfw"));
+
+        let q2: UserListFilesQuery =
+            serde_json::from_str(r#"{"sort":"last_accessed","order":"desc"}"#)
+                .expect("must deserialise");
+        assert!(matches!(q2.sort, FileStatSort::LastAccessed));
+        assert!(matches!(q2.order, SortOrder::Desc));
     }
 }

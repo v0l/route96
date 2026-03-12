@@ -4,7 +4,7 @@ use crate::filesystem::FileStore;
 use crate::settings::Settings;
 use log::{error, info};
 use std::time::Duration;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 /// How long to wait between batches when there is no work.
@@ -71,18 +71,18 @@ pub fn start_background_tasks(
     shutdown: CancellationToken,
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
-) -> Vec<JoinHandle<()>> {
-    let mut ret = vec![];
+) -> JoinSet<()> {
+    let mut set = JoinSet::new();
 
     // Always start the file-stats flush task.
-    ret.push(file_stats.start_flush_task(db.clone(), shutdown.clone()));
+    set.spawn(file_stats.flush_task(db.clone(), shutdown.clone()));
 
     #[cfg(feature = "media-compression")]
     {
         let db = db.clone();
         let fs = file_store.clone();
         let token = shutdown.clone();
-        ret.push(tokio::spawn(async move {
+        set.spawn(async move {
             info!("Starting MediaMetadata background task");
             let mut m = media_metadata::MediaMetadata::new(db, fs);
             if let Err(e) = m.process(token).await {
@@ -90,7 +90,7 @@ pub fn start_background_tasks(
             } else {
                 info!("MediaMetadata background task completed");
             }
-        }));
+        });
     }
 
     #[cfg(feature = "media-compression")]
@@ -98,12 +98,12 @@ pub fn start_background_tasks(
         let db = db.clone();
         let fs = file_store.clone();
         let token = shutdown.clone();
-        ret.push(tokio::spawn(async move {
+        set.spawn(async move {
             info!("Starting PhashFiles background task");
             let task = phash_files::PhashFiles::new(db, fs);
             task.process(token).await;
             info!("PhashFiles background task completed");
-        }));
+        });
     }
 
     #[cfg(feature = "labels")]
@@ -119,13 +119,13 @@ pub fn start_background_tasks(
                 .unwrap_or_else(|| fs.storage_dir().join("models"));
             let flag_terms = settings.label_flag_terms.clone().unwrap_or_default();
             let token = shutdown.clone();
-            ret.push(tokio::spawn(async move {
+            set.spawn(async move {
                 info!("Starting LabelFiles background task");
                 let task =
                     label_files::LabelFiles::new(db, fs, models_dir, label_models, flag_terms);
                 task.process(token).await;
                 info!("LabelFiles background task completed");
-            }));
+            });
         }
     }
 
@@ -134,7 +134,7 @@ pub fn start_background_tasks(
         if let Some(client) = client {
             let db = db.clone();
             let token = shutdown.clone();
-            ret.push(tokio::spawn(async move {
+            set.spawn(async move {
                 info!("Starting PaymentsHandler background task");
                 let mut m = payments::PaymentsHandler::new(client, db);
                 if let Err(e) = m.process(token).await {
@@ -142,7 +142,7 @@ pub fn start_background_tasks(
                 } else {
                     info!("PaymentsHandler background task completed");
                 }
-            }));
+            });
         } else {
             log::warn!("Not starting PaymentsHandler, configuration missing")
         }
@@ -151,7 +151,7 @@ pub fn start_background_tasks(
     // Suppress unused-variable warnings when no features are enabled that use `settings`.
     let _ = settings;
 
-    ret
+    set
 }
 
 #[cfg(test)]

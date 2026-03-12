@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { FormatBytes } from "../const";
 import classNames from "classnames";
 import Profile from "../components/profile";
-import type { AdminNip94File, FileStats } from "../upload/admin";
+import type { Route96File, FileStats } from "../upload/admin";
 
 export interface FileInfo {
   id: string;
@@ -29,7 +29,7 @@ export default function FileList({
   onFindSimilar,
   adminMode,
 }: {
-  files: Array<File | NostrEvent | AdminNip94File | FileInfo>;
+  files: Array<File | NostrEvent | Route96File | FileInfo>;
   pages?: number;
   page?: number;
   onPage?: (n: number) => void;
@@ -113,7 +113,7 @@ export default function FileList({
     }
   }
 
-  function getInfo(f: File | NostrEvent | AdminNip94File | FileInfo): FileInfo {
+  function getInfo(f: File | NostrEvent | Route96File | FileInfo): FileInfo {
     if ("url" in f) {
       return f;
     }
@@ -127,7 +127,7 @@ export default function FileList({
         dim: f.tags.find((a) => a[0] === "dim")?.at(1),
         uploader: "uploader" in f ? (f.uploader as Array<string>) : undefined,
         labels: f.tags.filter((a) => a[0] === "t").map((a) => a[1]),
-        stats: "stats" in f ? (f as AdminNip94File).stats : undefined,
+        stats: "stats" in f ? (f as Route96File).stats : undefined,
       };
     } else {
       return {
@@ -386,7 +386,7 @@ export default function FileList({
                 Size
               </th>
               {files.some(
-                (i) => "stats" in i && (i as AdminNip94File).stats,
+                (i) => "stats" in i && (i as Route96File).stats,
               ) && (
                 <>
                   <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">

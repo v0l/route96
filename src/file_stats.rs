@@ -135,34 +135,29 @@ impl FileStatsTracker {
         }
     }
 
-    /// Spawn the periodic flush loop and return its [`JoinHandle`].
+    /// Run the periodic flush loop.
     ///
     /// The task wakes every [`FLUSH_INTERVAL`] seconds (or immediately on
-    /// shutdown) and calls [`Self::flush`].
-    pub fn start_flush_task(
-        self,
-        db: Database,
-        shutdown: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            info!(
-                "FileStats flush task started (interval: {:?})",
-                FLUSH_INTERVAL
-            );
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(FLUSH_INTERVAL) => {
-                        self.flush(&db).await;
-                    }
-                    _ = shutdown.cancelled() => {
-                        // Final flush before exit.
-                        info!("FileStats flush task shutting down, performing final flush");
-                        self.flush(&db).await;
-                        return;
-                    }
+    /// shutdown) and calls [`Self::flush`].  Intended to be spawned by the
+    /// caller (e.g. into a `JoinSet`).
+    pub async fn flush_task(self, db: Database, shutdown: CancellationToken) {
+        info!(
+            "FileStats flush task started (interval: {:?})",
+            FLUSH_INTERVAL
+        );
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(FLUSH_INTERVAL) => {
+                    self.flush(&db).await;
+                }
+                _ = shutdown.cancelled() => {
+                    // Final flush before exit.
+                    info!("FileStats flush task shutting down, performing final flush");
+                    self.flush(&db).await;
+                    return;
                 }
             }
-        })
+        }
     }
 }
 

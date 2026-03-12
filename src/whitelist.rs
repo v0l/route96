@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 
@@ -93,9 +92,9 @@ impl Whitelist {
     /// it for changes, hot-reloading on every write.
     ///
     /// Should only be called when the mode is [`WhitelistMode::File`].
-    pub fn start_file_watcher(&self, path: PathBuf, shutdown: CancellationToken) -> JoinHandle<()> {
-        let this = self.clone();
-        tokio::spawn(async move {
+    pub async fn watch_file(self, path: PathBuf, shutdown: CancellationToken) {
+        let this = self;
+        async move {
             let mut last_modified: Option<SystemTime> = None;
             info!("Starting whitelist watcher for {}", path.display());
 
@@ -193,7 +192,8 @@ impl Whitelist {
                     }
                 }
             }
-        })
+        }
+        .await
     }
 }
 

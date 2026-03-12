@@ -7,7 +7,7 @@ import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import {
   AdminSelf,
-  AdminNip94File,
+  Route96File,
   Route96,
   Report,
   SimilarFile,
@@ -17,6 +17,7 @@ import {
 } from "../upload/admin";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
+import FileListControls from "../components/file-list-controls";
 
 type Tab = "files" | "reports" | "review" | "whitelist";
 
@@ -24,7 +25,7 @@ type AdminFileList = {
   count: number;
   total: number;
   page: number;
-  files: Array<AdminNip94File>;
+  files: Array<Route96File>;
 };
 
 export default function Admin() {
@@ -424,45 +425,16 @@ export default function Admin() {
 
       {tab === "files" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <select
-              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300"
-              value={mimeFilter || ""}
-              onChange={(e) => setMimeFilter(e.target.value || undefined)}
-            >
-              <option value="">All types</option>
-              <option value="image/webp">WebP</option>
-              <option value="image/jpeg">JPEG</option>
-              <option value="image/png">PNG</option>
-              <option value="image/gif">GIF</option>
-              <option value="video/mp4">MP4</option>
-              <option value="video/mov">MOV</option>
-            </select>
-            <input
-              type="text"
-              placeholder="Filter by label..."
-              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 placeholder-neutral-600"
-              value={labelFilter || ""}
-              onChange={(e) => setLabelFilter(e.target.value || undefined)}
-            />
-            <select
-              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as FileStatSort)}
-            >
-              <option value="created">Created</option>
-              <option value="egress_bytes">Egress</option>
-              <option value="last_accessed">Last Accessed</option>
-            </select>
-            <select
-              className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-            >
-              <option value="desc">Desc</option>
-              <option value="asc">Asc</option>
-            </select>
-          </div>
+          <FileListControls
+            mimeFilter={mimeFilter}
+            onMimeFilter={setMimeFilter}
+            labelFilter={labelFilter}
+            onLabelFilter={setLabelFilter}
+            sortBy={sortBy}
+            onSortBy={setSortBy}
+            sortOrder={sortOrder}
+            onSortOrder={setSortOrder}
+          />
           {adminListedFiles && (
             <FileList
               files={adminListedFiles.files}

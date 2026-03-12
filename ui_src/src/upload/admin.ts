@@ -1,5 +1,5 @@
 import { base64 } from "@scure/base";
-import { throwIfOffline } from "@snort/shared";
+import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
 
 export interface AdminSelf {
@@ -17,11 +17,11 @@ export interface FileStats {
   egress_bytes: number;
 }
 
-export interface AdminNip94File {
+export interface Route96File {
   created_at: number;
   content?: string;
   tags: Array<Array<string>>;
-  uploader: Array<string>;
+  uploader?: Array<string>;
   stats?: FileStats;
 }
 
@@ -40,7 +40,7 @@ export interface AdminUserInfo {
     total: number;
     page: number;
     count: number;
-    files: Array<AdminNip94File>;
+    files: Array<Route96File>;
   };
 }
 
@@ -237,6 +237,36 @@ export class Route96 {
     return data;
   }
 
+  async listUserFiles(
+    page = 0,
+    count = 50,
+    mime?: string,
+    label?: string,
+    sort: FileStatSort = "created",
+    order: SortOrder = "desc",
+  ) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      count: count.toString(),
+      sort,
+      order,
+    });
+    if (mime) params.set("mime_type", mime);
+    if (label) params.set("label", label);
+    const rsp = await this.#blossomReq(
+      `user/files?${params}`,
+      "GET",
+      "list",
+    );
+    const data = await this.#handleResponse<AdminResponseFileList>(rsp);
+    if (!data.data) throw new Error(data.message || "List files failed");
+    return {
+      ...data,
+      ...data.data,
+      files: data.data.files,
+    };
+  }
+
   async getPaymentInfo() {
     const rsp = await this.#req("payment", "GET");
     if (rsp.ok) {
@@ -259,6 +289,32 @@ export class Route96 {
         (await rsp.text()) ||
         `${rsp.status} ${rsp.statusText}`,
     );
+  }
+
+  /** Make a request authenticated with a Blossom kind-24242 event. */
+  async #blossomReq(
+    path: string,
+    method: "GET" | "POST" | "DELETE" | "PATCH",
+    term: string,
+    body?: BodyInit,
+  ) {
+    throwIfOffline();
+    const u = `${this.url}${path}`;
+    const now = unixNow();
+    const auth = await this.publisher.generic((eb) => {
+      return eb
+        .kind(24_242 as EventKind)
+        .tag(["t", term])
+        .tag(["expiration", (now + 60).toString()]);
+    });
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      authorization: `Nostr ${base64.encode(new TextEncoder().encode(JSON.stringify(auth)))}`,
+    };
+    if (body && method !== "GET") {
+      headers["content-type"] = "application/json";
+    }
+    return await fetch(u, { method, body, headers });
   }
 
   async #handleResponse<T extends AdminResponseBase>(rsp: Response) {
@@ -321,7 +377,7 @@ export type AdminResponseFileList = AdminResponse<{
   total: number;
   page: number;
   count: number;
-  files: Array<AdminNip94File>;
+  files: Array<Route96File>;
 }>;
 
 export type AdminResponseReportList = AdminResponse<{

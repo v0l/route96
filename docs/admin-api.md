@@ -25,6 +25,66 @@ Returns info and storage stats for the authenticated admin user.
 
 ---
 
+## User Files
+
+### `GET /user/files`
+
+List the authenticated user's own files with full metadata and download statistics. This is the rich alternative to the basic NIP-96 file list.
+
+**Authentication:** [Blossom](https://github.com/hzrd149/blossom) — `Authorization: Nostr <base64>` header containing a signed kind `24242` event with `t: list` and a valid `expiration` tag.
+
+**Query parameters**
+
+| Parameter   | Type   | Default   | Description                                                |
+| ----------- | ------ | --------- | ---------------------------------------------------------- |
+| `page`      | int    | `0`       | Page number (zero-based)                                   |
+| `count`     | int    | `50`      | Results per page (max 5000)                                |
+| `mime_type` | string | —         | Filter by MIME type substring                              |
+| `label`     | string | —         | Filter to files whose labels contain this substring        |
+| `sort`      | string | `created` | Sort column: `created`, `egress_bytes`, or `last_accessed` |
+| `order`     | string | `desc`    | Sort direction: `desc` or `asc`                            |
+
+When `sort` is `egress_bytes` or `last_accessed`, only files that have been accessed at least once are included (inner join on `file_stats`).
+
+**Response**
+
+```json
+{
+  "status": "success",
+  "data": {
+    "count": 2,
+    "page": 0,
+    "total": 42,
+    "files": [
+      {
+        "created_at": 1700000000,
+        "content": "photo.jpg",
+        "tags": [
+          ["url", "https://example.com/abc123.jpg"],
+          ["x", "abc123..."],
+          ["m", "image/jpeg"],
+          ["size", "204800"],
+          ["thumb", "https://example.com/thumb/abc123.webp"],
+          ["blurhash", "LEHV6nWB2yk8pyo0adR*.7kCMdnj"],
+          ["dim", "1920x1080"]
+        ],
+        "stats": {
+          "last_accessed": "2026-03-11T12:00:00Z",
+          "egress_bytes": 1048576
+        }
+      }
+    ]
+  }
+}
+```
+
+Each file in `files` is a NIP-94 event with an extra `stats` field:
+
+- `stats.egress_bytes` — total bytes served for this file (0 if never downloaded)
+- `stats.last_accessed` — ISO 8601 timestamp of the most recent download, or `null`
+
+---
+
 ## Files
 
 ### `GET /admin/files`
