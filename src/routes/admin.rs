@@ -208,7 +208,7 @@ async fn admin_get_self(
 
             #[cfg(feature = "payments")]
             let (free_quota, total_available_quota) = {
-                if let Some(payment_config) = &state.settings().payments {
+                if let Some(payment_config) = &state.settings().await.payments {
                     let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
                     let mut total_available = free_quota;
 
@@ -292,7 +292,7 @@ async fn admin_list_files(
         .await
     {
         Ok((files, count)) => {
-            let settings = state.settings();
+            let settings = state.settings().await;
             AdminResponse::success(PagedResult {
                 count: files.len() as u32,
                 page: params.page,
@@ -357,7 +357,7 @@ async fn user_list_files(
         .await
     {
         Ok((files, total)) => {
-            let settings = state.settings();
+            let settings = state.settings().await;
             AdminResponse::success(PagedResult {
                 count: files.len() as u32,
                 page: params.page,
@@ -478,7 +478,7 @@ async fn admin_get_user_info(
         .get_file_stats_batch(&ids)
         .await
         .unwrap_or_default();
-    let settings = state.settings();
+    let settings = state.settings().await;
     let files_result = PagedResult {
         count: files.len() as u32,
         page,
@@ -614,18 +614,19 @@ async fn admin_list_pending_review(
                 .get_file_stats_batch(&ids)
                 .await
                 .unwrap_or_default();
+            let settings = state.settings().await;
             AdminResponse::success(PagedResult {
                 count: files.len() as u32,
                 page: params.page,
                 total: total as u32,
                 files: files
                     .into_iter()
-           .map(|f| Route96File {
+                    .map(|f| Route96File {
                         stats: stats_map
                             .get(f.0.id.as_slice())
                             .cloned()
                             .unwrap_or_default(),
-                        inner: Nip94Event::from_upload(&state.settings(), &f.0),
+                        inner: Nip94Event::from_upload(&settings, &f.0),
                         uploader: f.1.into_iter().map(|u| hex::encode(&u.pubkey)).collect(),
                     })
                     .collect(),
@@ -750,7 +751,7 @@ async fn admin_similar_files(
     for (file_id_bytes, dist) in candidates {
         if let Ok(Some(upload)) = state.db.get_file(&file_id_bytes).await {
             results.push(SimilarFile {
-                inner: Nip94Event::from_upload(&state.settings(), &upload),
+                inner: Nip94Event::from_upload(&state.settings().await, &upload),
                 distance: dist,
             });
         }

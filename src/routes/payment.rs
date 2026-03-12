@@ -67,7 +67,7 @@ async fn req_payment(
     AxumState(state): AxumState<Arc<AppState>>,
     Json(req): Json<PaymentRequest>,
 ) -> Result<Json<PaymentResponse>, (StatusCode, String)> {
-    let settings = state.settings();
+    let settings = state.settings().await;
     let cfg = if let Some(p) = &settings.payments {
         p.clone()
     } else {

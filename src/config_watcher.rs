@@ -13,8 +13,9 @@
 //! disabling the whitelist) take effect immediately without a restart.
 
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 use config::{Config, Environment, File};
 use log::{debug, error, info, warn};
@@ -155,14 +156,7 @@ async fn reload(
     match build_settings(config_path, db).await {
         Ok(new_settings) => {
             // Only swap (and log) when something actually changed.
-            let changed = match settings.read() {
-                Ok(guard) => *guard != new_settings,
-                Err(e) => {
-                    error!("config_watcher: settings RwLock poisoned: {}", e);
-                    return;
-                }
-            };
-
+            let changed = *settings.read().await != new_settings;
             if !changed {
                 debug!("config_watcher: no changes detected in '{}'", config_path);
                 return;
@@ -172,36 +166,15 @@ async fn reload(
             // File mode is managed by a dedicated watch_file task that writes
             // into the live RwLock<Whitelist>; replacing it here would wipe
             // whatever the file watcher already loaded.
-            let old_whitelist_mode = match settings.read() {
-                Ok(guard) => guard.whitelist.clone(),
-                Err(e) => {
-                    error!("config_watcher: settings RwLock poisoned: {}", e);
-                    return;
-                }
-            };
-            let whitelist_mode_changed = old_whitelist_mode != new_settings.whitelist;
+            let whitelist_mode_changed = settings.read().await.whitelist != new_settings.whitelist;
 
-            match settings.write() {
-                Ok(mut guard) => {
-                    *guard = new_settings.clone();
-                }
-                Err(e) => {
-                    error!("config_watcher: settings RwLock poisoned during reload: {}", e);
-                    return;
-                }
-            }
+            *settings.write().await = new_settings.clone();
+
             if whitelist_mode_changed {
-                let new_wl = Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
-                match whitelist.write() {
-                    Ok(mut guard) => {
-                        *guard = new_wl;
-                    }
-                    Err(e) => {
-                        error!("config_watcher: whitelist RwLock poisoned during reload: {}", e);
-                        return;
-                    }
-                }
+                *whitelist.write().await =
+                    Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
             }
+
             info!("config_watcher: settings reloaded from '{}'", config_path);
         }
         Err(e) => {

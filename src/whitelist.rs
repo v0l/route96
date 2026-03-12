@@ -4,8 +4,9 @@ use log::{error, info, warn};
 use notify::{Config as NotifyConfig, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime};
+use tokio::sync::RwLock;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
 
@@ -77,7 +78,7 @@ impl Whitelist {
     /// The task writes updated sets back through `whitelist` so all request
     /// handlers see the new entries on their next `state.wl()` call.
     pub async fn watch_file(
-        whitelist: std::sync::Arc<RwLock<Whitelist>>,
+        whitelist: Arc<RwLock<Whitelist>>,
         path: PathBuf,
         shutdown: CancellationToken,
     ) {
@@ -89,7 +90,7 @@ impl Whitelist {
             && let Ok(modified) = md.modified()
             && let Ok(contents) = tokio::fs::read_to_string(&path).await
         {
-            replace_set(&whitelist, parse_whitelist_file(&contents));
+            replace_set(&whitelist, parse_whitelist_file(&contents)).await;
             last_modified = Some(modified);
             info!("Loaded whitelist from {}", path.display());
         }
@@ -176,7 +177,7 @@ impl Whitelist {
                         }
                         match tokio::fs::read_to_string(&path).await {
                             Ok(contents) => {
-                                replace_set(&whitelist, parse_whitelist_file(&contents));
+                                replace_set(&whitelist, parse_whitelist_file(&contents)).await;
                                 info!("Reloaded whitelist from {} (debounced)", path.display());
                             }
                             Err(e) => {
@@ -197,16 +198,9 @@ impl Whitelist {
 
 /// Swap the in-memory set inside `whitelist` for `new_set`.
 /// No-ops if the current mode is not `InMemory`.
-fn replace_set(whitelist: &RwLock<Whitelist>, new_set: HashSet<String>) {
-    match whitelist.write() {
-        Ok(mut guard) => {
-            if let WhitelistInner::InMemory(ref mut set) = guard.inner {
-                *set = new_set;
-            }
-        }
-        Err(e) => {
-            warn!("Whitelist RwLock poisoned during file reload: {}", e);
-        }
+async fn replace_set(whitelist: &RwLock<Whitelist>, new_set: HashSet<String>) {
+    if let WhitelistInner::InMemory(ref mut set) = whitelist.write().await.inner {
+        *set = new_set;
     }
 }
 
@@ -282,18 +276,18 @@ mod tests {
     #[tokio::test]
     async fn file_mode_replace_set_updates_entries() {
         let mode = WhitelistMode::File("/nonexistent".into());
-        let wl = std::sync::Arc::new(RwLock::new(Whitelist::from_mode(Some(&mode), None)));
-        assert!(!wl.read().unwrap().is_allowed("aabbcc").await);
+        let wl = Arc::new(RwLock::new(Whitelist::from_mode(Some(&mode), None)));
+        assert!(!wl.read().await.is_allowed("aabbcc").await);
 
         let new_set: HashSet<String> = ["aabbcc".to_string()].into();
-        replace_set(&wl, new_set);
-        assert!(wl.read().unwrap().is_allowed("aabbcc").await);
-        assert!(!wl.read().unwrap().is_allowed("ddeeff").await);
+        replace_set(&wl, new_set).await;
+        assert!(wl.read().await.is_allowed("aabbcc").await);
+        assert!(!wl.read().await.is_allowed("ddeeff").await);
     }
 }
 
 async fn fallback_polling(
-    whitelist: std::sync::Arc<RwLock<Whitelist>>,
+    whitelist: Arc<RwLock<Whitelist>>,
     path: PathBuf,
     mut last_modified: Option<SystemTime>,
     shutdown: CancellationToken,
@@ -312,7 +306,7 @@ async fn fallback_polling(
                             if changed {
                                 match tokio::fs::read_to_string(&path).await {
                                     Ok(contents) => {
-                                        replace_set(&whitelist, parse_whitelist_file(&contents));
+                                        replace_set(&whitelist, parse_whitelist_file(&contents)).await;
                                         last_modified = Some(modified);
                                         info!("Reloaded whitelist from {}", path.display());
                                     }

@@ -26,7 +26,8 @@ use serde::Serialize;
 use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -59,15 +60,15 @@ impl AppState {
     ///
     /// Route handlers should call this once per request rather than locking
     /// repeatedly.
-    pub fn settings(&self) -> Settings {
-        self.settings.read().expect("settings RwLock poisoned").clone()
+    pub async fn settings(&self) -> Settings {
+        self.settings.read().await.clone()
     }
 
     /// Return a snapshot of the current whitelist.
     ///
-    /// Cloning is cheap — `Whitelist` wraps an `Arc` internally.
-    pub fn wl(&self) -> Whitelist {
-        self.wl.read().expect("whitelist RwLock poisoned").clone()
+    /// Cloning is cheap — `Whitelist` is a plain value type.
+    pub async fn wl(&self) -> Whitelist {
+        self.wl.read().await.clone()
     }
 }
 

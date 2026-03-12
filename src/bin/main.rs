@@ -1,5 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use anyhow::Error;
 use axum::{
@@ -170,7 +171,7 @@ async fn main() -> Result<(), Error> {
         lnd.clone(),
     );
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
-        jh.spawn(Whitelist::watch_file(live_wl.clone(), path, shutdown.clone()));
+        jh.spawn(Whitelist::watch_file(Arc::clone(&live_wl), path, shutdown.clone()));
     }
 
     // Start the config hot-reload watcher.  It rebuilds both Settings and

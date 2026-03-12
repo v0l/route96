@@ -231,7 +231,7 @@ pub fn nip96_routes() -> Router<Arc<AppState>> {
 }
 
 async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96InfoDoc> {
-    let settings = state.settings();
+    let settings = state.settings().await;
     let mut plans = HashMap::new();
     plans.insert(
         "free".to_string(),
@@ -264,7 +264,7 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not parse form: {}", e)),
     };
 
-    let settings = state.settings();
+    let settings = state.settings().await;
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
     if upload_size > 0 && upload_size > settings.max_upload_bytes {
         return Nip96Response::error("File too large");
@@ -292,7 +292,7 @@ async fn upload(
     }
 
     // check whitelist
-    if !state.wl().is_allowed(&auth.event.pubkey.to_hex()).await {
+    if !state.wl().await.is_allowed(&auth.event.pubkey.to_hex()).await {
         return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 
@@ -455,7 +455,7 @@ async fn list_files(
         .await
     {
         Ok((files, total)) => {
-            let settings = state.settings();
+            let settings = state.settings().await;
             Nip96Response::FileList(Json(PagedResult {
                 count: server_count,
                 page: query.page,
