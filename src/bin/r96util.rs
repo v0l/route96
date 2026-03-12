@@ -71,11 +71,12 @@ async fn main() -> Result<(), Error> {
         .build()?;
 
     let settings: Settings = builder.try_deserialize()?;
+    let live_settings = std::sync::Arc::new(tokio::sync::RwLock::new(settings.clone()));
 
     match args.command {
         Commands::Check { delete } => {
             info!("Checking files in: {}", settings.storage_dir);
-            let fs = FileStore::new(settings.clone());
+            let fs = FileStore::new(live_settings.clone());
             iter_files(&fs.storage_dir(), 4, |entry, p| {
                 let p = p.clone();
                 Box::pin(async move {
@@ -101,7 +102,7 @@ async fn main() -> Result<(), Error> {
             .await?;
         }
         Commands::Import { from, probe_media } => {
-            let fs = FileStore::new(settings.clone());
+            let fs = FileStore::new(live_settings.clone());
             let db = Database::new(&settings.database).await?;
             db.migrate().await?;
             info!("Importing from: {}", fs.storage_dir().display());
@@ -142,7 +143,7 @@ async fn main() -> Result<(), Error> {
             .await?;
         }
         Commands::DatabaseImport { dry_run } => {
-            let fs = FileStore::new(settings.clone());
+            let fs = FileStore::new(live_settings.clone());
             let db = Database::new(&settings.database).await?;
             db.migrate().await?;
             info!("Importing to DB from: {}", fs.storage_dir().display());

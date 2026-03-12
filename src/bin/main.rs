@@ -68,12 +68,12 @@ async fn main() -> Result<(), Error> {
         None => SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8000),
     };
 
-    let fs = FileStore::new(settings.clone());
     let file_stats = FileStatsTracker::new();
 
     // Wrap settings and whitelist in Arc<RwLock<>> so the watcher can
     // hot-reload them without restarting the server.
     let live_settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(settings.clone()));
+    let fs = FileStore::new(live_settings.clone());
     let live_wl: Arc<RwLock<Whitelist>> = Arc::new(RwLock::new(
         Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db)),
     ));
