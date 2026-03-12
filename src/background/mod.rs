@@ -3,7 +3,9 @@ use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
 use crate::settings::Settings;
 use log::{error, info};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -69,11 +71,17 @@ mod payments;
 pub fn start_background_tasks(
     db: Database,
     file_store: FileStore,
-    settings: Settings,
+    settings: Arc<RwLock<Settings>>,
     shutdown: CancellationToken,
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> JoinSet<()> {
+    // Take a one-time snapshot for tasks that only need startup-time config
+    // (label models, etc.).  The deletion task reads the Arc directly each
+    // cycle so it reacts to hot-reloaded config without a restart.
+    #[allow(unused_variables)]
+    let settings_snap = settings.blocking_read().clone();
+
     let mut set = JoinSet::new();
 
     // Always start the file-stats flush task.
@@ -110,16 +118,16 @@ pub fn start_background_tasks(
 
     #[cfg(feature = "labels")]
     {
-        if let Some(label_models) = settings.label_models.clone()
+        if let Some(label_models) = settings_snap.label_models.clone()
             && !label_models.is_empty()
         {
             let db = db.clone();
             let fs = file_store.clone();
-            let models_dir = settings
+            let models_dir = settings_snap
                 .models_dir
                 .clone()
                 .unwrap_or_else(|| fs.storage_dir().join("models"));
-            let flag_terms = settings.label_flag_terms.clone().unwrap_or_default();
+            let flag_terms = settings_snap.label_flag_terms.clone().unwrap_or_default();
             let token = shutdown.clone();
             set.spawn(async move {
                 info!("Starting LabelFiles background task");
@@ -150,26 +158,20 @@ pub fn start_background_tasks(
         }
     }
 
-    // Start the inactive-file cleanup task when a positive threshold is configured.
-    if let Some(days) = settings.delete_unaccessed_days
-        && days > 0
+    // Always start the deletion task; it reads thresholds from live settings
+    // each cycle and idles when both policies are disabled.
     {
         let db = db.clone();
         let fs = file_store.clone();
+        let live = settings.clone();
         let token = shutdown.clone();
         set.spawn(async move {
-            info!(
-                "Starting DeleteUnaccessed background task (threshold: {} day(s))",
-                days
-            );
-            let task = delete_unaccessed::DeleteUnaccessed::new(db, fs, days);
+            info!("Starting DeleteUnaccessed background task");
+            let task = delete_unaccessed::DeleteUnaccessed::new(db, fs, live);
             task.process(token).await;
             info!("DeleteUnaccessed background task completed");
         });
     }
-
-    // Suppress unused-variable warnings when no features are enabled that use `settings`.
-    let _ = settings;
 
     set
 }

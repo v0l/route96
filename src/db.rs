@@ -1270,6 +1270,29 @@ impl Database {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    /// Return IDs of files whose `created` timestamp is older than `cutoff`,
+    /// regardless of download activity (hard retention limit).
+    ///
+    /// Banned files are excluded — they are kept as tombstones intentionally.
+    /// At most `limit` IDs are returned per call.
+    pub async fn get_files_older_than(
+        &self,
+        cutoff: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select id from uploads \
+             where banned = false \
+             and created < ? \
+             limit ?",
+        )
+        .bind(cutoff)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Fetch persisted stats for a batch of files.
     ///
     /// Returns a map keyed by file id.  Files with no stats row are absent

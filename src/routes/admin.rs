@@ -1128,6 +1128,7 @@ mod tests {
             #[cfg(feature = "payments")]
             payments: None,
             delete_unaccessed_days: None,
+            delete_after_days: None,
         }
     }
 

@@ -161,7 +161,7 @@ async fn main() -> Result<(), Error> {
     let mut jh = start_background_tasks(
         db.clone(),
         fs.clone(),
-        settings.clone(),
+        live_settings.clone(),
         shutdown.clone(),
         file_stats.clone(),
         #[cfg(feature = "payments")]
