@@ -168,26 +168,38 @@ async fn reload(
                 return;
             }
 
-            // Rebuild the whitelist from the new settings so that mode changes
-            // (e.g. enabling/disabling the whitelist) take effect immediately.
-            let new_wl = Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
+            // Rebuild the whitelist only when the mode actually changes.
+            // File mode is managed by a dedicated watch_file task that writes
+            // into the live RwLock<Whitelist>; replacing it here would wipe
+            // whatever the file watcher already loaded.
+            let old_whitelist_mode = match settings.read() {
+                Ok(guard) => guard.whitelist.clone(),
+                Err(e) => {
+                    error!("config_watcher: settings RwLock poisoned: {}", e);
+                    return;
+                }
+            };
+            let whitelist_mode_changed = old_whitelist_mode != new_settings.whitelist;
 
             match settings.write() {
                 Ok(mut guard) => {
-                    *guard = new_settings;
+                    *guard = new_settings.clone();
                 }
                 Err(e) => {
                     error!("config_watcher: settings RwLock poisoned during reload: {}", e);
                     return;
                 }
             }
-            match whitelist.write() {
-                Ok(mut guard) => {
-                    *guard = new_wl;
-                }
-                Err(e) => {
-                    error!("config_watcher: whitelist RwLock poisoned during reload: {}", e);
-                    return;
+            if whitelist_mode_changed {
+                let new_wl = Whitelist::from_mode(new_settings.whitelist.as_ref(), Some(db));
+                match whitelist.write() {
+                    Ok(mut guard) => {
+                        *guard = new_wl;
+                    }
+                    Err(e) => {
+                        error!("config_watcher: whitelist RwLock poisoned during reload: {}", e);
+                        return;
+                    }
                 }
             }
             info!("config_watcher: settings reloaded from '{}'", config_path);

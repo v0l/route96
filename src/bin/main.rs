@@ -170,10 +170,7 @@ async fn main() -> Result<(), Error> {
         lnd.clone(),
     );
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
-        // Clone the Whitelist out of the RwLock for the file watcher — the
-        // file watcher keeps its own internal state and updates the same Arc.
-        let wl_for_file = live_wl.read().expect("whitelist RwLock poisoned").clone();
-        jh.spawn(wl_for_file.watch_file(path, shutdown.clone()));
+        jh.spawn(Whitelist::watch_file(live_wl.clone(), path, shutdown.clone()));
     }
 
     // Start the config hot-reload watcher.  It rebuilds both Settings and
