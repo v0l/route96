@@ -52,6 +52,8 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
     }
 }
 
+mod delete_unaccessed;
+
 #[cfg(feature = "media-compression")]
 mod media_metadata;
 
@@ -146,6 +148,24 @@ pub fn start_background_tasks(
         } else {
             log::warn!("Not starting PaymentsHandler, configuration missing")
         }
+    }
+
+    // Start the inactive-file cleanup task when a positive threshold is configured.
+    if let Some(days) = settings.delete_unaccessed_days
+        && days > 0
+    {
+        let db = db.clone();
+        let fs = file_store.clone();
+        let token = shutdown.clone();
+        set.spawn(async move {
+            info!(
+                "Starting DeleteUnaccessed background task (threshold: {} day(s))",
+                days
+            );
+            let task = delete_unaccessed::DeleteUnaccessed::new(db, fs, days);
+            task.process(token).await;
+            info!("DeleteUnaccessed background task completed");
+        });
     }
 
     // Suppress unused-variable warnings when no features are enabled that use `settings`.

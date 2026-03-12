@@ -131,6 +131,14 @@ pub struct Settings {
     #[cfg(feature = "payments")]
     /// Payment options for paid storage
     pub payments: Option<PaymentConfig>,
+
+    /// Automatically delete files that have had no downloads in this many days.
+    ///
+    /// Files uploaded within the same window are given a grace period and are
+    /// not deleted even if they have never been downloaded.
+    ///
+    /// Set to `0` or omit to disable automatic deletion.
+    pub delete_unaccessed_days: Option<u64>,
 }
 
 /// Configuration for a single labeling model / API endpoint.
@@ -230,5 +238,26 @@ mod tests {
     fn whitelist_mode_deserialize_empty_list() {
         let mode: WhitelistMode = serde_json::from_str("[]").unwrap();
         assert!(matches!(mode, WhitelistMode::Static(ref v) if v.is_empty()));
+    }
+
+    #[test]
+    fn delete_unaccessed_days_deserializes_some() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com","delete_unaccessed_days":30}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_unaccessed_days, Some(30));
+    }
+
+    #[test]
+    fn delete_unaccessed_days_deserializes_absent_as_none() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com"}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_unaccessed_days, None);
+    }
+
+    #[test]
+    fn delete_unaccessed_days_zero_is_valid() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com","delete_unaccessed_days":0}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_unaccessed_days, Some(0));
     }
 }

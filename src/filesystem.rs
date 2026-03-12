@@ -339,6 +339,7 @@ mod tests {
             reject_sensitive_exif: None,
             #[cfg(feature = "payments")]
             payments: None,
+            delete_unaccessed_days: None,
         };
         FileStore::new(Arc::new(RwLock::new(settings)))
     }
