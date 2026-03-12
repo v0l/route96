@@ -261,7 +261,7 @@ impl Database {
     ///
     /// Used to determine whether setup mode is active: if no admins exist the
     /// server has not yet been configured and the onboarding flow should run.
-    pub async fn get_admin_count(&self) -> Result<u64, Error> {
+    pub async fn get_admin_count(&self) -> Result<i64, Error> {
         sqlx::query("select count(id) from users where is_admin = 1")
             .fetch_one(&self.pool)
             .await?
