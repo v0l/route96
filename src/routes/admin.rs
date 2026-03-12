@@ -8,7 +8,7 @@ use axum::{
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, put},
+    routing::{delete, get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
@@ -17,6 +17,7 @@ use std::sync::Arc;
 pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
+        .route("/setup", post(post_setup))
         .route("/admin/self", get(admin_get_self))
         .route("/user/files", get(user_list_files))
         .route("/admin/files", get(admin_list_files))
@@ -106,6 +107,7 @@ where
 #[derive(Serialize)]
 pub struct SelfUser {
     pub is_admin: bool,
+    pub setup_mode: bool,
     pub file_count: u64,
     pub total_size: u64,
     #[cfg(feature = "payments")]
@@ -116,6 +118,16 @@ pub struct SelfUser {
     pub free_quota: u64,
     #[cfg(feature = "payments")]
     pub total_available_quota: u64,
+}
+
+/// Request body for `POST /setup`.
+#[derive(Deserialize)]
+struct SetupRequest {
+    /// The public-facing base URL for this server (e.g. `"https://cdn.example.com"`).
+    pub public_url: String,
+    /// Maximum file upload size in bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_upload_bytes: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -197,6 +209,7 @@ async fn admin_get_self(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    let setup_mode = state.is_setup_mode().await;
     match state.db.get_user(&pubkey_vec).await {
         Ok(user) => {
             let s = match state.db.get_user_stats(user.id).await {
@@ -228,6 +241,7 @@ async fn admin_get_self(
 
             AdminResponse::success(SelfUser {
                 is_admin: user.is_admin,
+                setup_mode,
                 file_count: s.file_count,
                 total_size: s.total_size,
                 #[cfg(feature = "payments")]
@@ -246,6 +260,45 @@ async fn admin_get_self(
         }
         Err(_) => AdminResponse::error("User not found"),
     }
+}
+
+/// `POST /setup` — complete initial server setup.
+///
+/// Only works while the server is in setup mode (no users registered yet).
+/// Saves the provided configuration values to the database so they take
+/// effect immediately without a server restart.
+async fn post_setup(
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<SetupRequest>,
+) -> AdminResponse<()> {
+    if !state.is_setup_mode().await {
+        return AdminResponse::error("Server is already configured");
+    }
+
+    // Validate public_url
+    let public_url = body.public_url.trim().trim_end_matches('/');
+    if public_url.is_empty() {
+        return AdminResponse::error("public_url cannot be empty");
+    }
+    if !public_url.starts_with("http://") && !public_url.starts_with("https://") {
+        return AdminResponse::error("public_url must start with http:// or https://");
+    }
+
+    if let Err(e) = state.db.config_set("public_url", public_url).await {
+        return AdminResponse::error(&format!("Failed to save public_url: {}", e));
+    }
+
+    if let Some(max_bytes) = body.max_upload_bytes
+        && let Err(e) = state
+            .db
+            .config_set("max_upload_bytes", &max_bytes.to_string())
+            .await
+    {
+        return AdminResponse::error(&format!("Failed to save max_upload_bytes: {}", e));
+    }
+
+    state.reload_config().await;
+    AdminResponse::success(())
 }
 
 

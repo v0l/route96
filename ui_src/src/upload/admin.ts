@@ -4,12 +4,18 @@ import { EventKind, EventPublisher } from "@snort/system";
 
 export interface AdminSelf {
   is_admin: boolean;
+  setup_mode: boolean;
   file_count: number;
   total_size: number;
   paid_until?: number;
   quota?: number;
   free_quota?: number;
   total_available_quota?: number;
+}
+
+export interface SetupRequest {
+  public_url: string;
+  max_upload_bytes?: number;
 }
 
 export interface FileStats {
@@ -105,6 +111,21 @@ export class Route96 {
     const rsp = await this.#req("admin/self", "GET");
     const data = await this.#handleResponse<AdminResponse<AdminSelf>>(rsp);
     return data;
+  }
+
+  /** Submit initial setup configuration without authentication. */
+  static async postSetup(baseUrl: string, body: SetupRequest) {
+    const url = new URL(baseUrl).toString();
+    const rsp = await fetch(`${url}setup`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!rsp.ok) {
+      const text = await rsp.text();
+      throw new Error(text || `${rsp.status} ${rsp.statusText}`);
+    }
+    return (await rsp.json()) as AdminResponse<void>;
   }
 
   async listFiles(

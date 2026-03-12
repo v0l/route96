@@ -86,6 +86,19 @@ impl AppState {
         )
         .await;
     }
+
+    /// Return `true` when the server has not yet been configured.
+    ///
+    /// Setup mode is active when no admin users exist yet.  Once the first
+    /// user completes setup and their pubkey is promoted to admin, this
+    /// returns `false`.
+    pub async fn is_setup_mode(&self) -> bool {
+        match self.db.get_admin_count().await {
+            Ok(count) => count == 0,
+            // If the query fails (e.g. during migration) assume not in setup mode.
+            Err(_) => false,
+        }
+    }
 }
 
 pub struct FilePayload {

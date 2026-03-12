@@ -255,6 +255,17 @@ impl Database {
             .try_get(0)
     }
 
+    /// Return the number of admin users.
+    ///
+    /// Used to determine whether setup mode is active: if no admins exist the
+    /// server has not yet been configured and the onboarding flow should run.
+    pub async fn get_admin_count(&self) -> Result<u64, Error> {
+        sqlx::query("select count(id) from users where is_admin = 1")
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)
+    }
+
     pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
