@@ -41,8 +41,6 @@ impl FileDeleter {
     /// config changes take effect immediately.  The loop shuts down cleanly
     /// when `shutdown` is cancelled.
     pub async fn process(self, shutdown: CancellationToken) {
-        let Self { db, fs, settings } = self;
-
         tokio::spawn(async move {
             info!("FileDeleter worker started");
 
@@ -53,7 +51,7 @@ impl FileDeleter {
                 let sleep_dur;
 
                 tokio::select! {
-                    batch_result = Self::run_batch(&db, &fs, &settings) => {
+                    batch_result = Self::run_batch(&self.db, &self.fs, &self.settings) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                         if let BatchResult::Processed { found } = batch_result
                             && stall_rounds > 0

@@ -23,8 +23,6 @@ impl PhashFiles {
     /// Backs off exponentially when the same files keep reappearing.
     /// Shuts down cleanly when `shutdown` is cancelled.
     pub async fn process(self, shutdown: CancellationToken) {
-        let Self { db, fs } = self;
-
         tokio::spawn(async move {
             info!("PhashFiles worker started");
 
@@ -35,7 +33,7 @@ impl PhashFiles {
                 let sleep_dur;
 
                 tokio::select! {
-                    batch_result = Self::run_batch(&db, &fs, &shutdown) => {
+                    batch_result = Self::run_batch(&self.db, &self.fs, &shutdown) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                         if let BatchResult::Processed { found } = batch_result
                             && stall_rounds > 0
