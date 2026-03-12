@@ -18,7 +18,7 @@ interface KnownField {
   key: string;
   label: string;
   description: string;
-  type: "bytes" | "text" | "url" | "bool" | "whitelist";
+  type: "bytes" | "text" | "url" | "bool" | "whitelist" | "days";
   optional?: boolean;
 }
 
@@ -60,10 +60,31 @@ const KNOWN_FIELDS: KnownField[] = [
     type: "whitelist",
     optional: true,
   },
+  {
+    key: "delete_unaccessed_days",
+    label: "Delete inactive files after",
+    description:
+      "Automatically delete files that have had no downloads within this many days. Files uploaded within the same window are given a grace period. Set to 0 or leave unset to disable.",
+    type: "days",
+    optional: true,
+  },
+  {
+    key: "delete_after_days",
+    label: "Delete all files after",
+    description:
+      "Hard retention limit: delete every file older than this many days, regardless of whether it has been downloaded. Set to 0 or leave unset to disable.",
+    type: "days",
+    optional: true,
+  },
 ];
 
 // Keys hidden from both the structured UI and the raw fallback.
-const HIDDEN_KEYS = new Set(["listen", "storage_dir", "database", "models_dir"]);
+const HIDDEN_KEYS = new Set([
+  "listen",
+  "storage_dir",
+  "database",
+  "models_dir",
+]);
 const KNOWN_KEYS = new Set([...KNOWN_FIELDS.map((f) => f.key), ...HIDDEN_KEYS]);
 
 // ── byte helpers ──────────────────────────────────────────────────────────────
@@ -174,7 +195,9 @@ function BytesField({
         className={inputCls("w-28")}
         value={num}
         onChange={(e) => setNum(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
       />
       <select
         value={unit}
@@ -182,11 +205,15 @@ function BytesField({
         className={inputCls("w-16 cursor-pointer")}
       >
         {(["B", "KB", "MB", "GB"] as ByteUnit[]).map((u) => (
-          <option key={u} value={u}>{u}</option>
+          <option key={u} value={u}>
+            {u}
+          </option>
         ))}
       </select>
       {currentValue !== undefined && (
-        <span className="text-xs text-neutral-600">= {FormatBytes(bytes, 1)}</span>
+        <span className="text-xs text-neutral-600">
+          = {FormatBytes(bytes, 1)}
+        </span>
       )}
       {dirty && (
         <BtnSmall onClick={save} disabled={saving || !num}>
@@ -194,7 +221,9 @@ function BytesField({
         </BtnSmall>
       )}
       {optional && currentValue !== undefined && (
-        <BtnSmall onClick={onDelete} danger>Revert</BtnSmall>
+        <BtnSmall onClick={onDelete} danger>
+          Revert
+        </BtnSmall>
       )}
     </div>
   );
@@ -236,7 +265,9 @@ function TextField({
         value={val}
         placeholder={placeholder}
         onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
       />
       {dirty && (
         <BtnSmall onClick={save} disabled={saving || !val.trim()}>
@@ -244,7 +275,9 @@ function TextField({
         </BtnSmall>
       )}
       {optional && currentValue !== undefined && (
-        <BtnSmall onClick={onDelete} danger>Revert</BtnSmall>
+        <BtnSmall onClick={onDelete} danger>
+          Revert
+        </BtnSmall>
       )}
     </div>
   );
@@ -290,10 +323,75 @@ function BoolField({
       <span className="text-xs text-neutral-400">
         {currentValue === undefined
           ? "not set (using config.yaml default)"
-          : active ? "enabled" : "disabled"}
+          : active
+            ? "enabled"
+            : "disabled"}
       </span>
       {optional && currentValue !== undefined && (
-        <BtnSmall onClick={onDelete} danger>Revert</BtnSmall>
+        <BtnSmall onClick={onDelete} danger>
+          Revert
+        </BtnSmall>
+      )}
+    </div>
+  );
+}
+
+// ── DaysField ─────────────────────────────────────────────────────────────────
+
+function DaysField({
+  currentValue,
+  onSave,
+  onDelete,
+  optional,
+}: {
+  currentValue: string | undefined;
+  onSave: (raw: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  optional?: boolean;
+}) {
+  const parsed = currentValue !== undefined ? Number(currentValue) : NaN;
+  const [val, setVal] = useState<string>(isNaN(parsed) ? "" : String(parsed));
+  const [saving, setSaving] = useState(false);
+
+  const dirty = val !== (isNaN(parsed) ? "" : String(parsed));
+  const numVal = Number(val);
+  const valid =
+    val !== "" && !isNaN(numVal) && Number.isInteger(numVal) && numVal >= 0;
+
+  async function save() {
+    if (!valid) return;
+    setSaving(true);
+    await onSave(String(numVal));
+    setSaving(false);
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min={0}
+        step={1}
+        className={inputCls("w-24")}
+        value={val}
+        placeholder="0"
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+      />
+      <span className="text-xs text-neutral-500">days</span>
+      {currentValue !== undefined && numVal === 0 && (
+        <span className="text-xs text-neutral-600">(disabled)</span>
+      )}
+      {dirty && (
+        <BtnSmall onClick={save} disabled={saving || !valid}>
+          {saving ? "Saving…" : "Save"}
+        </BtnSmall>
+      )}
+      {optional && currentValue !== undefined && (
+        <BtnSmall onClick={onDelete} danger>
+          Revert
+        </BtnSmall>
       )}
     </div>
   );
@@ -301,13 +399,7 @@ function BoolField({
 
 // ── WhitelistEditor ───────────────────────────────────────────────────────────
 
-function WhitelistEditor({
-  pub,
-  url,
-}: {
-  pub: EventPublisher;
-  url: string;
-}) {
+function WhitelistEditor({ pub, url }: { pub: EventPublisher; url: string }) {
   const login = useLogin();
   const [entries, setEntries] = useState<WhitelistEntry[]>();
   const [input, setInput] = useState("");
@@ -325,9 +417,12 @@ function WhitelistEditor({
     }
   }, [pub, url]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const selfInList = selfHex !== undefined && entries?.some((e) => e.pubkey === selfHex);
+  const selfInList =
+    selfHex !== undefined && entries?.some((e) => e.pubkey === selfHex);
 
   async function add() {
     const hex = resolveToHex(input);
@@ -369,29 +464,34 @@ function WhitelistEditor({
             placeholder="hex pubkey, npub, or nprofile…"
             className={inputCls("flex-1 font-mono")}
             value={input}
-            onChange={(e) => { setInput(e.target.value); setInputError(undefined); }}
-            onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setInputError(undefined);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") add();
+            }}
           />
           <BtnSmall onClick={add} disabled={loading || !input.trim()}>
             {loading ? "Adding…" : "Add"}
           </BtnSmall>
           {selfHex && !selfInList && (
-            <BtnSmall onClick={async () => {
-              setLoading(true);
-              try {
-                await new Route96(url, pub).addToWhitelist(selfHex);
-                await load();
-              } finally {
-                setLoading(false);
-              }
-            }}>
+            <BtnSmall
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  await new Route96(url, pub).addToWhitelist(selfHex);
+                  await load();
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
               Add me
             </BtnSmall>
           )}
         </div>
-        {inputError && (
-          <p className="text-xs text-red-400">{inputError}</p>
-        )}
+        {inputError && <p className="text-xs text-red-400">{inputError}</p>}
       </div>
 
       {/* Entries */}
@@ -432,7 +532,10 @@ function WhitelistEditor({
 
 type WhitelistMode = "open" | "database" | "file";
 
-function parseWhitelistMode(value: string | undefined): { mode: WhitelistMode; path: string } {
+function parseWhitelistMode(value: string | undefined): {
+  mode: WhitelistMode;
+  path: string;
+} {
   if (value === undefined) return { mode: "open", path: "" };
   if (value === "true") return { mode: "database", path: "" };
   return { mode: "file", path: value };
@@ -509,7 +612,9 @@ function WhitelistField({
           className={inputCls("w-full font-mono")}
           value={path}
           onChange={(e) => setPath(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
         />
       )}
 
@@ -537,9 +642,7 @@ function WhitelistField({
       </div>
 
       {/* Inline list editor when mode is database */}
-      {mode === "database" && (
-        <WhitelistEditor pub={pub} url={url} />
-      )}
+      {mode === "database" && <WhitelistEditor pub={pub} url={url} />}
     </div>
   );
 }
@@ -592,7 +695,9 @@ function RawEditor({
           value={key}
           disabled={editingKey !== undefined}
           onChange={(e) => setKey(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
         />
         <input
           type="text"
@@ -600,7 +705,9 @@ function RawEditor({
           className={inputCls("flex-1 min-w-32 font-mono")}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
         />
         <button
           onClick={save}
@@ -627,13 +734,19 @@ function RawEditor({
               className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-sm px-3 py-2"
             >
               <div className="min-w-0 flex-1">
-                <span className="font-mono text-xs text-neutral-300">{entry.key}</span>
+                <span className="font-mono text-xs text-neutral-300">
+                  {entry.key}
+                </span>
                 <span className="mx-2 text-neutral-700 text-xs">=</span>
-                <span className="font-mono text-xs text-neutral-500">{entry.value}</span>
+                <span className="font-mono text-xs text-neutral-500">
+                  {entry.value}
+                </span>
               </div>
               <div className="ml-3 shrink-0 flex gap-1">
                 <BtnSmall onClick={() => startEdit(entry)}>Edit</BtnSmall>
-                <BtnSmall onClick={() => onDelete(entry.key)} danger>Delete</BtnSmall>
+                <BtnSmall onClick={() => onDelete(entry.key)} danger>
+                  Delete
+                </BtnSmall>
               </div>
             </div>
           ))}
@@ -668,13 +781,52 @@ export default function ConfigEditor({
 
     let control: React.ReactNode;
     if (field.type === "bytes") {
-      control = <BytesField currentValue={current} onSave={save} onDelete={del} optional={field.optional} />;
+      control = (
+        <BytesField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
+        />
+      );
     } else if (field.type === "bool") {
-      control = <BoolField currentValue={current} onSave={save} onDelete={del} optional={field.optional} />;
+      control = (
+        <BoolField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
+        />
+      );
+    } else if (field.type === "days") {
+      control = (
+        <DaysField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
+        />
+      );
     } else if (field.type === "whitelist") {
-      control = <WhitelistField currentValue={current} onSave={save} onDelete={del} pub={pub} url={url} />;
+      control = (
+        <WhitelistField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          pub={pub}
+          url={url}
+        />
+      );
     } else {
-      control = <TextField currentValue={current} type={field.type === "url" ? "url" : "text"} onSave={save} onDelete={del} optional={field.optional} />;
+      control = (
+        <TextField
+          currentValue={current}
+          type={field.type === "url" ? "url" : "text"}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
+        />
+      );
     }
 
     const isOverridden = current !== undefined;
@@ -683,19 +835,25 @@ export default function ConfigEditor({
       <div
         key={field.key}
         className={`rounded-sm border px-4 py-3 space-y-2 ${
-          isOverridden ? "border-blue-900 bg-blue-950/20" : "border-neutral-800 bg-neutral-900/40"
+          isOverridden
+            ? "border-blue-900 bg-blue-950/20"
+            : "border-neutral-800 bg-neutral-900/40"
         }`}
       >
         <div className="flex items-center justify-between gap-2">
           <div>
-            <span className="text-xs font-medium text-neutral-200">{field.label}</span>
+            <span className="text-xs font-medium text-neutral-200">
+              {field.label}
+            </span>
             {isOverridden && (
               <span className="ml-2 text-[10px] text-blue-400 bg-blue-900/40 px-1.5 py-0.5 rounded-sm">
                 overridden
               </span>
             )}
           </div>
-          <code className="text-[10px] text-neutral-600 font-mono">{field.key}</code>
+          <code className="text-[10px] text-neutral-600 font-mono">
+            {field.key}
+          </code>
         </div>
         <p className="text-xs text-neutral-500">{field.description}</p>
         {control}

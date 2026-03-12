@@ -1237,6 +1237,62 @@ impl Database {
             .await
     }
 
+    /// Return IDs of files that have had no downloads since `cutoff`.
+    ///
+    /// A file qualifies when **either**:
+    /// - it has never been downloaded (no row in `file_stats`), **or**
+    /// - its `last_accessed` timestamp is older than `cutoff`.
+    ///
+    /// Files whose `created` timestamp is newer than `cutoff` are excluded so
+    /// that recently uploaded files are given a grace period equal to the same
+    /// window before they can be deleted.
+    ///
+    /// At most `limit` IDs are returned per call so callers can process work
+    /// in bounded batches.
+    pub async fn get_unaccessed_files(
+        &self,
+        cutoff: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select u.id from uploads u \
+             left join file_stats fs on fs.file = u.id \
+             where u.banned = false \
+             and u.created < ? \
+             and (fs.last_accessed is null or fs.last_accessed < ?) \
+             limit ?",
+        )
+        .bind(cutoff)
+        .bind(cutoff)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Return IDs of files whose `created` timestamp is older than `cutoff`,
+    /// regardless of download activity (hard retention limit).
+    ///
+    /// Banned files are excluded — they are kept as tombstones intentionally.
+    /// At most `limit` IDs are returned per call.
+    pub async fn get_files_older_than(
+        &self,
+        cutoff: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select id from uploads \
+             where banned = false \
+             and created < ? \
+             limit ?",
+        )
+        .bind(cutoff)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Fetch persisted stats for a batch of files.
     ///
     /// Returns a map keyed by file id.  Files with no stats row are absent

@@ -3,7 +3,9 @@ use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
 use crate::settings::Settings;
 use log::{error, info};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -52,6 +54,8 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
     }
 }
 
+mod file_deleter;
+
 #[cfg(feature = "media-compression")]
 mod media_metadata;
 
@@ -64,14 +68,16 @@ mod label_files;
 #[cfg(feature = "payments")]
 mod payments;
 
-pub fn start_background_tasks(
+pub async fn start_background_tasks(
     db: Database,
     file_store: FileStore,
-    settings: Settings,
+    settings: Arc<RwLock<Settings>>,
     shutdown: CancellationToken,
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> JoinSet<()> {
+    let settings_snap = settings.read().await.clone();
+
     let mut set = JoinSet::new();
 
     // Always start the file-stats flush task.
@@ -108,16 +114,16 @@ pub fn start_background_tasks(
 
     #[cfg(feature = "labels")]
     {
-        if let Some(label_models) = settings.label_models.clone()
+        if let Some(label_models) = settings_snap.label_models.clone()
             && !label_models.is_empty()
         {
             let db = db.clone();
             let fs = file_store.clone();
-            let models_dir = settings
+            let models_dir = settings_snap
                 .models_dir
                 .clone()
                 .unwrap_or_else(|| fs.storage_dir().join("models"));
-            let flag_terms = settings.label_flag_terms.clone().unwrap_or_default();
+            let flag_terms = settings_snap.label_flag_terms.clone().unwrap_or_default();
             let token = shutdown.clone();
             set.spawn(async move {
                 info!("Starting LabelFiles background task");
@@ -148,8 +154,20 @@ pub fn start_background_tasks(
         }
     }
 
-    // Suppress unused-variable warnings when no features are enabled that use `settings`.
-    let _ = settings;
+    // Always start the file-deleter task; it reads thresholds from live
+    // settings each cycle and idles when both policies are disabled.
+    {
+        let db = db.clone();
+        let fs = file_store.clone();
+        let live = settings.clone();
+        let token = shutdown.clone();
+        set.spawn(async move {
+            info!("Starting FileDeleter background task");
+            let task = file_deleter::FileDeleter::new(db, fs, live);
+            task.process(token).await;
+            info!("FileDeleter background task completed");
+        });
+    }
 
     set
 }

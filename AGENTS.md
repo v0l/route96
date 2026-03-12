@@ -98,6 +98,18 @@ cargo clippy                # Lint
 cargo clippy --all-features
 ```
 
+> **CUDA note:** CUDA is installed at `/usr/local/cuda` (not the default `/usr/lib/cuda`).
+> The GPU on this machine has compute cap 6.1, which the installed toolkit (sm_75+) does
+> not support.  When building or linting with the `labels` feature, override both
+> variables so `bindgen_cuda` picks the correct toolkit and a supported target:
+>
+> ```bash
+> CUDA_PATH=/usr/local/cuda CUDA_COMPUTE_CAP=75 cargo clippy --all-features
+> CUDA_PATH=/usr/local/cuda CUDA_COMPUTE_CAP=75 cargo build --all-features
+> ```
+>
+> Omit `--all-features` (or exclude the `labels` feature) to avoid needing CUDA at all.
+
 #### TypeScript (ui_src/)
 ```bash
 yarn prettier --check src/
