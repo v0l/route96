@@ -885,6 +885,17 @@ impl Database {
             .collect()
     }
 
+    /// Seed a config key from the static config file — inserts only if the key
+    /// does not already exist, so existing admin overrides are never clobbered.
+    pub async fn config_seed(&self, key: &str, value: &str) -> Result<(), Error> {
+        sqlx::query("insert ignore into config(`key`, `value`) values(?, ?)")
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Set (upsert) a single config key.
     pub async fn config_set(&self, key: &str, value: &str) -> Result<(), Error> {
         sqlx::query(

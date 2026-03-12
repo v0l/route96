@@ -15,6 +15,7 @@ use log::{info, warn};
 use std::time::Duration;
 use route96::background::start_background_tasks;
 use route96::config_watcher::{build_settings, watch_config};
+use route96::db_config::seed_from_settings;
 use route96::cors::cors_layer;
 use route96::db::Database;
 use route96::file_stats::FileStatsTracker;
@@ -53,7 +54,13 @@ async fn main() -> Result<(), Error> {
     info!("Running DB migration");
     db.migrate().await?;
 
-    // ── Step 2: rebuild settings with DB overrides applied ──────────────────
+    // ── Step 2: seed DB config from static file (INSERT IGNORE — never
+    //            overwrites values the admin has already set at runtime) ──────
+    if let Err(e) = seed_from_settings(&db, &initial_settings).await {
+        log::warn!("Failed to seed config table from settings file: {}", e);
+    }
+
+    // ── Step 3: rebuild settings with DB overrides applied ──────────────────
     let settings = build_settings(&config_path, &db).await?;
 
     let addr: SocketAddr = match &settings.listen {

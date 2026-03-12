@@ -12,8 +12,10 @@ use std::fmt;
 
 use async_trait::async_trait;
 use config::{AsyncSource, ConfigError, Map, Value, ValueKind};
+use serde_json::Value as JsonValue;
 
 use crate::db::Database;
+use crate::settings::Settings;
 
 /// A [`config::AsyncSource`] that loads overrides from the `config` DB table.
 #[derive(Clone)]
@@ -104,6 +106,66 @@ fn insert_nested(map: &mut Map<String, Value>, key: &str, value: Value) {
     }
 }
 
+/// Seed the `config` table from the current `Settings` loaded from the static
+/// config file.  Only scalar leaf values are inserted; complex types (arrays,
+/// nested objects beyond one level, secrets) are skipped.
+///
+/// Uses `INSERT IGNORE` semantics — existing DB overrides are never
+/// overwritten, so the admin can change a value at runtime without it being
+/// reverted on the next restart.
+pub async fn seed_from_settings(db: &Database, settings: &Settings) -> anyhow::Result<()> {
+    let json = serde_json::to_value(settings)?;
+    let pairs = flatten_json("", &json);
+    for (key, value) in pairs {
+        // Skip keys the admin UI cannot meaningfully display or edit, and keys
+        // that contain secrets / filesystem paths that differ per deployment.
+        if should_skip(&key) {
+            continue;
+        }
+        // INSERT IGNORE: if the key already exists in the DB keep that value.
+        db.config_seed(&key, &value).await?;
+    }
+    Ok(())
+}
+
+/// Keys whose values we deliberately do not seed into the database.
+fn should_skip(key: &str) -> bool {
+    // Secrets and deployment-specific paths that must not be overridden via UI
+    const SKIP: &[&str] = &[
+        "database",
+        "storage_dir",
+        "listen",
+        "models_dir",
+        // payments sub-tree contains LND credentials
+        "payments",
+    ];
+    SKIP.iter().any(|s| key == *s || key.starts_with(&format!("{}.", s)))
+}
+
+/// Recursively flatten a JSON value into `(dot.notation.key, string_value)` pairs.
+/// Only scalar leaves (string, number, bool) are emitted; nulls and arrays are skipped.
+fn flatten_json(prefix: &str, value: &JsonValue) -> Vec<(String, String)> {
+    match value {
+        JsonValue::Object(map) => {
+            let mut out = Vec::new();
+            for (k, v) in map {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                out.extend(flatten_json(&key, v));
+            }
+            out
+        }
+        JsonValue::String(s) => vec![(prefix.to_owned(), s.clone())],
+        JsonValue::Number(n) => vec![(prefix.to_owned(), n.to_string())],
+        JsonValue::Bool(b) => vec![(prefix.to_owned(), b.to_string())],
+        // Skip nulls (Option::None fields) and arrays (too complex for scalar storage)
+        JsonValue::Null | JsonValue::Array(_) => vec![],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +214,42 @@ mod tests {
             parse_value("hello").kind,
             ValueKind::String(_)
         ));
+    }
+
+    #[test]
+    fn test_flatten_json_scalars() {
+        let v: JsonValue = serde_json::json!({
+            "a": "hello",
+            "b": 42,
+            "c": true,
+            "d": null,
+            "e": ["x", "y"]
+        });
+        let pairs = flatten_json("", &v);
+        let map: std::collections::HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(map["a"], "hello");
+        assert_eq!(map["b"], "42");
+        assert_eq!(map["c"], "true");
+        assert!(!map.contains_key("d")); // null skipped
+        assert!(!map.contains_key("e")); // array skipped
+    }
+
+    #[test]
+    fn test_flatten_json_nested() {
+        let v: JsonValue = serde_json::json!({ "outer": { "inner": 99 } });
+        let pairs = flatten_json("", &v);
+        assert_eq!(pairs, vec![("outer.inner".to_string(), "99".to_string())]);
+    }
+
+    #[test]
+    fn test_should_skip() {
+        assert!(should_skip("database"));
+        assert!(should_skip("payments"));
+        assert!(should_skip("payments.lnd.tls"));
+        assert!(should_skip("storage_dir"));
+        assert!(!should_skip("max_upload_bytes"));
+        assert!(!should_skip("public_url"));
+        assert!(!should_skip("webhook_url"));
     }
 
     #[test]
