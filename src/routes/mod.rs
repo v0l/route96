@@ -27,6 +27,7 @@ use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
@@ -43,11 +44,48 @@ pub mod payment;
 pub struct AppState {
     pub fs: FileStore,
     pub db: Database,
-    pub settings: Settings,
-    pub wl: Whitelist,
+    /// Path to the static config file, used for on-demand reloads.
+    pub config_path: String,
+    /// Live settings, hot-reloaded by the config watcher background task.
+    /// Use `.settings()` to get a snapshot for the current request.
+    pub settings: Arc<RwLock<Settings>>,
+    /// Live whitelist, rebuilt by the config watcher whenever settings reload.
+    /// Use `.wl()` to get a snapshot for the current request.
+    pub wl: Arc<RwLock<Whitelist>>,
     pub file_stats: FileStatsTracker,
     #[cfg(feature = "payments")]
     pub lnd: Option<fedimint_tonic_lnd::Client>,
+}
+
+impl AppState {
+    /// Return a snapshot of the current settings.
+    ///
+    /// Route handlers should call this once per request rather than locking
+    /// repeatedly.
+    pub async fn settings(&self) -> Settings {
+        self.settings.read().await.clone()
+    }
+
+    /// Return a snapshot of the current whitelist.
+    ///
+    /// Cloning is cheap — `Whitelist` is a plain value type.
+    pub async fn wl(&self) -> Whitelist {
+        self.wl.read().await.clone()
+    }
+
+    /// Rebuild settings from the config file + env + DB immediately.
+    ///
+    /// Called by admin config handlers so changes take effect at once
+    /// rather than waiting for the next poll cycle.
+    pub async fn reload_config(&self) {
+        crate::config_watcher::reload(
+            &self.config_path,
+            &self.db,
+            &self.settings,
+            &self.wl,
+        )
+        .await;
+    }
 }
 
 pub struct FilePayload {

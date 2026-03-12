@@ -353,6 +353,66 @@ Delete all files belonging to a user. Each file's ownership records, database en
 
 ---
 
+## Dynamic Config
+
+These endpoints manage the database-backed configuration layer. Keys set here
+override the same keys in `config.yaml`. Changes are picked up by the running
+server within 30 seconds (DB poll interval) or immediately if the config file
+also changes.
+
+Keys use dot-notation for nested YAML paths (e.g. `max_upload_bytes`,
+`payments.cost`).
+
+### `GET /admin/config`
+
+List all database config overrides.
+
+**Response**
+
+```json
+{
+  "status": "success",
+  "data": [
+    { "key": "max_upload_bytes", "value": "209715200" },
+    { "key": "webhook_url",      "value": "https://hooks.example.com/notify" }
+  ]
+}
+```
+
+---
+
+### `PUT /admin/config/{key}`
+
+Set (upsert) a config override. The value is always a string; the server
+parses it as boolean / integer / float / string in that order.
+
+**Request body**
+
+```json
+{ "value": "209715200" }
+```
+
+**Response**
+
+```json
+{ "status": "success" }
+```
+
+---
+
+### `DELETE /admin/config/{key}`
+
+Remove a config override, reverting to the static `config.yaml` value on the
+next reload.
+
+**Response**
+
+```json
+{ "status": "success" }
+```
+
+---
+
 ## Error responses
 
 All endpoints return a consistent error envelope on failure:

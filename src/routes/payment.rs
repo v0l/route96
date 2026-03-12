@@ -67,14 +67,16 @@ async fn req_payment(
     AxumState(state): AxumState<Arc<AppState>>,
     Json(req): Json<PaymentRequest>,
 ) -> Result<Json<PaymentResponse>, (StatusCode, String)> {
-    let cfg = if let Some(p) = &state.settings.payments {
-        p
+    let settings = state.settings().await;
+    let cfg = if let Some(p) = &settings.payments {
+        p.clone()
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
             "Payment not enabled, missing configuration option(s)".to_string(),
         ));
     };
+    let cfg = &cfg;
 
     let btc_amount = match cfg.cost.currency {
         Currency::BTC => cfg.cost.amount,

@@ -53,8 +53,6 @@ label_flag_terms:
   - "nipple"
   - "brassiere"
 
-# (Optional) Analytics support
-# plausible_url: "https://plausible.com/"
 
 # (Optional) Legacy file path for void.cat uploads
 # void_cat_files: "/my/void.cat/data"

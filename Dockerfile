@@ -1,4 +1,4 @@
-ARG FEATURES="blossom,nip96,analytics,react-ui,r96util,media-compression,labels"
+ARG FEATURES="blossom,nip96,react-ui,r96util,media-compression,labels"
 
 # ── Rust dependency cache ─────────────────────────────────────────────────────
 # Install build tools and pre-compile all dependencies in isolation.

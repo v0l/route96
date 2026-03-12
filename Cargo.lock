@@ -3753,6 +3753,7 @@ name = "route96"
 version = "0.5.2"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "axum-extra",
  "base64 0.22.1",

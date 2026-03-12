@@ -11,13 +11,12 @@ path = "src/bin/main.rs"
 name = "route96"
 
 [features]
-default = ["nip96", "blossom", "analytics", "react-ui", "r96util", "labels"]
+default = ["nip96", "blossom", "react-ui", "r96util", "labels"]
 media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
 labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:hf-hub"]
 cuda = ["labels", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 nip96 = ["media-compression"]
 blossom = []
-analytics = []
 react-ui = []
 payments = ["dep:payments-rs"]
 r96util = ["dep:walkdir", "dep:indicatif"]
@@ -38,7 +37,8 @@ uuid = { version = "1.8", features = ["v4", "serde"] }
 anyhow = "1"
 sha2 = "0.10"
 sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "chrono", "uuid"] }
-config = { version = "0.15", features = ["yaml"] }
+config = { version = "0.15", features = ["yaml", "async"] }
+async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.13", features = ["stream", "http2", "json"] }
 clap = { version = "4.5", features = ["derive"] }
@@ -68,4 +68,7 @@ payments-rs = { git = "https://github.com/v0l/payments-rs.git", optional = true,
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
+
+[dependencies.serde_json]
+version = "1"
 

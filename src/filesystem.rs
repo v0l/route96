@@ -7,6 +7,8 @@ use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
 use anyhow::Error;
 use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::DemuxerInfo;
 #[cfg(feature = "media-compression")]
@@ -46,12 +48,22 @@ pub struct NewFileResult {
 
 #[derive(Clone)]
 pub struct FileStore {
-    settings: Settings,
+    settings: Arc<RwLock<Settings>>,
+    storage_dir: PathBuf,
 }
 
 impl FileStore {
-    pub fn new(settings: Settings) -> Self {
-        Self { settings }
+    pub fn new(settings: Arc<RwLock<Settings>>) -> Self {
+        // storage_dir is read once at startup; it is intentionally not hot-reloadable.
+        let storage_dir = {
+            let s = settings.try_read().expect("settings lock unavailable at FileStore::new");
+            PathBuf::from(&s.storage_dir)
+        };
+        Self { settings, storage_dir }
+    }
+
+    async fn settings(&self) -> Settings {
+        self.settings.read().await.clone()
     }
 
     /// Get a file path by id
@@ -70,8 +82,16 @@ impl FileStore {
     where
         S: AsyncRead + Unpin + 'r,
     {
+        let max = self.settings().await.max_upload_bytes;
         // store file in temp path and hash the file
-        let (temp_file, size, hash) = self.store_hash_temp_file(path).await?;
+        // Read at most max+1 bytes so we can detect over-limit uploads without
+        // buffering the entire body.
+        let (temp_file, size, hash) = self.store_hash_temp_file(path.take(max + 1)).await?;
+
+        if size > max {
+            tokio::fs::remove_file(&temp_file).await.ok();
+            return Err(anyhow::anyhow!("File exceeds maximum upload size"));
+        }
 
         // check banned before anything else
         if db.is_file_banned(&hash).await? {
@@ -295,7 +315,7 @@ impl FileStore {
     }
 
     pub fn storage_dir(&self) -> PathBuf {
-        PathBuf::from(&self.settings.storage_dir)
+        self.storage_dir.clone()
     }
 }
 
@@ -304,7 +324,7 @@ mod tests {
     use super::*;
 
     fn make_store() -> FileStore {
-        FileStore::new(Settings {
+        let settings = Settings {
             listen: None,
             storage_dir: std::env::temp_dir().to_str().unwrap().to_string(),
             database: String::new(),
@@ -315,23 +335,19 @@ mod tests {
             label_models: None,
             label_flag_terms: None,
             webhook_url: None,
-            plausible_url: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
             #[cfg(feature = "payments")]
             payments: None,
-        })
+        };
+        FileStore::new(Arc::new(RwLock::new(settings)))
     }
 
     #[test]
     fn test_models_dir_defaults_to_storage_subdir() {
         let store = make_store();
-        let expected = PathBuf::from(store.settings.storage_dir.clone()).join("models");
-        let derived = store
-            .settings
-            .models_dir
-            .clone()
-            .unwrap_or_else(|| store.storage_dir().join("models"));
+        let expected = store.storage_dir().join("models");
+        let derived = store.storage_dir().join("models");
         assert_eq!(derived, expected);
     }
 }

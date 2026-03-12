@@ -231,12 +231,13 @@ pub fn nip96_routes() -> Router<Arc<AppState>> {
 }
 
 async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96InfoDoc> {
+    let settings = state.settings().await;
     let mut plans = HashMap::new();
     plans.insert(
         "free".to_string(),
         Nip96Plan {
             is_nip98_required: true,
-            max_byte_size: state.settings.max_upload_bytes,
+            max_byte_size: settings.max_upload_bytes,
             ..Default::default()
         },
     );
@@ -263,8 +264,9 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not parse form: {}", e)),
     };
 
+    let settings = state.settings().await;
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
-    if upload_size > 0 && upload_size > state.settings.max_upload_bytes {
+    if upload_size > 0 && upload_size > settings.max_upload_bytes {
         return Nip96Response::error("File too large");
     }
 
@@ -290,7 +292,7 @@ async fn upload(
     }
 
     // check whitelist
-    if !state.wl.is_allowed(&auth.event.pubkey.to_hex()).await {
+    if !state.wl().await.is_allowed(&auth.event.pubkey.to_hex()).await {
         return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 
@@ -298,7 +300,7 @@ async fn upload(
 
     // check quota (only if payments are configured)
     #[cfg(feature = "payments")]
-    if let Some(payment_config) = &state.settings.payments {
+    if let Some(payment_config) = &settings.payments {
         let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
         if upload_size > 0 {
@@ -331,7 +333,7 @@ async fn upload(
             let mut upload: FileUpload = (&blob).into();
 
             // Validate file size after upload if no pre-upload size was available
-            if upload_size == 0 && upload.size > state.settings.max_upload_bytes {
+            if upload_size == 0 && upload.size > settings.max_upload_bytes {
                 // Clean up the uploaded file
                 if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
                     log::warn!("Failed to cleanup oversized file: {}", e);
@@ -366,7 +368,7 @@ async fn upload(
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if upload_size == 0 {
-        if let Some(payment_config) = &state.settings.payments {
+        if let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state
@@ -418,7 +420,7 @@ async fn upload(
     }
 
     Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
-        &state.settings,
+        &settings,
         &upload,
     )))
 }
@@ -452,19 +454,22 @@ async fn list_files(
         .list_files(&pubkey_vec, query.page * server_count, server_count)
         .await
     {
-        Ok((files, total)) => Nip96Response::FileList(Json(PagedResult {
-            count: server_count,
-            page: query.page,
-            total: total as u32,
-            files: files
-                .iter()
-                .map(|f| {
-                    Nip96UploadResult::from_upload(&state.settings, f)
-                        .nip94_event
-                        .unwrap()
-                })
-                .collect(),
-        })),
+        Ok((files, total)) => {
+            let settings = state.settings().await;
+            Nip96Response::FileList(Json(PagedResult {
+                count: server_count,
+                page: query.page,
+                total: total as u32,
+                files: files
+                    .iter()
+                    .map(|f| {
+                        Nip96UploadResult::from_upload(&settings, f)
+                            .nip94_event
+                            .unwrap()
+                    })
+                    .collect(),
+            }))
+        }
         Err(e) => Nip96Response::error(&format!("Could not list files: {}", e)),
     }
 }

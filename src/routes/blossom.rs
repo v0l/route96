@@ -181,11 +181,12 @@ async fn list_files(
     } else {
         return BlossomResponse::error("invalid pubkey");
     };
+    let settings = state.settings().await;
     match state.db.list_files(&id, 0, 10_000).await {
         Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(&state.settings, f))
+                .map(|f| BlobDescriptor::from_upload(&settings, f))
                 .collect(),
         )),
         Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
@@ -193,7 +194,8 @@ async fn list_files(
 }
 
 async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
-    check_head(auth, &state.wl, &state.settings).await
+    let settings = state.settings().await;
+    check_head(auth, &state.wl().await, &settings).await
 }
 
 async fn upload(
@@ -212,7 +214,7 @@ async fn mirror(
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::error("Invalid request method tag");
     }
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
         return e;
     }
 
@@ -230,7 +232,7 @@ async fn mirror(
 
     let req_builder = client.get(url.clone()).header(
         "user-agent",
-        format!("route96 ({})", state.settings.public_url),
+        format!("route96 ({})", state.settings().await.public_url),
     );
     info!("Requesting mirror: {}", url);
     info!("{:?}", req_builder);
@@ -280,7 +282,8 @@ async fn mirror(
 
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
-    check_head(auth, &state.wl, &state.settings).await
+    let settings = state.settings().await;
+    check_head(auth, &state.wl().await, &settings).await
 }
 
 #[cfg(feature = "media-compression")]
@@ -364,32 +367,14 @@ async fn process_upload(
     });
 
     let size = size_tag.or(auth.x_content_length).unwrap_or(0);
-    if size > 0 && size > state.settings.max_upload_bytes {
+    let settings = state.settings().await;
+    if size > 0 && size > settings.max_upload_bytes {
         return BlossomResponse::error("File too large");
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
         return e;
-    }
-
-    // check quota (only if payments are configured)
-    #[cfg(feature = "payments")]
-    if let Some(payment_config) = &state.settings.payments {
-        let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
-        let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-
-        if size > 0 {
-            match state
-                .db
-                .check_user_quota(&pubkey_vec, size, free_quota)
-                .await
-            {
-                Ok(false) => return BlossomResponse::error("Upload would exceed quota"),
-                Err(_) => return BlossomResponse::error("Failed to check quota"),
-                Ok(true) => {} // Quota check passed
-            }
-        }
     }
 
     let data_stream = body.into_data_stream();
@@ -444,7 +429,7 @@ where
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
-            if state.settings.reject_sensitive_exif.unwrap_or(false)
+            if state.settings().await.reject_sensitive_exif.unwrap_or(false)
                 && mime_type.starts_with("image/")
             {
                 let file_path = state.fs.get(&ret.id);
@@ -491,7 +476,7 @@ where
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if size == 0 {
-        if let Some(payment_config) = &state.settings.payments {
+        if let Some(payment_config) = &state.settings().await.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state
@@ -541,7 +526,7 @@ where
         });
     }
 
-    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings, &upload)))
+    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings().await, &upload)))
 }
 
 async fn report_file(
@@ -555,7 +540,7 @@ async fn report_file(
     }
 
     // Check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
         return e;
     }
 
