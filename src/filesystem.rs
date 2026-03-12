@@ -70,8 +70,16 @@ impl FileStore {
     where
         S: AsyncRead + Unpin + 'r,
     {
+        let max = self.settings.max_upload_bytes;
         // store file in temp path and hash the file
-        let (temp_file, size, hash) = self.store_hash_temp_file(path).await?;
+        // Read at most max+1 bytes so we can detect over-limit uploads without
+        // buffering the entire body.
+        let (temp_file, size, hash) = self.store_hash_temp_file(path.take(max + 1)).await?;
+
+        if size > max {
+            tokio::fs::remove_file(&temp_file).await.ok();
+            return Err(anyhow::anyhow!("File exceeds maximum upload size"));
+        }
 
         // check banned before anything else
         if db.is_file_banned(&hash).await? {
