@@ -76,7 +76,6 @@ pub async fn start_background_tasks(
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> JoinSet<()> {
-    #[allow(unused_variables)]
     let settings_snap = settings.read().await.clone();
 
     let mut set = JoinSet::new();
