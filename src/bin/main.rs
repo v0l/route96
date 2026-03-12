@@ -166,7 +166,7 @@ async fn main() -> Result<(), Error> {
         file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd.clone(),
-    );
+    ).await;
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
         jh.spawn(Whitelist::watch_file(Arc::clone(&live_wl), path, shutdown.clone()));
     }

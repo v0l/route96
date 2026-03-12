@@ -68,7 +68,7 @@ mod label_files;
 #[cfg(feature = "payments")]
 mod payments;
 
-pub fn start_background_tasks(
+pub async fn start_background_tasks(
     db: Database,
     file_store: FileStore,
     settings: Arc<RwLock<Settings>>,
@@ -76,11 +76,8 @@ pub fn start_background_tasks(
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
 ) -> JoinSet<()> {
-    // Take a one-time snapshot for tasks that only need startup-time config
-    // (label models, etc.).  The deletion task reads the Arc directly each
-    // cycle so it reacts to hot-reloaded config without a restart.
     #[allow(unused_variables)]
-    let settings_snap = settings.blocking_read().clone();
+    let settings_snap = settings.read().await.clone();
 
     let mut set = JoinSet::new();
 
