@@ -153,9 +153,9 @@ async fn main() -> Result<(), Error> {
 
     // Add middleware layers
     app = app.layer(cors_layer());
-    app = app.layer(RequestBodyLimitLayer::new(
-        settings.max_upload_bytes as usize,
-    ));
+    // Disable axum's default 2 MiB body limit so upload handlers can enforce
+    // max_upload_bytes themselves. usize::MAX is effectively unlimited.
+    app = app.layer(RequestBodyLimitLayer::new(usize::MAX));
 
     let shutdown = CancellationToken::new();
     let mut jh = start_background_tasks(
