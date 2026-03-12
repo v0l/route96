@@ -23,8 +23,7 @@ impl PhashFiles {
     /// Backs off exponentially when the same files keep reappearing.
     /// Shuts down cleanly when `shutdown` is cancelled.
     pub async fn process(self, shutdown: CancellationToken) {
-        let db = self.db.clone();
-        let fs = self.fs.clone();
+        let Self { db, fs } = self;
 
         tokio::spawn(async move {
             info!("PhashFiles worker started");
