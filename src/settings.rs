@@ -124,9 +124,6 @@ pub struct Settings {
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
 
-    /// Analytics tracking
-    pub plausible_url: Option<String>,
-
     /// Reject image uploads containing sensitive EXIF metadata (GPS, device info)
     #[cfg(feature = "blossom")]
     pub reject_sensitive_exif: Option<bool>,

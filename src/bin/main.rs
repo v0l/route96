@@ -13,10 +13,6 @@ use config::Config;
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
 use log::{info, warn};
 use std::time::Duration;
-#[cfg(feature = "analytics")]
-use route96::analytics::AnalyticsLayer;
-#[cfg(feature = "analytics")]
-use route96::analytics::plausible::PlausibleAnalytics;
 use route96::background::start_background_tasks;
 use route96::config_watcher::{build_settings, watch_config};
 use route96::cors::cors_layer;
@@ -152,13 +148,6 @@ async fn main() -> Result<(), Error> {
     app = app.layer(RequestBodyLimitLayer::new(
         settings.max_upload_bytes as usize,
     ));
-
-    #[cfg(feature = "analytics")]
-    {
-        if settings.plausible_url.is_some() {
-            app = app.layer(AnalyticsLayer::new(PlausibleAnalytics::new(&settings)));
-        }
-    }
 
     let shutdown = CancellationToken::new();
     let mut jh = start_background_tasks(

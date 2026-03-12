@@ -1,5 +1,3 @@
-#[cfg(feature = "analytics")]
-pub mod analytics;
 pub mod auth;
 pub mod background;
 pub mod comma_separated;

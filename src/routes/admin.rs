@@ -1111,7 +1111,6 @@ mod tests {
             public_url: "https://example.com".to_string(),
             whitelist: None,
             webhook_url: None,
-            plausible_url: None,
             #[cfg(feature = "labels")]
             models_dir: None,
             #[cfg(feature = "labels")]

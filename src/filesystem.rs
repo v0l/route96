@@ -315,7 +315,6 @@ mod tests {
             label_models: None,
             label_flag_terms: None,
             webhook_url: None,
-            plausible_url: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
             #[cfg(feature = "payments")]
