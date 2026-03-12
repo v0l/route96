@@ -4,12 +4,18 @@ import { EventKind, EventPublisher } from "@snort/system";
 
 export interface AdminSelf {
   is_admin: boolean;
+  setup_mode: boolean;
   file_count: number;
   total_size: number;
   paid_until?: number;
   quota?: number;
   free_quota?: number;
   total_available_quota?: number;
+}
+
+export interface SetupRequest {
+  public_url: string;
+  max_upload_bytes?: number;
 }
 
 export interface FileStats {
@@ -105,6 +111,12 @@ export class Route96 {
     const rsp = await this.#req("admin/self", "GET");
     const data = await this.#handleResponse<AdminResponse<AdminSelf>>(rsp);
     return data;
+  }
+
+  /** Submit initial setup configuration (NIP-98 authenticated). */
+  async postSetup(body: SetupRequest) {
+    const rsp = await this.#req("setup", "POST", JSON.stringify(body));
+    return this.#handleResponse<AdminResponse<void>>(rsp);
   }
 
   async listFiles(

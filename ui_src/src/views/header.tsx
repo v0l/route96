@@ -35,6 +35,20 @@ export default function Header() {
 
   return (
     <header className="border-b border-neutral-800 bg-neutral-950">
+      {self?.setup_mode && (
+        <div className="bg-amber-950 border-b border-amber-800 px-4 py-2 flex items-center justify-between">
+          <span className="text-amber-200 text-sm">
+            Server setup is incomplete. Login as the first user to become admin,
+            then configure your server.
+          </span>
+          <Link
+            to="/setup"
+            className="text-amber-300 text-sm font-medium hover:text-amber-100 transition-colors ml-4 shrink-0"
+          >
+            Go to setup
+          </Link>
+        </div>
+      )}
       <div className="px-4 flex justify-between items-center py-2">
         <div className="flex items-center gap-6">
           <Link to="/">

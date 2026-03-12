@@ -210,14 +210,16 @@ impl Database {
             Some(res) => res.try_get(0)?,
         };
 
-        // Make the first user (ID 1) an admin
-        if user_id == 1 {
-            sqlx::query("update users set is_admin = 1 where id = 1")
-                .execute(&self.pool)
-                .await?;
-        }
-
         Ok(user_id)
+    }
+
+    /// Grant admin privileges to the user identified by `pubkey`.
+    pub async fn promote_to_admin(&self, pubkey: &Vec<u8>) -> Result<(), Error> {
+        sqlx::query("update users set is_admin = 1 where pubkey = ?")
+            .bind(pubkey)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn get_user(&self, pubkey: &Vec<u8>) -> Result<User, Error> {
@@ -250,6 +252,17 @@ impl Database {
     pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
         sqlx::query("select id from users where pubkey = ?")
             .bind(pubkey)
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)
+    }
+
+    /// Return the number of admin users.
+    ///
+    /// Used to determine whether setup mode is active: if no admins exist the
+    /// server has not yet been configured and the onboarding flow should run.
+    pub async fn get_admin_count(&self) -> Result<i64, Error> {
+        sqlx::query("select count(id) from users where is_admin = 1")
             .fetch_one(&self.pool)
             .await?
             .try_get(0)

@@ -8,6 +8,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import Upload from "./views/upload.tsx";
 import Admin from "./views/admin.tsx";
 import UserScope from "./views/user-scope.tsx";
+import Setup from "./views/setup.tsx";
 
 const system = new NostrSystem({});
 [
@@ -25,6 +26,10 @@ const routes = createBrowserRouter([
       {
         path: "/",
         element: <Upload />,
+      },
+      {
+        path: "/setup",
+        element: <Setup />,
       },
       {
         path: "/admin",
