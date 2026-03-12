@@ -136,6 +136,8 @@ fn should_skip(key: &str) -> bool {
         "storage_dir",
         "listen",
         "models_dir",
+        // whitelist serialises as a complex type; the UI manages it directly
+        "whitelist",
         // payments sub-tree contains LND credentials
         "payments",
     ];

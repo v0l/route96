@@ -19,7 +19,7 @@ interface KnownField {
   key: string;
   label: string;
   description: string;
-  type: "bytes" | "text" | "url" | "bool" | "select";
+  type: "bytes" | "text" | "url" | "bool" | "select" | "whitelist";
   options?: { value: string; label: string }[]; // for "select"
   optional?: boolean; // show a "revert to default" / clear button
 }
@@ -67,6 +67,14 @@ const KNOWN_FIELDS: KnownField[] = [
     description:
       "Filesystem path where uploaded blobs are stored. Changing this does not move existing files.",
     type: "text",
+  },
+  {
+    key: "whitelist",
+    label: "Whitelist mode",
+    description:
+      "Controls who can upload. Open allows anyone; Database uses the Whitelist tab; File reads pubkeys from a text file (one hex key per line, # comments ignored).",
+    type: "whitelist",
+    optional: true,
   },
 ];
 
@@ -307,6 +315,118 @@ function BoolField({
   );
 }
 
+// ── WhitelistField ────────────────────────────────────────────────────────────
+
+type WhitelistMode = "open" | "database" | "file";
+
+function parseWhitelistMode(value: string | undefined): {
+  mode: WhitelistMode;
+  path: string;
+} {
+  if (value === undefined) return { mode: "open", path: "" };
+  if (value === "true") return { mode: "database", path: "" };
+  return { mode: "file", path: value };
+}
+
+function WhitelistField({
+  currentValue,
+  onSave,
+  onDelete,
+}: {
+  currentValue: string | undefined;
+  onSave: (v: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const initial = parseWhitelistMode(currentValue);
+  const [mode, setMode] = useState<WhitelistMode>(initial.mode);
+  const [path, setPath] = useState(initial.path);
+  const [saving, setSaving] = useState(false);
+
+  // Compute what the raw stored value would be for the current UI state
+  function rawValue(): string | null {
+    if (mode === "open") return null; // means delete the key
+    if (mode === "database") return "true";
+    return path.trim() || null;
+  }
+
+  // Is the current UI state different from what's stored?
+  const raw = rawValue();
+  const dirty = raw !== (currentValue ?? null);
+  const canSave = dirty && (mode !== "file" || path.trim().length > 0);
+
+  async function save() {
+    setSaving(true);
+    if (mode === "open") {
+      await onDelete();
+    } else if (raw !== null) {
+      await onSave(raw);
+    }
+    setSaving(false);
+  }
+
+  const modeLabel: Record<WhitelistMode, string> = {
+    open: "Open (no restriction)",
+    database: "Database (managed via Whitelist tab)",
+    file: "File (path to pubkey list)",
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Mode selector */}
+      <div className="flex flex-col gap-1.5">
+        {(["open", "database", "file"] as WhitelistMode[]).map((m) => (
+          <label key={m} className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="whitelist-mode"
+              value={m}
+              checked={mode === m}
+              onChange={() => setMode(m)}
+              className="accent-blue-500"
+            />
+            <span className="text-xs text-neutral-300">{modeLabel[m]}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Path input — only shown in file mode */}
+      {mode === "file" && (
+        <input
+          type="text"
+          placeholder="/etc/route96/whitelist.txt"
+          className={inputCls("w-full font-mono")}
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+        />
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2">
+        {canSave && (
+          <BtnSmall onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </BtnSmall>
+        )}
+        {currentValue !== undefined && (
+          <BtnSmall
+            onClick={async () => {
+              setSaving(true);
+              await onDelete();
+              setMode("open");
+              setPath("");
+              setSaving(false);
+            }}
+            danger
+          >
+            Revert to open
+          </BtnSmall>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── RawEditor — bare key/value fallback ──────────────────────────────────────
 
 function RawEditor({
@@ -452,6 +572,14 @@ export default function ConfigEditor({
           onSave={save}
           onDelete={del}
           optional={field.optional}
+        />
+      );
+    } else if (field.type === "whitelist") {
+      control = (
+        <WhitelistField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
         />
       );
     } else {
