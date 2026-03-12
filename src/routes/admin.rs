@@ -209,6 +209,11 @@ async fn admin_get_self(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> AdminResponse<SelfUser> {
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    // Upsert so that the very first caller gets created (and auto-promoted to
+    // admin by upsert_user's id=1 logic) before we read their record back.
+    if let Err(e) = state.db.upsert_user(&pubkey_vec).await {
+        return AdminResponse::error(&format!("Failed to upsert user: {}", e));
+    }
     let setup_mode = state.is_setup_mode().await;
     match state.db.get_user(&pubkey_vec).await {
         Ok(user) => {
