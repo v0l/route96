@@ -94,13 +94,14 @@ impl FileDeleter {
         };
 
         let now = Utc::now();
-        let mut ids: Vec<Vec<u8>> = Vec::new();
+        // Each entry is (file_id, reason) so the reason is logged on deletion.
+        let mut ids: Vec<(Vec<u8>, &'static str)> = Vec::new();
 
         // Inactivity policy.
         if let Some(days) = inactive_days.filter(|&d| d > 0) {
             let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
             match db.get_unaccessed_files(cutoff, BATCH_SIZE).await {
-                Ok(v) => ids.extend(v),
+                Ok(v) => ids.extend(v.into_iter().map(|id| (id, "inactive"))),
                 Err(e) => error!("FileDeleter: inactivity query failed: {}", e),
             }
         }
@@ -111,8 +112,8 @@ impl FileDeleter {
             match db.get_files_older_than(cutoff, BATCH_SIZE).await {
                 Ok(v) => {
                     for id in v {
-                        if !ids.contains(&id) {
-                            ids.push(id);
+                        if !ids.iter().any(|(existing, _)| existing == &id) {
+                            ids.push((id, "expired"));
                         }
                     }
                 }
@@ -127,14 +128,14 @@ impl FileDeleter {
         let found = ids.len();
         info!("FileDeleter: deleting {} file(s)", found);
 
-        for id in &ids {
-            Self::delete_one(db, fs, id).await;
+        for (id, reason) in &ids {
+            Self::delete_one(db, fs, id, reason).await;
         }
 
         BatchResult::Processed { found }
     }
 
-    async fn delete_one(db: &Database, fs: &FileStore, id: &Vec<u8>) {
+    async fn delete_one(db: &Database, fs: &FileStore, id: &Vec<u8>, reason: &str) {
         // Remove ownership records first, then the upload row.
         // file_stats cascades automatically via FK on delete.
         if let Err(e) = db.delete_all_file_owner(id).await {
@@ -156,17 +157,19 @@ impl FileDeleter {
 
         let path = fs.get(id);
         match tokio::fs::remove_file(&path).await {
-            Ok(()) => info!("FileDeleter: removed {}", hex::encode(id)),
+            Ok(()) => info!("FileDeleter: removed {} ({})", hex::encode(id), reason),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "FileDeleter: physical file already missing for {}",
-                    hex::encode(id)
+                    "FileDeleter: physical file already missing for {} ({})",
+                    hex::encode(id),
+                    reason
                 );
             }
             Err(e) => {
                 error!(
-                    "FileDeleter: failed to remove {} from disk: {}",
+                    "FileDeleter: failed to remove {} from disk ({}): {}",
                     hex::encode(id),
+                    reason,
                     e
                 );
             }
