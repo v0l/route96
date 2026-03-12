@@ -54,7 +54,7 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
     }
 }
 
-mod delete_unaccessed;
+mod file_deleter;
 
 #[cfg(feature = "media-compression")]
 mod media_metadata;
@@ -158,18 +158,18 @@ pub fn start_background_tasks(
         }
     }
 
-    // Always start the deletion task; it reads thresholds from live settings
-    // each cycle and idles when both policies are disabled.
+    // Always start the file-deleter task; it reads thresholds from live
+    // settings each cycle and idles when both policies are disabled.
     {
         let db = db.clone();
         let fs = file_store.clone();
         let live = settings.clone();
         let token = shutdown.clone();
         set.spawn(async move {
-            info!("Starting DeleteUnaccessed background task");
-            let task = delete_unaccessed::DeleteUnaccessed::new(db, fs, live);
+            info!("Starting FileDeleter background task");
+            let task = file_deleter::FileDeleter::new(db, fs, live);
             task.process(token).await;
-            info!("DeleteUnaccessed background task completed");
+            info!("FileDeleter background task completed");
         });
     }
 

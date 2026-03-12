@@ -24,13 +24,13 @@ use tokio_util::sync::CancellationToken;
 /// Number of files to process per batch per policy.
 const BATCH_SIZE: u32 = 100;
 
-pub struct DeleteUnaccessed {
+pub struct FileDeleter {
     db: Database,
     fs: FileStore,
     settings: Arc<RwLock<Settings>>,
 }
 
-impl DeleteUnaccessed {
+impl FileDeleter {
     pub fn new(db: Database, fs: FileStore, settings: Arc<RwLock<Settings>>) -> Self {
         Self { db, fs, settings }
     }
@@ -46,7 +46,7 @@ impl DeleteUnaccessed {
         let settings = self.settings.clone();
 
         tokio::spawn(async move {
-            info!("DeleteUnaccessed worker started");
+            info!("FileDeleter worker started");
 
             let mut prev_count: usize = 0;
             let mut stall_rounds: u32 = 0;
@@ -61,14 +61,14 @@ impl DeleteUnaccessed {
                             && stall_rounds > 0
                         {
                             warn!(
-                                "DeleteUnaccessed: stalled on {} files, backing off {:.0?}",
+                                "FileDeleter: stalled on {} files, backing off {:.0?}",
                                 found,
                                 sleep_dur,
                             );
                         }
                     }
                     _ = shutdown.cancelled() => {
-                        info!("DeleteUnaccessed worker shutting down");
+                        info!("FileDeleter worker shutting down");
                         return;
                     }
                 }
@@ -76,14 +76,14 @@ impl DeleteUnaccessed {
                 tokio::select! {
                     _ = tokio::time::sleep(sleep_dur) => {}
                     _ = shutdown.cancelled() => {
-                        info!("DeleteUnaccessed worker shutting down");
+                        info!("FileDeleter worker shutting down");
                         return;
                     }
                 }
             }
         })
         .await
-        .unwrap_or_else(|e| error!("DeleteUnaccessed task panicked: {:?}", e));
+        .unwrap_or_else(|e| error!("FileDeleter task panicked: {:?}", e));
     }
 
     async fn run_batch(
@@ -105,7 +105,7 @@ impl DeleteUnaccessed {
             let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
             match db.get_unaccessed_files(cutoff, BATCH_SIZE).await {
                 Ok(v) => ids.extend(v),
-                Err(e) => error!("DeleteUnaccessed: inactivity query failed: {}", e),
+                Err(e) => error!("FileDeleter: inactivity query failed: {}", e),
             }
         }
 
@@ -120,7 +120,7 @@ impl DeleteUnaccessed {
                         }
                     }
                 }
-                Err(e) => error!("DeleteUnaccessed: hard-age query failed: {}", e),
+                Err(e) => error!("FileDeleter: hard-age query failed: {}", e),
             }
         }
 
@@ -129,7 +129,7 @@ impl DeleteUnaccessed {
         }
 
         let found = ids.len();
-        info!("DeleteUnaccessed: deleting {} file(s)", found);
+        info!("FileDeleter: deleting {} file(s)", found);
 
         for id in &ids {
             Self::delete_one(db, fs, id).await;
@@ -143,7 +143,7 @@ impl DeleteUnaccessed {
         // file_stats cascades automatically via FK on delete.
         if let Err(e) = db.delete_all_file_owner(id).await {
             error!(
-                "DeleteUnaccessed: failed to remove owners for {}: {}",
+                "FileDeleter: failed to remove owners for {}: {}",
                 hex::encode(id),
                 e
             );
@@ -151,7 +151,7 @@ impl DeleteUnaccessed {
         }
         if let Err(e) = db.delete_file(id).await {
             error!(
-                "DeleteUnaccessed: failed to delete DB row for {}: {}",
+                "FileDeleter: failed to delete DB row for {}: {}",
                 hex::encode(id),
                 e
             );
@@ -160,16 +160,16 @@ impl DeleteUnaccessed {
 
         let path = fs.get(id);
         match tokio::fs::remove_file(&path).await {
-            Ok(()) => info!("DeleteUnaccessed: removed {}", hex::encode(id)),
+            Ok(()) => info!("FileDeleter: removed {}", hex::encode(id)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "DeleteUnaccessed: physical file already missing for {}",
+                    "FileDeleter: physical file already missing for {}",
                     hex::encode(id)
                 );
             }
             Err(e) => {
                 error!(
-                    "DeleteUnaccessed: failed to remove {} from disk: {}",
+                    "FileDeleter: failed to remove {} from disk: {}",
                     hex::encode(id),
                     e
                 );
