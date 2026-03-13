@@ -7,7 +7,7 @@ import MirrorSuggestions from "../components/mirror-suggestions";
 import LoginDialog from "../components/login-dialog";
 import { useBlossomServers } from "../hooks/use-blossom-servers";
 import { openFiles } from "../upload";
-import { Blossom, BlobDescriptor } from "../upload/blossom";
+import { Blossom, BlobDescriptor, IdenticalMediaError } from "../upload/blossom";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { Route96File, AdminSelf, Route96, FileStatSort, SortOrder } from "../upload/admin";
@@ -37,6 +37,18 @@ export default function Upload() {
   const [paymentsEnabled, setPaymentsEnabled] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>();
+  const [identicalMedia, setIdenticalMedia] = useState<{
+    sha256: string;
+    /** URL of the existing blob on the server */
+    blobUrl: string;
+    /** Local object URL of the file the user tried to upload */
+    localUrl: string;
+    /** The original File, kept so the user can force-upload it */
+    file: File;
+    compress: boolean;
+    mirroring: boolean;
+    forcingUpload: boolean;
+  }>();
 
   const blossomServers = useBlossomServers();
 
@@ -54,6 +66,10 @@ export default function Upload() {
 
     try {
       setError(undefined);
+      setIdenticalMedia((prev) => {
+        if (prev) URL.revokeObjectURL(prev.localUrl);
+        return undefined;
+      });
       setIsUploading(true);
       setUploadProgress(undefined);
 
@@ -69,7 +85,21 @@ export default function Upload() {
       setResults((s) => [...s, result]);
       setListedFiles(undefined);
     } catch (e) {
-      if (e instanceof Error) {
+      if (e instanceof IdenticalMediaError) {
+        const useCompression = shouldCompress(file) && stripMetadata;
+        setIdenticalMedia((prev) => {
+          if (prev) URL.revokeObjectURL(prev.localUrl);
+          return {
+            sha256: e.existingSha256,
+            blobUrl: `${ServerUrl}/${e.existingSha256}`,
+            localUrl: URL.createObjectURL(file),
+            file,
+            compress: useCompression,
+            mirroring: false,
+            forcingUpload: false,
+          };
+        });
+      } else if (e instanceof Error) {
         setError(e.message || "Upload failed - no error details provided");
       } else if (typeof e === "string") {
         setError(e);
@@ -152,6 +182,10 @@ export default function Upload() {
     setPaymentsEnabled(false);
     setShowPaymentFlow(false);
     setResults([]);
+    setIdenticalMedia((prev) => {
+      if (prev) URL.revokeObjectURL(prev.localUrl);
+      return undefined;
+    });
   }, [login?.publicKey]);
 
   // Re-fetch when filters or sort change
@@ -177,6 +211,48 @@ export default function Upload() {
     }
   }, [pub, self]);
 
+  async function forceUpload() {
+    if (!pub || !identicalMedia) return;
+    setIdenticalMedia((s) => s && { ...s, forcingUpload: true });
+    try {
+      const uploader = new Blossom(ServerUrl, pub);
+      const result = identicalMedia.compress
+        ? await uploader.media(identicalMedia.file, undefined, identicalMedia.sha256)
+        : await uploader.upload(identicalMedia.file, undefined, identicalMedia.sha256);
+      URL.revokeObjectURL(identicalMedia.localUrl);
+      setIdenticalMedia(undefined);
+      setResults((s) => [...s, result]);
+      setListedFiles(undefined);
+    } catch (e) {
+      setIdenticalMedia((s) => s && { ...s, forcingUpload: false });
+      if (e instanceof Error) {
+        setError(e.message || "Upload failed");
+      } else {
+        setError("Upload failed");
+      }
+    }
+  }
+
+  async function mirrorIdentical() {
+    if (!pub || !identicalMedia) return;
+    setIdenticalMedia((s) => s && { ...s, mirroring: true });
+    try {
+      const uploader = new Blossom(ServerUrl, pub);
+      const result = await uploader.mirror(identicalMedia.blobUrl);
+      URL.revokeObjectURL(identicalMedia.localUrl);
+      setIdenticalMedia(undefined);
+      setResults((s) => [...s, result]);
+      setListedFiles(undefined);
+    } catch (e) {
+      setIdenticalMedia((s) => s && { ...s, mirroring: false });
+      if (e instanceof Error) {
+        setError(e.message || "Mirror failed");
+      } else {
+        setError("Mirror failed");
+      }
+    }
+  }
+
   if (!login) {
     return <LoginDialog />;
   }
@@ -186,6 +262,75 @@ export default function Upload() {
       {error && (
         <div className="bg-red-950 border border-red-900 text-red-200 px-3 py-2 rounded-sm text-sm">
           {error}
+        </div>
+      )}
+
+      {identicalMedia && (
+        <div className="bg-yellow-950 border border-yellow-800 rounded-sm p-3 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-yellow-200">
+                Identical image already stored
+              </p>
+              <p className="text-xs text-yellow-400 mt-0.5">
+                This server already has an equivalent image under a different hash. Compare below, then mirror it to register it to your account.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                URL.revokeObjectURL(identicalMedia.localUrl);
+                setIdenticalMedia(undefined);
+              }}
+              className="text-yellow-600 hover:text-yellow-400 text-xs shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <p className="text-xs text-yellow-600 font-medium">Your upload</p>
+              <img
+                src={identicalMedia.localUrl}
+                alt="Your uploaded image"
+                className="w-full object-contain rounded-sm border border-yellow-800 max-h-96"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-yellow-600 font-medium">Existing on server</p>
+              <img
+                src={identicalMedia.blobUrl}
+                alt="Existing identical image"
+                className="w-full object-contain rounded-sm border border-yellow-800 max-h-96"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div>
+              <span className="text-xs text-yellow-600">SHA256: </span>
+              <code className="text-xs text-yellow-300 break-all">
+                {identicalMedia.sha256}
+              </code>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={mirrorIdentical}
+                disabled={identicalMedia.mirroring || identicalMedia.forcingUpload}
+                size="sm"
+              >
+                {identicalMedia.mirroring ? "Mirroring…" : "Mirror to my account"}
+              </Button>
+              <Button
+                onClick={forceUpload}
+                disabled={identicalMedia.mirroring || identicalMedia.forcingUpload}
+                size="sm"
+                variant="secondary"
+              >
+                {identicalMedia.forcingUpload ? "Uploading…" : "Upload anyway"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

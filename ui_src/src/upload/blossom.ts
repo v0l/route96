@@ -11,6 +11,18 @@ export interface BlobDescriptor {
   uploaded?: number;
 }
 
+/** Thrown when the server returns 409 with X-Identical-Media (BUD-12). */
+export class IdenticalMediaError extends Error {
+  /** SHA-256 of the existing equivalent blob on the server. */
+  readonly existingSha256: string;
+
+  constructor(existingSha256: string, reason?: string) {
+    super(reason || "An identical image already exists on this server.");
+    this.name = "IdenticalMediaError";
+    this.existingSha256 = existingSha256;
+  }
+}
+
 export class Blossom {
   constructor(
     readonly url: string,
@@ -27,9 +39,25 @@ export class Blossom {
     );
   }
 
+  async #handleUploadResponse(rsp: Response): Promise<BlobDescriptor> {
+    if (rsp.ok) {
+      return (await rsp.json()) as BlobDescriptor;
+    }
+    if (rsp.status === 409) {
+      const existingSha256 = rsp.headers.get("X-Identical-Media");
+      if (existingSha256) {
+        const reason = rsp.headers.get("X-Reason") ?? undefined;
+        throw new IdenticalMediaError(existingSha256, reason);
+      }
+    }
+    await this.#handleError(rsp);
+    throw new Error("Should not reach here");
+  }
+
   async upload(
     file: File,
     onProgress?: UploadProgressCallback,
+    acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
@@ -43,20 +71,16 @@ export class Blossom {
       "upload",
       file,
       tags,
-      undefined,
+      acknowledgedSha256 ? { "x-identical-media": acknowledgedSha256 } : undefined,
       onProgress,
     );
-    if (rsp.ok) {
-      return (await rsp.json()) as BlobDescriptor;
-    } else {
-      await this.#handleError(rsp);
-      throw new Error("Should not reach here");
-    }
+    return this.#handleUploadResponse(rsp);
   }
 
   async media(
     file: File,
     onProgress?: UploadProgressCallback,
+    acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
@@ -70,15 +94,10 @@ export class Blossom {
       "media",
       file,
       tags,
-      undefined,
+      acknowledgedSha256 ? { "x-identical-media": acknowledgedSha256 } : undefined,
       onProgress,
     );
-    if (rsp.ok) {
-      return (await rsp.json()) as BlobDescriptor;
-    } else {
-      await this.#handleError(rsp);
-      throw new Error("Should not reach here");
-    }
+    return this.#handleUploadResponse(rsp);
   }
 
   async mirror(url: string): Promise<BlobDescriptor> {
@@ -92,12 +111,7 @@ export class Blossom {
         "content-type": "application/json",
       },
     );
-    if (rsp.ok) {
-      return (await rsp.json()) as BlobDescriptor;
-    } else {
-      await this.#handleError(rsp);
-      throw new Error("Should not reach here");
-    }
+    return this.#handleUploadResponse(rsp);
   }
 
   async list(pk: string): Promise<Array<BlobDescriptor>> {

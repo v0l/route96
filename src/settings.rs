@@ -128,6 +128,39 @@ pub struct Settings {
     #[cfg(feature = "blossom")]
     pub reject_sensitive_exif: Option<bool>,
 
+    /// Enable BUD-12 identical media deduplication.
+    ///
+    /// When set to `true`, image uploads are checked against existing blobs using
+    /// perceptual hashing (pHash). If a visually identical image is already stored,
+    /// the server returns `409 Conflict` with an `X-Identical-Media` header pointing
+    /// to the existing blob's SHA-256.
+    ///
+    /// Requires the `media-compression` feature. Has no effect without it.
+    #[cfg(feature = "media-compression")]
+    pub identical_media_dedup: Option<bool>,
+
+    /// Maximum pHash Hamming distance at which two images are considered identical
+    /// for BUD-12 deduplication. Only used when `identical_media_dedup` is `true`.
+    ///
+    /// Lower values are stricter:
+    ///   - `0` — bit-exact perceptual hash (only finds near-lossless re-encodes)
+    ///   - `1`–`2` — very tight; catches trivial EXIF-strip or minor compression changes
+    ///   - `3`–`5` — moderate; catches slight crops or quality changes
+    ///
+    /// Defaults to `0` when absent.
+    #[cfg(feature = "media-compression")]
+    pub identical_media_dedup_distance: Option<u32>,
+
+    /// Whether to allow clients to bypass identical-media deduplication by
+    /// echoing back the `X-Identical-Media` header from a prior 409 response.
+    ///
+    /// When `true` (default), a client that sends `X-Identical-Media: <sha256>`
+    /// can force the server to store a distinct copy of the blob.
+    /// When `false`, the server ignores the acknowledgement and always enforces
+    /// deduplication regardless of what the client sends.
+    #[cfg(feature = "media-compression")]
+    pub identical_media_dedup_allow_override: Option<bool>,
+
     #[cfg(feature = "payments")]
     /// Payment options for paid storage
     pub payments: Option<PaymentConfig>,

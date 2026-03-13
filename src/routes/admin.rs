@@ -1166,6 +1166,8 @@ mod tests {
             banned: false,
             #[cfg(feature = "labels")]
             labels: vec![],
+            #[cfg(feature = "media-compression")]
+            phash: None,
         }
     }
 
@@ -1193,6 +1195,12 @@ mod tests {
             label_flag_terms: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
             #[cfg(feature = "payments")]
             payments: None,
             delete_unaccessed_days: None,

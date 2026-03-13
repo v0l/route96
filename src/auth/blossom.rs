@@ -11,6 +11,11 @@ pub struct BlossomAuth {
     pub x_content_type: Option<String>,
     pub x_sha_256: Option<String>,
     pub x_content_length: Option<u64>,
+    /// BUD-12: client acknowledgement of a prior 409 identical-media response.
+    /// Contains the decoded SHA-256 bytes the server previously returned in
+    /// `X-Identical-Media`, signalling that the client wants to store a
+    /// distinct copy regardless.
+    pub x_identical_media: Option<Vec<u8>>,
     pub event: Event,
 }
 
@@ -95,12 +100,19 @@ where
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
+        let x_identical_media = parts
+            .headers
+            .get("x-identical-media")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| hex::decode(s).ok());
+
         Ok(BlossomAuth {
             event,
             content_type,
             x_sha_256,
             x_content_length,
             x_content_type,
+            x_identical_media,
         })
     }
 }

@@ -97,6 +97,8 @@ enum BlossomResponse {
     Generic(BlossomGenericResponse),
     BlobDescriptor(Json<BlobDescriptor>),
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
+    /// BUD-12: identical media detected; 409 with X-Identical-Media header
+    IdenticalMedia(String),
 }
 
 impl IntoResponse for BlossomResponse {
@@ -105,6 +107,19 @@ impl IntoResponse for BlossomResponse {
             BlossomResponse::Generic(g) => g.into_response(),
             BlossomResponse::BlobDescriptor(j) => (StatusCode::OK, j).into_response(),
             BlossomResponse::BlobDescriptorList(j) => (StatusCode::OK, j).into_response(),
+            BlossomResponse::IdenticalMedia(sha256) => {
+                let mut headers = HeaderMap::new();
+                if let Ok(v) = sha256.parse() {
+                    headers.insert("x-identical-media", v);
+                }
+                if let Ok(v) = "An identical image already exists on this server. \
+                     Use the hash above to mirror it to other servers."
+                    .parse()
+                {
+                    headers.insert("x-reason", v);
+                }
+                (StatusCode::CONFLICT, headers).into_response()
+            }
         }
     }
 }
@@ -276,6 +291,7 @@ async fn mirror(
         0, // No size info for mirror
         state,
         hash.and_then(|h| hex::decode(h).ok()),
+        None,
     )
     .await
 }
@@ -295,11 +311,7 @@ async fn upload_media(
     process_upload("media", true, auth, state, body).await
 }
 
-async fn check_head(
-    auth: BlossomAuth,
-    whitelist: &Whitelist,
-    settings: &Settings,
-) -> BlossomHead {
+async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -392,6 +404,7 @@ async fn process_upload(
         size,
         state,
         None,
+        auth.x_identical_media,
     )
     .await
 }
@@ -406,11 +419,16 @@ async fn process_stream<'p, S>(
     #[cfg(feature = "payments")] size: u64,
     #[cfg(not(feature = "payments"))] _size: u64,
     state: Arc<AppState>,
+    // If Some, this is the SHA-256 the client echoed back via X-Identical-Media,
+    // acknowledging a prior 409 and requesting to skip deduplication.
     expect_hash: Option<Vec<u8>>,
+    acknowledged_identical: Option<Vec<u8>>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
 {
+    let settings = state.settings().await;
+
     let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
@@ -419,7 +437,7 @@ where
             if let Some(h) = expect_hash
                 && h != ret.id
             {
-                if let Err(e) = tokio::fs::remove_file(state.fs.get(&ret.id)).await {
+                if let Err(e) = state.fs.delete(&ret.id).await {
                     log::warn!("Failed to cleanup file: {}", e);
                 }
                 return BlossomResponse::error(
@@ -429,13 +447,10 @@ where
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
-            if state.settings().await.reject_sensitive_exif.unwrap_or(false)
-                && mime_type.starts_with("image/")
-            {
+            if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
                 let file_path = state.fs.get(&ret.id);
                 if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
-                    // Clean up the file
-                    if let Err(cleanup_err) = tokio::fs::remove_file(&file_path).await {
+                    if let Err(cleanup_err) = state.fs.delete(&ret.id).await {
                         log::warn!(
                             "Failed to cleanup file with sensitive EXIF: {}",
                             cleanup_err
@@ -447,6 +462,36 @@ where
 
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
+
+            // BUD-12: identical media deduplication.
+            // phash was computed inside fs.put; we just query for similar images here.
+            // Skipped when the client echoes back X-Identical-Media and the server
+            // is configured to allow client overrides.
+            #[cfg(feature = "media-compression")]
+            let client_override = acknowledged_identical.is_some()
+                && settings.identical_media_dedup_allow_override.unwrap_or(true);
+            #[cfg(feature = "media-compression")]
+            if settings.identical_media_dedup.unwrap_or(false)
+                && !client_override
+                && let Some(hash_bytes) = blob.phash
+            {
+                let max_distance = settings.identical_media_dedup_distance.unwrap_or(0);
+                match state
+                    .db
+                    .find_similar_images(&hash_bytes, max_distance, Some(&blob.id))
+                    .await
+                {
+                    Ok(matches) if !matches.is_empty() => {
+                        let existing_sha256 = hex::encode(&matches[0].0);
+                        if let Err(e) = state.fs.delete(&blob.id).await {
+                            log::warn!("BUD-12: failed to remove duplicate file: {}", e);
+                        }
+                        return BlossomResponse::IdenticalMedia(existing_sha256);
+                    }
+                    Err(e) => log::warn!("BUD-12: phash similarity query failed: {}", e),
+                    Ok(_) => {} // no match — proceed normally
+                }
+            }
 
             ret
         }
@@ -476,7 +521,7 @@ where
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if size == 0 {
-        if let Some(payment_config) = &state.settings().await.payments {
+        if let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state
@@ -485,15 +530,13 @@ where
                 .await
             {
                 Ok(false) => {
-                    // Clean up the uploaded file if quota exceeded
-                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
+                    if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup quota-exceeding file: {}", e);
                     }
                     return BlossomResponse::error("Upload would exceed quota");
                 }
                 Err(_) => {
-                    // Clean up on quota check error
-                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
+                    if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup file after quota check error: {}", e);
                     }
                     return BlossomResponse::error("Failed to check quota");
@@ -507,26 +550,7 @@ where
         return BlossomResponse::error(format!("Error saving file (db): {}", e));
     }
 
-    // Compute perceptual hash in background (non-blocking, fire-and-forget)
-    #[cfg(feature = "media-compression")]
-    if upload.mime_type.starts_with("image/") {
-        let db = state.db.clone();
-        let path = state.fs.get(&upload.id);
-        let mime = upload.mime_type.clone();
-        let file_id = upload.id.clone();
-        tokio::task::spawn_blocking(move || match crate::phash::phash_image(&path, &mime) {
-            Ok(hash) => {
-                let bytes: [u8; 8] = hash.as_bytes().try_into().unwrap();
-                let rt = tokio::runtime::Handle::current();
-                if let Err(e) = rt.block_on(db.upsert_phash(&file_id, &bytes)) {
-                    log::warn!("Failed to store phash: {}", e);
-                }
-            }
-            Err(e) => log::warn!("Failed to compute phash: {}", e),
-        });
-    }
-
-    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings().await, &upload)))
+    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&settings, &upload)))
 }
 
 async fn report_file(
