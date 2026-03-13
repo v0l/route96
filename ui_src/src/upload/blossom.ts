@@ -57,6 +57,7 @@ export class Blossom {
   async upload(
     file: File,
     onProgress?: UploadProgressCallback,
+    acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
@@ -70,7 +71,7 @@ export class Blossom {
       "upload",
       file,
       tags,
-      undefined,
+      acknowledgedSha256 ? { "x-identical-media": acknowledgedSha256 } : undefined,
       onProgress,
     );
     return this.#handleUploadResponse(rsp);
@@ -79,6 +80,7 @@ export class Blossom {
   async media(
     file: File,
     onProgress?: UploadProgressCallback,
+    acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
     const hash = await window.crypto.subtle.digest(
       "SHA-256",
@@ -92,7 +94,7 @@ export class Blossom {
       "media",
       file,
       tags,
-      undefined,
+      acknowledgedSha256 ? { "x-identical-media": acknowledgedSha256 } : undefined,
       onProgress,
     );
     return this.#handleUploadResponse(rsp);

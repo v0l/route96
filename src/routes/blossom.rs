@@ -291,6 +291,7 @@ async fn mirror(
         0, // No size info for mirror
         state,
         hash.and_then(|h| hex::decode(h).ok()),
+        None,
     )
     .await
 }
@@ -403,6 +404,7 @@ async fn process_upload(
         size,
         state,
         None,
+        auth.x_identical_media,
     )
     .await
 }
@@ -417,7 +419,10 @@ async fn process_stream<'p, S>(
     #[cfg(feature = "payments")] size: u64,
     #[cfg(not(feature = "payments"))] _size: u64,
     state: Arc<AppState>,
+    // If Some, this is the SHA-256 the client echoed back via X-Identical-Media,
+    // acknowledging a prior 409 and requesting to skip deduplication.
     expect_hash: Option<Vec<u8>>,
+    acknowledged_identical: Option<Vec<u8>>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
@@ -461,8 +466,11 @@ where
 
             // BUD-12: identical media deduplication.
             // phash was computed inside fs.put; we just query for similar images here.
+            // Skipped when the client echoes back X-Identical-Media, signalling it
+            // is intentionally uploading a distinct copy.
             #[cfg(feature = "media-compression")]
             if settings.identical_media_dedup.unwrap_or(false)
+                && acknowledged_identical.is_none()
                 && let Some(hash_bytes) = blob.phash
             {
                 let max_distance = settings.identical_media_dedup_distance.unwrap_or(0);

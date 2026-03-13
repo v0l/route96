@@ -43,7 +43,11 @@ export default function Upload() {
     blobUrl: string;
     /** Local object URL of the file the user tried to upload */
     localUrl: string;
+    /** The original File, kept so the user can force-upload it */
+    file: File;
+    compress: boolean;
     mirroring: boolean;
+    forcingUpload: boolean;
   }>();
 
   const blossomServers = useBlossomServers();
@@ -82,13 +86,17 @@ export default function Upload() {
       setListedFiles(undefined);
     } catch (e) {
       if (e instanceof IdenticalMediaError) {
+        const useCompression = shouldCompress(file) && stripMetadata;
         setIdenticalMedia((prev) => {
           if (prev) URL.revokeObjectURL(prev.localUrl);
           return {
             sha256: e.existingSha256,
             blobUrl: `${ServerUrl}/${e.existingSha256}`,
             localUrl: URL.createObjectURL(file),
+            file,
+            compress: useCompression,
             mirroring: false,
+            forcingUpload: false,
           };
         });
       } else if (e instanceof Error) {
@@ -203,6 +211,28 @@ export default function Upload() {
     }
   }, [pub, self]);
 
+  async function forceUpload() {
+    if (!pub || !identicalMedia) return;
+    setIdenticalMedia((s) => s && { ...s, forcingUpload: true });
+    try {
+      const uploader = new Blossom(ServerUrl, pub);
+      const result = identicalMedia.compress
+        ? await uploader.media(identicalMedia.file, undefined, identicalMedia.sha256)
+        : await uploader.upload(identicalMedia.file, undefined, identicalMedia.sha256);
+      URL.revokeObjectURL(identicalMedia.localUrl);
+      setIdenticalMedia(undefined);
+      setResults((s) => [...s, result]);
+      setListedFiles(undefined);
+    } catch (e) {
+      setIdenticalMedia((s) => s && { ...s, forcingUpload: false });
+      if (e instanceof Error) {
+        setError(e.message || "Upload failed");
+      } else {
+        setError("Upload failed");
+      }
+    }
+  }
+
   async function mirrorIdentical() {
     if (!pub || !identicalMedia) return;
     setIdenticalMedia((s) => s && { ...s, mirroring: true });
@@ -283,13 +313,23 @@ export default function Upload() {
                 {identicalMedia.sha256}
               </code>
             </div>
-            <Button
-              onClick={mirrorIdentical}
-              disabled={identicalMedia.mirroring}
-              size="sm"
-            >
-              {identicalMedia.mirroring ? "Mirroring…" : "Mirror to my account"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={mirrorIdentical}
+                disabled={identicalMedia.mirroring || identicalMedia.forcingUpload}
+                size="sm"
+              >
+                {identicalMedia.mirroring ? "Mirroring…" : "Mirror to my account"}
+              </Button>
+              <Button
+                onClick={forceUpload}
+                disabled={identicalMedia.mirroring || identicalMedia.forcingUpload}
+                size="sm"
+                variant="secondary"
+              >
+                {identicalMedia.forcingUpload ? "Uploading…" : "Upload anyway"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
