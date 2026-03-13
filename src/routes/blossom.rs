@@ -97,6 +97,8 @@ enum BlossomResponse {
     Generic(BlossomGenericResponse),
     BlobDescriptor(Json<BlobDescriptor>),
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
+    /// BUD-12: identical media detected; 409 with X-Identical-Media header
+    IdenticalMedia(String),
 }
 
 impl IntoResponse for BlossomResponse {
@@ -105,6 +107,19 @@ impl IntoResponse for BlossomResponse {
             BlossomResponse::Generic(g) => g.into_response(),
             BlossomResponse::BlobDescriptor(j) => (StatusCode::OK, j).into_response(),
             BlossomResponse::BlobDescriptorList(j) => (StatusCode::OK, j).into_response(),
+            BlossomResponse::IdenticalMedia(sha256) => {
+                let mut headers = HeaderMap::new();
+                if let Ok(v) = sha256.parse() {
+                    headers.insert("x-identical-media", v);
+                }
+                if let Ok(v) = "An identical image already exists on this server. \
+                     Use the hash above to mirror it to other servers."
+                    .parse()
+                {
+                    headers.insert("x-reason", v);
+                }
+                (StatusCode::CONFLICT, headers).into_response()
+            }
         }
     }
 }
@@ -295,11 +310,7 @@ async fn upload_media(
     process_upload("media", true, auth, state, body).await
 }
 
-async fn check_head(
-    auth: BlossomAuth,
-    whitelist: &Whitelist,
-    settings: &Settings,
-) -> BlossomHead {
+async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -411,6 +422,8 @@ async fn process_stream<'p, S>(
 where
     S: AsyncRead + Unpin + 'p,
 {
+    let settings = state.settings().await;
+
     let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
             let mut ret: FileUpload = (&blob).into();
@@ -429,9 +442,7 @@ where
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
-            if state.settings().await.reject_sensitive_exif.unwrap_or(false)
-                && mime_type.starts_with("image/")
-            {
+            if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
                 let file_path = state.fs.get(&ret.id);
                 if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
                     // Clean up the file
@@ -447,6 +458,31 @@ where
 
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
+
+            // BUD-12: identical media deduplication.
+            // phash was computed inside fs.put; we just query for similar images here.
+            #[cfg(feature = "media-compression")]
+            if settings.identical_media_dedup.unwrap_or(false)
+                && let Some(hash_bytes) = blob.phash
+            {
+                let max_distance = settings.identical_media_dedup_distance.unwrap_or(0);
+                match state
+                    .db
+                    .find_similar_images(&hash_bytes, max_distance, Some(&blob.id))
+                    .await
+                {
+                    Ok(matches) if !matches.is_empty() => {
+                        let existing_sha256 = hex::encode(&matches[0].0);
+                        // Remove the newly uploaded file — it is a duplicate
+                        if let Err(e) = tokio::fs::remove_file(&blob.path).await {
+                            log::warn!("BUD-12: failed to remove duplicate file: {}", e);
+                        }
+                        return BlossomResponse::IdenticalMedia(existing_sha256);
+                    }
+                    Err(e) => log::warn!("BUD-12: phash similarity query failed: {}", e),
+                    Ok(_) => {} // no match — proceed normally
+                }
+            }
 
             ret
         }
@@ -476,7 +512,7 @@ where
     // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
     #[cfg(feature = "payments")]
     if size == 0 {
-        if let Some(payment_config) = &state.settings().await.payments {
+        if let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state
@@ -507,26 +543,7 @@ where
         return BlossomResponse::error(format!("Error saving file (db): {}", e));
     }
 
-    // Compute perceptual hash in background (non-blocking, fire-and-forget)
-    #[cfg(feature = "media-compression")]
-    if upload.mime_type.starts_with("image/") {
-        let db = state.db.clone();
-        let path = state.fs.get(&upload.id);
-        let mime = upload.mime_type.clone();
-        let file_id = upload.id.clone();
-        tokio::task::spawn_blocking(move || match crate::phash::phash_image(&path, &mime) {
-            Ok(hash) => {
-                let bytes: [u8; 8] = hash.as_bytes().try_into().unwrap();
-                let rt = tokio::runtime::Handle::current();
-                if let Err(e) = rt.block_on(db.upsert_phash(&file_id, &bytes)) {
-                    log::warn!("Failed to store phash: {}", e);
-                }
-            }
-            Err(e) => log::warn!("Failed to compute phash: {}", e),
-        });
-    }
-
-    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&state.settings().await, &upload)))
+    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&settings, &upload)))
 }
 
 async fn report_file(

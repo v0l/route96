@@ -87,6 +87,9 @@ pub struct FileUpload {
     #[sqlx(skip)]
     #[cfg(feature = "labels")]
     pub labels: Vec<FileLabel>,
+    #[sqlx(skip)]
+    #[cfg(feature = "media-compression")]
+    pub phash: Option<[u8; 8]>,
 }
 
 impl From<&NewFileResult> for FileUpload {
@@ -107,6 +110,8 @@ impl From<&NewFileResult> for FileUpload {
             banned: false,
             #[cfg(feature = "labels")]
             labels: value.labels.clone(),
+            #[cfg(feature = "media-compression")]
+            phash: value.phash,
         }
     }
 }
@@ -303,6 +308,23 @@ impl Database {
                     .bind(&lbl.model);
             tx.execute(q3).await?;
         }
+
+        #[cfg(feature = "media-compression")]
+        if let Some(hash) = file.phash {
+            let bands = hash_bands(&hash);
+            sqlx::query(
+                "insert ignore into upload_phash(file, band0, band1, band2, band3) \
+                 values(?, ?, ?, ?, ?)",
+            )
+            .bind(&file.id)
+            .bind(bands[0])
+            .bind(bands[1])
+            .bind(bands[2])
+            .bind(bands[3])
+            .execute(&mut *tx)
+            .await?;
+        }
+
         tx.commit().await?;
         Ok(())
     }

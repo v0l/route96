@@ -42,6 +42,10 @@ pub struct NewFileResult {
     pub blur_hash: Option<String>,
     pub duration: Option<f32>,
     pub bitrate: Option<u32>,
+    /// Perceptual hash computed at upload time (images only, requires media-compression).
+    #[cfg(feature = "media-compression")]
+    #[serde(skip)]
+    pub phash: Option<[u8; 8]>,
     #[cfg(feature = "labels")]
     pub labels: Vec<FileLabel>,
 }
@@ -160,6 +164,8 @@ impl FileStore {
                 blur_hash: None,
                 duration,
                 bitrate,
+                #[cfg(feature = "media-compression")]
+                phash: None,
                 #[cfg(feature = "labels")]
                 labels: vec![],
             }
@@ -177,6 +183,24 @@ impl FileStore {
             tokio::fs::rename(&res.path, &final_dest).await?;
 
             res.path = final_dest;
+
+            // Compute and store perceptual hash for images.
+            #[cfg(feature = "media-compression")]
+            if res.mime_type.starts_with("image/") {
+                let path = res.path.clone();
+                let mime = res.mime_type.clone();
+                match tokio::task::spawn_blocking(move || crate::phash::phash_image(&path, &mime))
+                    .await
+                {
+                    Ok(Ok(phash)) => {
+                        let bytes: [u8; 8] = phash.as_bytes().try_into().unwrap_or([0u8; 8]);
+                        res.phash = Some(bytes);
+                    }
+                    Ok(Err(e)) => log::warn!("Failed to compute phash: {}", e),
+                    Err(e) => log::warn!("phash task panicked: {}", e),
+                }
+            }
+
             Ok(FileSystemResult::NewFile(res))
         }
     }
@@ -270,6 +294,7 @@ impl FileStore {
             mime_type: compressed_result.mime_type,
             duration: Some(compressed_result.duration),
             bitrate: Some(compressed_result.bitrate),
+            phash: None,
             #[cfg(feature = "labels")]
             labels: vec![],
         })
@@ -337,6 +362,10 @@ mod tests {
             webhook_url: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
             #[cfg(feature = "payments")]
             payments: None,
             delete_unaccessed_days: None,

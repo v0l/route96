@@ -18,8 +18,14 @@ interface KnownField {
   key: string;
   label: string;
   description: string;
-  type: "bytes" | "text" | "url" | "bool" | "whitelist" | "days";
+  type: "bytes" | "text" | "url" | "bool" | "whitelist" | "days" | "integer";
   optional?: boolean;
+  /** Unit label shown after the integer input (e.g. "bits") */
+  unit?: string;
+  /** Minimum allowed value for integer fields */
+  min?: number;
+  /** Maximum allowed value for integer fields */
+  max?: number;
 }
 
 // ── known-field registry ─────────────────────────────────────────────────────
@@ -74,6 +80,25 @@ const KNOWN_FIELDS: KnownField[] = [
     description:
       "Hard retention limit: delete every file older than this many days, regardless of whether it has been downloaded. Set to 0 or leave unset to disable.",
     type: "days",
+    optional: true,
+  },
+  {
+    key: "identical_media_dedup",
+    label: "Identical media deduplication (BUD-12)",
+    description:
+      "Reject uploads that are perceptually identical to an already-stored image. The server returns 409 Conflict with an X-Identical-Media header pointing to the existing blob.",
+    type: "bool",
+    optional: true,
+  },
+  {
+    key: "identical_media_dedup_distance",
+    label: "Deduplication pHash distance",
+    description:
+      "Maximum perceptual hash (pHash) Hamming distance at which two images are considered identical. 0 = bit-exact match only; 1–2 = catches trivial re-encodes or EXIF-stripped copies; 3–5 = moderate similarity. Only used when identical media deduplication is enabled. Defaults to 0.",
+    type: "integer",
+    unit: "bits",
+    min: 0,
+    max: 64,
     optional: true,
   },
 ];
@@ -383,6 +408,75 @@ function DaysField({
       {currentValue !== undefined && numVal === 0 && (
         <span className="text-xs text-neutral-600">(disabled)</span>
       )}
+      {dirty && (
+        <BtnSmall onClick={save} disabled={saving || !valid}>
+          {saving ? "Saving…" : "Save"}
+        </BtnSmall>
+      )}
+      {optional && currentValue !== undefined && (
+        <BtnSmall onClick={onDelete} danger>
+          Revert
+        </BtnSmall>
+      )}
+    </div>
+  );
+}
+
+// ── IntegerField ──────────────────────────────────────────────────────────────
+
+function IntegerField({
+  currentValue,
+  onSave,
+  onDelete,
+  optional,
+  unit,
+  min = 0,
+  max,
+}: {
+  currentValue: string | undefined;
+  onSave: (raw: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  optional?: boolean;
+  unit?: string;
+  min?: number;
+  max?: number;
+}) {
+  const parsed = currentValue !== undefined ? Number(currentValue) : NaN;
+  const [val, setVal] = useState<string>(isNaN(parsed) ? "" : String(parsed));
+  const [saving, setSaving] = useState(false);
+
+  const dirty = val !== (isNaN(parsed) ? "" : String(parsed));
+  const numVal = Number(val);
+  const valid =
+    val !== "" &&
+    !isNaN(numVal) &&
+    Number.isInteger(numVal) &&
+    numVal >= min &&
+    (max === undefined || numVal <= max);
+
+  async function save() {
+    if (!valid) return;
+    setSaving(true);
+    await onSave(String(numVal));
+    setSaving(false);
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={1}
+        className={inputCls("w-24")}
+        value={val}
+        placeholder={String(min)}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+      />
+      {unit && <span className="text-xs text-neutral-500">{unit}</span>}
       {dirty && (
         <BtnSmall onClick={save} disabled={saving || !valid}>
           {saving ? "Saving…" : "Save"}
@@ -805,6 +899,18 @@ export default function ConfigEditor({
           onSave={save}
           onDelete={del}
           optional={field.optional}
+        />
+      );
+    } else if (field.type === "integer") {
+      control = (
+        <IntegerField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
+          unit={field.unit}
+          min={field.min}
+          max={field.max}
         />
       );
     } else if (field.type === "whitelist") {

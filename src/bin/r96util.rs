@@ -183,6 +183,8 @@ async fn main() -> Result<(), Error> {
                                 banned: false,
                                 #[cfg(feature = "labels")]
                                 labels: vec![],
+                                #[cfg(feature = "media-compression")]
+                                phash: None,
                             };
                             db.add_file(&entry, None).await.context("db add_file")?;
                         } else {
