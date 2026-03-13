@@ -75,6 +75,12 @@ impl FileStore {
         self.map_path(id)
     }
 
+    /// Delete a stored file by id
+    pub async fn delete(&self, id: &Vec<u8>) -> Result<()> {
+        tokio::fs::remove_file(self.map_path(id)).await?;
+        Ok(())
+    }
+
     /// Store a new file
     pub async fn put<'r, S>(
         &self,

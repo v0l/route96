@@ -437,7 +437,7 @@ where
             if let Some(h) = expect_hash
                 && h != ret.id
             {
-                if let Err(e) = tokio::fs::remove_file(state.fs.get(&ret.id)).await {
+                if let Err(e) = state.fs.delete(&ret.id).await {
                     log::warn!("Failed to cleanup file: {}", e);
                 }
                 return BlossomResponse::error(
@@ -450,8 +450,7 @@ where
             if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
                 let file_path = state.fs.get(&ret.id);
                 if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
-                    // Clean up the file
-                    if let Err(cleanup_err) = tokio::fs::remove_file(&file_path).await {
+                    if let Err(cleanup_err) = state.fs.delete(&ret.id).await {
                         log::warn!(
                             "Failed to cleanup file with sensitive EXIF: {}",
                             cleanup_err
@@ -481,8 +480,7 @@ where
                 {
                     Ok(matches) if !matches.is_empty() => {
                         let existing_sha256 = hex::encode(&matches[0].0);
-                        // Remove the newly uploaded file — it is a duplicate
-                        if let Err(e) = tokio::fs::remove_file(&blob.path).await {
+                        if let Err(e) = state.fs.delete(&blob.id).await {
                             log::warn!("BUD-12: failed to remove duplicate file: {}", e);
                         }
                         return BlossomResponse::IdenticalMedia(existing_sha256);
@@ -529,15 +527,13 @@ where
                 .await
             {
                 Ok(false) => {
-                    // Clean up the uploaded file if quota exceeded
-                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
+                    if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup quota-exceeding file: {}", e);
                     }
                     return BlossomResponse::error("Upload would exceed quota");
                 }
                 Err(_) => {
-                    // Clean up on quota check error
-                    if let Err(e) = tokio::fs::remove_file(state.fs.get(&upload.id)).await {
+                    if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup file after quota check error: {}", e);
                     }
                     return BlossomResponse::error("Failed to check quota");
