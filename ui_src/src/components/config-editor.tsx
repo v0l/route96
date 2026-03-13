@@ -101,6 +101,14 @@ const KNOWN_FIELDS: KnownField[] = [
     max: 64,
     optional: true,
   },
+  {
+    key: "identical_media_dedup_allow_override",
+    label: "Allow client dedup override",
+    description:
+      "When enabled (default), clients can bypass deduplication by echoing back the X-Identical-Media header from a prior 409 response, forcing the server to store a distinct copy. When disabled, the server always enforces deduplication regardless of what the client sends.",
+    type: "bool",
+    optional: true,
+  },
 ];
 
 // Keys hidden from both the structured UI and the raw fallback.

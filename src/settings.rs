@@ -151,6 +151,16 @@ pub struct Settings {
     #[cfg(feature = "media-compression")]
     pub identical_media_dedup_distance: Option<u32>,
 
+    /// Whether to allow clients to bypass identical-media deduplication by
+    /// echoing back the `X-Identical-Media` header from a prior 409 response.
+    ///
+    /// When `true` (default), a client that sends `X-Identical-Media: <sha256>`
+    /// can force the server to store a distinct copy of the blob.
+    /// When `false`, the server ignores the acknowledgement and always enforces
+    /// deduplication regardless of what the client sends.
+    #[cfg(feature = "media-compression")]
+    pub identical_media_dedup_allow_override: Option<bool>,
+
     #[cfg(feature = "payments")]
     /// Payment options for paid storage
     pub payments: Option<PaymentConfig>,

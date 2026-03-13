@@ -465,11 +465,14 @@ where
 
             // BUD-12: identical media deduplication.
             // phash was computed inside fs.put; we just query for similar images here.
-            // Skipped when the client echoes back X-Identical-Media, signalling it
-            // is intentionally uploading a distinct copy.
+            // Skipped when the client echoes back X-Identical-Media and the server
+            // is configured to allow client overrides.
+            #[cfg(feature = "media-compression")]
+            let client_override = acknowledged_identical.is_some()
+                && settings.identical_media_dedup_allow_override.unwrap_or(true);
             #[cfg(feature = "media-compression")]
             if settings.identical_media_dedup.unwrap_or(false)
-                && acknowledged_identical.is_none()
+                && !client_override
                 && let Some(hash_bytes) = blob.phash
             {
                 let max_distance = settings.identical_media_dedup_distance.unwrap_or(0);

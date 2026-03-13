@@ -1199,6 +1199,8 @@ mod tests {
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
             #[cfg(feature = "payments")]
             payments: None,
             delete_unaccessed_days: None,
