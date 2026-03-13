@@ -109,12 +109,7 @@ export class Blossom {
         "content-type": "application/json",
       },
     );
-    if (rsp.ok) {
-      return (await rsp.json()) as BlobDescriptor;
-    } else {
-      await this.#handleError(rsp);
-      throw new Error("Should not reach here");
-    }
+    return this.#handleUploadResponse(rsp);
   }
 
   async list(pk: string): Promise<Array<BlobDescriptor>> {

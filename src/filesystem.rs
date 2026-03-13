@@ -192,10 +192,10 @@ impl FileStore {
                 match tokio::task::spawn_blocking(move || crate::phash::phash_image(&path, &mime))
                     .await
                 {
-                    Ok(Ok(phash)) => {
-                        let bytes: [u8; 8] = phash.as_bytes().try_into().unwrap_or([0u8; 8]);
-                        res.phash = Some(bytes);
-                    }
+                    Ok(Ok(phash)) => match phash.as_bytes().try_into() {
+                        Ok(bytes) => res.phash = Some(bytes),
+                        Err(_) => log::warn!("phash produced unexpected byte length; skipping"),
+                    },
                     Ok(Err(e)) => log::warn!("Failed to compute phash: {}", e),
                     Err(e) => log::warn!("phash task panicked: {}", e),
                 }

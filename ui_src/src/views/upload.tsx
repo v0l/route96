@@ -44,7 +44,6 @@ export default function Upload() {
     /** Local object URL of the file the user tried to upload */
     localUrl: string;
     mirroring: boolean;
-    mirrored?: BlobDescriptor;
   }>();
 
   const blossomServers = useBlossomServers();
@@ -63,7 +62,10 @@ export default function Upload() {
 
     try {
       setError(undefined);
-      setIdenticalMedia(undefined);
+      setIdenticalMedia((prev) => {
+        if (prev) URL.revokeObjectURL(prev.localUrl);
+        return undefined;
+      });
       setIsUploading(true);
       setUploadProgress(undefined);
 
@@ -281,17 +283,13 @@ export default function Upload() {
                 {identicalMedia.sha256}
               </code>
             </div>
-            {identicalMedia.mirrored ? (
-              <p className="text-xs text-green-400">Mirrored successfully.</p>
-            ) : (
-              <Button
-                onClick={mirrorIdentical}
-                disabled={identicalMedia.mirroring}
-                size="sm"
-              >
-                {identicalMedia.mirroring ? "Mirroring…" : "Mirror to my account"}
-              </Button>
-            )}
+            <Button
+              onClick={mirrorIdentical}
+              disabled={identicalMedia.mirroring}
+              size="sm"
+            >
+              {identicalMedia.mirroring ? "Mirroring…" : "Mirror to my account"}
+            </Button>
           </div>
         </div>
       )}
