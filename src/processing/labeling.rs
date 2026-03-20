@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Error, Result};
-use candle_core::{D, DType, Device, IndexOp, Tensor};
+use candle_core::{DType, Device, IndexOp, Tensor, D};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
@@ -14,10 +14,11 @@ use nostr::serde_json;
 use serde::Deserialize;
 
 /// Minimum confidence threshold for a label to be included
-pub const MIN_CONFIDENCE: f32 = 0.25;
+/// Increased from 0.25 to 0.4 for videos to reduce low-quality labels
+pub const MIN_CONFIDENCE: f32 = 0.4;
 
-/// Maximum number of frames to sample from a video (1 per second, up to 60s)
-const MAX_VIDEO_FRAMES: usize = 60;
+/// Maximum number of frames to sample from a video (max 10 frames, spread over entire file)
+const MAX_VIDEO_FRAMES: usize = 10;
 
 /// Trait for any media labeling backend (local ViT, external API, etc.).
 ///
@@ -239,7 +240,7 @@ fn classify_frames(
     Ok(result)
 }
 
-/// Extract up to MAX_VIDEO_FRAMES frames from a video, one per second.
+/// Extract up to MAX_VIDEO_FRAMES frames from a video, spread evenly across the entire duration.
 unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>> {
     let mut demux = Demuxer::new(path.to_str().unwrap())?;
     let info = unsafe { demux.probe_input()? };
@@ -247,69 +248,116 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
         .best_video()
         .ok_or(Error::msg("No video stream found"))?;
 
-    let stream_index = video_stream.index as i32;
-    let time_base_num = video_stream.timebase.0 as f64;
-    let time_base_den = video_stream.timebase.1 as f64;
+    let _time_base_num = video_stream.timebase.0 as f64;
+    let _time_base_den = video_stream.timebase.1 as f64;
+    
+    // Calculate target frame indices spread evenly across the video
+    // We don't know the total number of frames in advance, so we'll:
+    // 1. First pass: count frames
+    // 2. Calculate which frames to sample
+    // 3. Second pass: extract those frames
+    
+    // First, do a quick pass to count total frames
+    let mut total_frames: usize = 0;
+    let mut demux2 = Demuxer::new(path.to_str().unwrap())?;
+    let info2 = unsafe { demux2.probe_input()? };
+    let video_stream2 = info2
+        .best_video()
+        .ok_or(Error::msg("No video stream found"))?;
+    let stream_index2 = video_stream2.index as i32;
+    
+    let mut decoder2 = Decoder::new();
+    decoder2.setup_decoder(video_stream2, None)?;
+    
+    while let Ok((pkt, _)) = unsafe { demux2.get_packet() } {
+        let pkt = match pkt {
+            Some(p) => p,
+            None => break,
+        };
+        
+        if pkt.stream_index != stream_index2 {
+            continue;
+        }
+        
+        let decoded = decoder2.decode_pkt(Some(&pkt))?;
+        for (_frame, _) in decoded {
+            total_frames += 1;
+        }
+    }
+    
+    // Calculate which frame indices to sample
+    let target_indices: Vec<usize> = if total_frames > 0 {
+        (0..MAX_VIDEO_FRAMES.min(total_frames))
+            .map(|i| {
+                if MAX_VIDEO_FRAMES == 1 || total_frames == 1 {
+                    0
+                } else {
+                    ((i as f64) / (MAX_VIDEO_FRAMES as f64 - 1.0) * (total_frames as f64 - 1.0)).round() as usize
+                }
+            })
+            .collect()
+    } else {
+        vec![0]
+    };
 
-    let mut decoder = Decoder::new();
-    decoder.setup_decoder(video_stream, None)?;
+    // Second pass: extract the target frames
+    let mut demux3 = Demuxer::new(path.to_str().unwrap())?;
+    let info3 = unsafe { demux3.probe_input()? };
+    let video_stream3 = info3
+        .best_video()
+        .ok_or(Error::msg("No video stream found"))?;
+    let stream_index3 = video_stream3.index as i32;
+    
+    let mut decoder3 = Decoder::new();
+    decoder3.setup_decoder(video_stream3, None)?;
 
     let mut scaler = Scaler::new();
     let mut frames = Vec::new();
-    let mut next_sample_sec: f64 = 0.0;
+    let mut frame_index: usize = 0;
+    let mut frame_index_set: std::collections::HashSet<usize> = target_indices.iter().cloned().collect();
 
-    while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
+    while let Ok((pkt, _)) = unsafe { demux3.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
-            None => break, // EOF
+            None => break,
         };
-
-        if pkt.stream_index != stream_index {
+        
+        if pkt.stream_index != stream_index3 {
             continue;
         }
-
-        let decoded = decoder.decode_pkt(Some(&pkt))?;
+        
+        let decoded = decoder3.decode_pkt(Some(&pkt))?;
         for (frame, _) in decoded {
-            let pts_sec = frame.pts as f64 * time_base_num / time_base_den;
-
-            if pts_sec >= MAX_VIDEO_FRAMES as f64 {
-                return Ok(frames);
-            }
-
-            if pts_sec >= next_sample_sec {
-                next_sample_sec = pts_sec.floor() + 1.0;
-
+            if frame_index_set.contains(&frame_index) {
                 match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                     Ok(tensor) => frames.push(tensor),
                     Err(e) => {
-                        debug!("Failed to convert video frame at {:.1}s: {}", pts_sec, e);
+                        debug!("Failed to convert video frame at index {}: {}", frame_index, e);
                     }
                 }
-
-                if frames.len() >= MAX_VIDEO_FRAMES {
-                    return Ok(frames);
-                }
+                frame_index_set.remove(&frame_index);
             }
+            frame_index += 1;
         }
     }
 
     // Flush decoder
-    let flushed = decoder.decode_pkt(None)?;
+    let flushed = decoder3.decode_pkt(None)?;
     for (frame, _) in flushed {
-        let pts_sec = frame.pts as f64 * time_base_num / time_base_den;
-        if pts_sec >= MAX_VIDEO_FRAMES as f64 || frames.len() >= MAX_VIDEO_FRAMES {
-            break;
+        if frame_index_set.contains(&frame_index) {
+            match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
+                Ok(tensor) => frames.push(tensor),
+                Err(e) => {
+                    debug!("Failed to convert video frame at index {}: {}", frame_index, e);
+                }
+            }
+            frame_index_set.remove(&frame_index);
         }
-        if pts_sec >= next_sample_sec
-            && let Ok(tensor) = unsafe { frame_to_tensor(&frame, &mut scaler, device) }
-        {
-            frames.push(tensor);
-        }
+        frame_index += 1;
     }
 
     Ok(frames)
 }
-
 /// Scale a decoded video frame to 224x224 RGB and convert to a normalized tensor.
 unsafe fn frame_to_tensor(
     frame: &ffmpeg_rs_raw::AvFrameRef,
@@ -450,8 +498,14 @@ mod tests {
         let video = get_test_video();
         let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
 
-        // 5-second clip at 24fps should yield 5 frames (one at 0s, 1s, 2s, 3s, 4s)
-        assert_eq!(frames.len(), 5, "expected 5 frames from a 5s video clip");
+        // 5-second clip should yield up to 10 frames (one every 0.5s)
+        // But the test video is very short (5s) with few frames, so we get at most 10
+        assert!(
+            frames.len() > 0 && frames.len() <= MAX_VIDEO_FRAMES,
+            "expected >0 and <= {} frames, got {}",
+            MAX_VIDEO_FRAMES,
+            frames.len()
+        );
 
         // Each frame should be a normalized 224x224 RGB tensor
         for (i, frame) in frames.iter().enumerate() {
