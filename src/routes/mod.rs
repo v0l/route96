@@ -15,6 +15,7 @@ use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
+    body::Body,
 };
 use axum_extra::response::file_stream::FileStream;
 use chrono::Utc;
@@ -419,8 +420,9 @@ async fn build_range_response(
 
 pub async fn head_blob(
     Path(sha256): Path<String>,
+    _: HeaderMap,
     AxumState(state): AxumState<Arc<AppState>>,
-) -> StatusCode {
+) -> Result<Response, StatusCode> {
     let sha256 = if sha256.contains(".") {
         sha256.split('.').next().unwrap()
     } else {
@@ -429,17 +431,31 @@ pub async fn head_blob(
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return StatusCode::NOT_FOUND;
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if id.len() != 32 {
-        return StatusCode::NOT_FOUND;
+        return Err(StatusCode::NOT_FOUND);
     }
-    if state.fs.get(&id).exists() {
-        StatusCode::OK
-    } else {
-        StatusCode::NOT_FOUND
-    }
+
+    let info = match state.db.get_file(&id).await {
+        Ok(Some(info)) => info,
+        _ => return Err(StatusCode::NOT_FOUND),
+    };
+
+    // Create a response with proper headers but no body (for HEAD request)
+    let mut response = Response::new(Body::empty());
+    
+    // Set the same headers as a GET request would have by reusing set_file_headers
+    set_file_headers(&mut response, &info);
+    
+    // Override content-length to be accurate for HEAD request
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        info.size.to_string().parse().unwrap(),
+    );
+
+    Ok(response)
 }
 
 /// Generate thumbnail for image / video
