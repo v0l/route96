@@ -1,7 +1,8 @@
-import { base64, bytesToString } from "@scure/base";
+import { base64, hex } from "@scure/base";
 import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
 import { UploadProgressCallback, uploadWithProgress } from "./progress";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 export interface BlobDescriptor {
   url?: string;
@@ -34,8 +35,8 @@ export class Blossom {
   async #handleError(rsp: Response) {
     throw new Error(
       rsp.headers.get("X-Reason") ||
-        (await rsp.text()) ||
-        `${rsp.status} ${rsp.statusText}`,
+      (await rsp.text()) ||
+      `${rsp.status} ${rsp.statusText}`,
     );
   }
 
@@ -54,16 +55,24 @@ export class Blossom {
     throw new Error("Should not reach here");
   }
 
+  async sha256(file: File): Promise<Uint8Array> {
+    if (window.crypto?.subtle?.digest !== undefined) {
+      return new Uint8Array(await window.crypto.subtle.digest(
+        "SHA-256",
+        await file.arrayBuffer(),
+      ));
+    } else {
+      return sha256(new Uint8Array(await file.arrayBuffer()));
+    }
+  }
+
   async upload(
     file: File,
     onProgress?: UploadProgressCallback,
     acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
-    const hash = await window.crypto.subtle.digest(
-      "SHA-256",
-      await file.arrayBuffer(),
-    );
-    const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
+    const hash = await this.sha256(file);
+    const tags = [["x", hex.encode(hash)]];
 
     const rsp = await this.#req(
       "upload",
@@ -82,11 +91,8 @@ export class Blossom {
     onProgress?: UploadProgressCallback,
     acknowledgedSha256?: string,
   ): Promise<BlobDescriptor> {
-    const hash = await window.crypto.subtle.digest(
-      "SHA-256",
-      await file.arrayBuffer(),
-    );
-    const tags = [["x", bytesToString("hex", new Uint8Array(hash))]];
+    const hash = await this.sha256(file);
+    const tags = [["x", hex.encode(new Uint8Array(hash))]];
 
     const rsp = await this.#req(
       "media",

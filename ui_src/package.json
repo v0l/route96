@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
     "@snort/shared": "^2.0.0-pre.3",
     "@snort/system": "^2.0.0-pre.9",

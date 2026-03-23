@@ -2299,6 +2299,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "ui_src@workspace:."
   dependencies:
+    "@noble/hashes": "npm:^2.0.1"
     "@scure/base": "npm:^2.0.0"
     "@snort/shared": "npm:^2.0.0-pre.3"
     "@snort/system": "npm:^2.0.0-pre.9"

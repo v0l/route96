@@ -11,6 +11,7 @@ import UserScope from "./views/user-scope.tsx";
 import Setup from "./views/setup.tsx";
 import { v4 as uuid } from "uuid";
 
+// Polyfill to fix 
 if (!window.crypto.randomUUID) {
   //@ts-ignore
   window.crypto.randomUUID = () => {
