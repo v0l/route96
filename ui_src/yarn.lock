@@ -2316,6 +2316,7 @@ __metadata:
     react-router-dom: "npm:^7.13.0"
     tailwindcss: "npm:4.1.18"
     typescript: "npm:^5.9.3"
+    uuid: "npm:^13.0.0"
     vite: "npm:^7.3.1"
     vite-plugin-singlefile: "npm:^2.3.0"
   languageName: unknown
@@ -2357,6 +2358,15 @@ __metadata:
   bin:
     update-browserslist-db: cli.js
   checksum: 10c0/13a00355ea822388f68af57410ce3255941d5fb9b7c49342c4709a07c9f230bbef7f7499ae0ca7e0de532e79a82cc0c4edbd125f1a323a1845bf914efddf8bec
+  languageName: node
+  linkType: hard
+
+"uuid@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "uuid@npm:13.0.0"
+  bin:
+    uuid: dist-node/bin/uuid
+  checksum: 10c0/950e4c18d57fef6c69675344f5700a08af21e26b9eff2bf2180427564297368c538ea11ac9fb2e6528b17fc3966a9fd2c5049361b0b63c7d654f3c550c9b3d67
   languageName: node
   linkType: hard
 

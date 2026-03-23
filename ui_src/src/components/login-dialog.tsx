@@ -68,7 +68,7 @@ export default function LoginDialog({
         setError("Could not parse remote pubkey from bunker URL.");
         return;
       }
-      const localKey = PrivateKeySigner.random().privKey;
+      const localKey = PrivateKeySigner.random().privateKey;
       Login.loginBunker(url, localKey, remotePubkey);
       onSuccess?.();
     } catch (e) {

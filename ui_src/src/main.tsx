@@ -1,20 +1,3 @@
-if (!window.crypto.randomUUID) {
-  window.crypto.randomUUID = () => {
-    if (crypto && crypto.getRandomValues) {
-      const arr = new Uint8Array(16);
-      crypto.getRandomValues(arr);
-      arr[6] = (arr[6] & 0x0f) | 0x40;
-      arr[8] = (arr[8] & 0x3f) | 0x80;
-      return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("").replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
-    }
-    const arr = new Uint8Array(16);
-    for (let i = 0; i < 16; i++) arr[i] = Math.floor(Math.random() * 256);
-    arr[6] = (arr[6] & 0x0f) | 0x40;
-    arr[8] = (arr[8] & 0x3f) | 0x80;
-    return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("").replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
-  };
-}
-
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
@@ -26,13 +9,21 @@ import Upload from "./views/upload.tsx";
 import Admin from "./views/admin.tsx";
 import UserScope from "./views/user-scope.tsx";
 import Setup from "./views/setup.tsx";
+import { v4 as uuid } from "uuid";
+
+if (!window.crypto.randomUUID) {
+  //@ts-ignore
+  window.crypto.randomUUID = () => {
+    return uuid();
+  };
+}
 
 const system = new NostrSystem({});
 [
   "wss://nos.lol/",
   "wss://relay.damus.io/",
-  "wss://relay.nostr.band/",
   "wss://relay.snort.social/",
+  "wss://relay.primal.net/"
 ].map((a) => system.ConnectToRelay(a, { read: true, write: true }));
 
 const routes = createBrowserRouter([
