@@ -7,12 +7,6 @@ import CreateAccountDialog from "./create-account";
 
 type LoginMethod = "nsec" | "nip46" | "create";
 
-function randomHex(bytes: number): string {
-  const arr = new Uint8Array(bytes);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export default function LoginDialog({
   onSuccess,
 }: { onSuccess?: () => void } = {}) {
@@ -74,7 +68,7 @@ export default function LoginDialog({
         setError("Could not parse remote pubkey from bunker URL.");
         return;
       }
-      const localKey = randomHex(32);
+      const localKey = PrivateKeySigner.random().privKey;
       Login.loginBunker(url, localKey, remotePubkey);
       onSuccess?.();
     } catch (e) {
