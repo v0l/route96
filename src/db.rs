@@ -613,7 +613,8 @@ impl Database {
         q.push_bind(offset);
 
         #[allow(unused_mut)]
-        let mut results: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
+        let mut results: Vec<FileUploadWithStats> =
+            q.build_query_as().fetch_all(&self.pool).await?;
 
         let mut cq = QueryBuilder::new(
             "select count(uploads.id) from uploads \

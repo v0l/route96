@@ -214,6 +214,17 @@ pub enum LabelerType {
         /// HuggingFace repo id (e.g. `"google/vit-base-patch16-224"`).
         hf_repo: String,
     },
+    /// Generic LLM API endpoint for image classification.
+    GenericLlm {
+        /// API endpoint URL (e.g. `"https://api.example.com/v1/chat/completions"`).
+        api_url: String,
+        /// Model name (required, e.g. `"gpt-4o-mini"`).
+        model: String,
+        /// API key for authentication (optional).
+        api_key: Option<String>,
+        /// Additional prompt to append to the default label request (optional).
+        prompt: Option<String>,
+    },
 }
 
 #[cfg(feature = "payments")]

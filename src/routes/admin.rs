@@ -1,6 +1,9 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User, WhitelistEntry};
+use crate::db::{
+    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User,
+    WhitelistEntry,
+};
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -38,10 +41,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                 .post(admin_add_whitelist)
                 .delete(admin_remove_whitelist),
         )
-        .route(
-            "/admin/config",
-            get(admin_list_config),
-        )
+        .route("/admin/config", get(admin_list_config))
         .route(
             "/admin/config/{key}",
             put(admin_set_config).delete(admin_delete_config),
@@ -315,7 +315,6 @@ async fn post_setup(
     state.reload_config().await;
     AdminResponse::success(())
 }
-
 
 #[derive(Deserialize)]
 struct AdminListFilesQuery {
@@ -1228,7 +1227,10 @@ mod tests {
             .find(|t| t.first().map(|s| s.as_str()) == Some("url"));
         assert!(url_tag.is_some(), "url tag must be present");
         let url_val = &url_tag.unwrap()[1];
-        assert!(url_val.starts_with("https://example.com/"), "url must use public_url");
+        assert!(
+            url_val.starts_with("https://example.com/"),
+            "url must use public_url"
+        );
 
         let x_tag = user_file
             .inner

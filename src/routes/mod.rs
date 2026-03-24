@@ -12,10 +12,10 @@ use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
 use axum::{
+    body::Body,
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
-    body::Body,
 };
 use axum_extra::response::file_stream::FileStream;
 use chrono::Utc;
@@ -28,9 +28,9 @@ use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::sync::RwLock;
 use tokio_util::io::ReaderStream;
 
 mod admin;
@@ -79,13 +79,7 @@ impl AppState {
     /// Called by admin config handlers so changes take effect at once
     /// rather than waiting for the next poll cycle.
     pub async fn reload_config(&self) {
-        crate::config_watcher::reload(
-            &self.config_path,
-            &self.db,
-            &self.settings,
-            &self.wl,
-        )
-        .await;
+        crate::config_watcher::reload(&self.config_path, &self.db, &self.settings, &self.wl).await;
     }
 
     /// Return `true` when the server has not yet been configured.
@@ -445,10 +439,10 @@ pub async fn head_blob(
 
     // Create a response with proper headers but no body (for HEAD request)
     let mut response = Response::new(Body::empty());
-    
+
     // Set the same headers as a GET request would have by reusing set_file_headers
     set_file_headers(&mut response, &info);
-    
+
     // Override content-length to be accurate for HEAD request
     response.headers_mut().insert(
         header::CONTENT_LENGTH,

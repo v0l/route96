@@ -7,8 +7,6 @@ use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
 use anyhow::Error;
 use anyhow::Result;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 #[cfg(feature = "media-compression")]
 use ffmpeg_rs_raw::DemuxerInfo;
 #[cfg(feature = "media-compression")]
@@ -16,8 +14,10 @@ use ffmpeg_rs_raw::StreamInfo;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -60,10 +60,15 @@ impl FileStore {
     pub fn new(settings: Arc<RwLock<Settings>>) -> Self {
         // storage_dir is read once at startup; it is intentionally not hot-reloadable.
         let storage_dir = {
-            let s = settings.try_read().expect("settings lock unavailable at FileStore::new");
+            let s = settings
+                .try_read()
+                .expect("settings lock unavailable at FileStore::new");
             PathBuf::from(&s.storage_dir)
         };
-        Self { settings, storage_dir }
+        Self {
+            settings,
+            storage_dir,
+        }
     }
 
     async fn settings(&self) -> Settings {

@@ -292,7 +292,12 @@ async fn upload(
     }
 
     // check whitelist
-    if !state.wl().await.is_allowed(&auth.event.pubkey.to_hex()).await {
+    if !state
+        .wl()
+        .await
+        .is_allowed(&auth.event.pubkey.to_hex())
+        .await
+    {
         return Nip96Response::Forbidden(Json(Nip96UploadResult::error("Not on whitelist")));
     }
 
@@ -397,10 +402,7 @@ async fn upload(
         return Nip96Response::error(&format!("Could not save file (db): {}", e));
     }
 
-    Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(
-        &settings,
-        &upload,
-    )))
+    Nip96Response::UploadResult(Json(Nip96UploadResult::from_upload(&settings, &upload)))
 }
 
 async fn delete(

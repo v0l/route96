@@ -44,6 +44,16 @@ label_models:
     hf_repo: "dima806/fairface_age_image_detection"
     name: "age"
     min_confidence: 0.3
+  # Example: Generic LLM API endpoint (OpenAI-compatible) for image classification
+  # - type: generic_llm
+  #   api_url: "https://api.example.com/v1/chat/completions"
+  #   model: "gpt-4o-mini"
+  #   api_key: "your-api-key"
+  #   prompt: "Focus on clothing items"
+  #   name: "my-llm-labeler"
+  #   label_exclude:
+  #     - "unknown"
+  #   min_confidence: 0.5
 
 # Label terms that trigger automatic moderation flagging.
 # Any file whose AI labels contain one of these substrings (case-insensitive)

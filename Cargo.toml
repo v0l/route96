@@ -41,6 +41,7 @@ config = { version = "0.15", features = ["yaml", "async"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.13", features = ["stream", "http2", "json"] }
+async-openai = { version = "0.34", features = ["chat-completion", "_api"] }
 clap = { version = "4.5", features = ["derive"] }
 mime2ext = "0.1"
 infer = "0.19"
@@ -52,7 +53,7 @@ kamadak-exif = "0.6"
 http-range-header = "0.4"
 dashmap = "6"
 
-image = { version = "0.25", default-features = false }
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg"] }
 image_hasher = "3"
 
 libc = { version = "0.2", optional = true }

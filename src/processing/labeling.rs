@@ -3,10 +3,20 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Error, Result};
-use candle_core::{DType, Device, IndexOp, Tensor, D};
+use async_openai::{
+    Client,
+    config::OpenAIConfig,
+    types::chat::{
+        ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImageArgs,
+        ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContent,
+        ChatCompletionRequestUserMessageContentPart, CreateChatCompletionRequest, ImageUrlArgs,
+    },
+};
+use base64::Engine;
+use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
-use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
+use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat;
 use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info};
@@ -191,6 +201,241 @@ impl MediaLabeler for VitLabeler {
     }
 }
 
+pub struct GenericLlmLabeler {
+    client: Client<OpenAIConfig>,
+    model: String,
+    prompt: Option<String>,
+    label_exclude: Vec<String>,
+    min_confidence: f32,
+    name: String,
+}
+
+impl GenericLlmLabeler {
+    pub fn new(
+        api_url: String,
+        model: String,
+        api_key: Option<String>,
+        prompt: Option<String>,
+        label_exclude: Vec<String>,
+        min_confidence: Option<f32>,
+        name: String,
+    ) -> Result<Self> {
+        let config = OpenAIConfig::new()
+            .with_api_base(&api_url)
+            .with_api_key(api_key.unwrap_or_default());
+        let client = Client::with_config(config);
+
+        Ok(Self {
+            client,
+            model,
+            prompt,
+            label_exclude,
+            min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
+            name,
+        })
+    }
+
+    fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>> {
+        use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
+        use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
+
+        if !path.exists() {
+            return Err(Error::msg(format!("File not found: {:?}", path)));
+        }
+
+        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
+        log::debug!(
+            "Attempting to compress image {:?} (size: {} bytes)",
+            path,
+            file_size
+        );
+
+        let temp_path =
+            std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
+
+        unsafe {
+            let mut transcoder =
+                Transcoder::new(path.to_str().unwrap(), temp_path.to_str().unwrap())
+                    .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
+
+            let probe = transcoder
+                .prepare()
+                .map_err(|e| Error::msg(format!("Failed to prepare transcoder: {}", e)))?;
+
+            let stream = probe
+                .streams
+                .iter()
+                .find(|s| s.stream_type == StreamType::Video)
+                .ok_or(Error::msg("No video/image stream found"))?;
+
+            let target_height = 1024i32;
+            let (out_width, out_height) = if stream.height as i32 > target_height {
+                let new_height = target_height;
+                let new_width =
+                    (stream.width as f32 * (new_height as f32 / stream.height as f32)) as i32;
+                (new_width, new_height)
+            } else {
+                (stream.width as i32, stream.height as i32)
+            };
+
+            let encoder = Encoder::new(AV_CODEC_ID_MJPEG)?
+                .with_width(out_width)
+                .with_height(out_height)
+                .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
+                .open(None)?;
+
+            transcoder
+                .transcode_stream(stream, encoder)
+                .map_err(|e| Error::msg(format!("Failed to setup transcoding: {}", e)))?;
+
+            let mut mux_options = HashMap::new();
+            mux_options.insert("update".to_string(), "1".to_string());
+            transcoder
+                .run(Some(mux_options))
+                .map_err(|e| Error::msg(format!("Failed to run transcoder: {}", e)))?;
+
+            let buffer = std::fs::read(&temp_path)
+                .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
+
+            let _ = std::fs::remove_file(&temp_path);
+
+            Ok(buffer)
+        }
+    }
+
+    fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
+        let bytes = Self::compress_image_to_jpeg(path)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    }
+
+    fn build_messages(
+        &self,
+        mime_type: &str,
+        image_base64: &str,
+    ) -> Vec<ChatCompletionRequestMessage> {
+        let default_prompt = format!(
+            "Analyze this {} image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.",
+            mime_type
+        );
+        let prompt = if let Some(additional) = &self.prompt {
+            format!("{} {}", default_prompt, additional)
+        } else {
+            default_prompt
+        };
+
+        let image_url = ImageUrlArgs::default()
+            .url(format!("data:image/jpeg;base64,{}", image_base64))
+            .build()
+            .unwrap();
+
+        let image_part = ChatCompletionRequestMessageContentPartImageArgs::default()
+            .image_url(image_url)
+            .build()
+            .unwrap();
+
+        let text_part =
+            async_openai::types::chat::ChatCompletionRequestMessageContentPartText { text: prompt };
+
+        let content = ChatCompletionRequestUserMessageContent::Array(vec![
+            ChatCompletionRequestUserMessageContentPart::ImageUrl(image_part),
+            ChatCompletionRequestUserMessageContentPart::Text(text_part),
+        ]);
+
+        let message = ChatCompletionRequestUserMessageArgs::default()
+            .content(content)
+            .build()
+            .unwrap()
+            .into();
+
+        vec![message]
+    }
+
+    async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
+        let messages = self.build_messages(mime_type, image_base64);
+
+        let request = CreateChatCompletionRequest {
+            model: self.model.clone(),
+            messages,
+            ..Default::default()
+        };
+
+        let response: async_openai::types::chat::CreateChatCompletionResponse = self
+            .client
+            .chat()
+            .create(request)
+            .await
+            .map_err(|e| Error::msg(format!("API request failed: {}", e)))?;
+
+        let content = response
+            .choices
+            .first()
+            .and_then(|c| c.message.content.as_ref())
+            .ok_or_else(|| Error::msg("No content in API response"))?;
+
+        info!("Prompt response: {:?}", content);
+
+        let mut result = HashMap::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(eq_pos) = line.find('=') {
+                let label = line[..eq_pos].trim().to_string();
+                let score_str = line[eq_pos + 1..].trim();
+                if let Ok(score) = score_str.parse::<f32>() {
+                    result.insert(label, score);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+impl MediaLabeler for GenericLlmLabeler {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn label_exclude(&self) -> &[String] {
+        &self.label_exclude
+    }
+
+    fn min_confidence(&self) -> f32 {
+        self.min_confidence
+    }
+
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
+        let image_base64 = self.encode_image_to_base64(path)?;
+
+        let rt = tokio::runtime::Handle::current();
+        let labels = rt.block_on(self.call_api(&image_base64, mime_type))?;
+
+        let filtered: HashMap<String, f32> = labels
+            .into_iter()
+            .filter(|(label, score)| {
+                let lower = label.to_lowercase();
+                !self
+                    .label_exclude
+                    .iter()
+                    .any(|ex| ex.to_lowercase() == lower)
+                    && *score >= self.min_confidence
+            })
+            .collect();
+
+        debug!(
+            "Generic LLM labeler '{}' produced {} labels for {}",
+            self.name,
+            filtered.len(),
+            path.display()
+        );
+
+        Ok(filtered)
+    }
+}
+
 /// Convenience function: load a model from disk/HF and label one file.
 /// Prefer loading models once with [`VitModel::load_from_dir`] and calling
 /// [`VitModel::run`] directly when processing multiple files.
@@ -250,13 +495,13 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
 
     let _time_base_num = video_stream.timebase.0 as f64;
     let _time_base_den = video_stream.timebase.1 as f64;
-    
+
     // Calculate target frame indices spread evenly across the video
     // We don't know the total number of frames in advance, so we'll:
     // 1. First pass: count frames
     // 2. Calculate which frames to sample
     // 3. Second pass: extract those frames
-    
+
     // First, do a quick pass to count total frames
     let mut total_frames: usize = 0;
     let mut demux2 = Demuxer::new(path.to_str().unwrap())?;
@@ -265,26 +510,26 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
         .best_video()
         .ok_or(Error::msg("No video stream found"))?;
     let stream_index2 = video_stream2.index as i32;
-    
+
     let mut decoder2 = Decoder::new();
     decoder2.setup_decoder(video_stream2, None)?;
-    
+
     while let Ok((pkt, _)) = unsafe { demux2.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
             None => break,
         };
-        
+
         if pkt.stream_index != stream_index2 {
             continue;
         }
-        
+
         let decoded = decoder2.decode_pkt(Some(&pkt))?;
         for (_frame, _) in decoded {
             total_frames += 1;
         }
     }
-    
+
     // Calculate which frame indices to sample
     let target_indices: Vec<usize> = if total_frames > 0 {
         (0..MAX_VIDEO_FRAMES.min(total_frames))
@@ -292,7 +537,8 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
                 if MAX_VIDEO_FRAMES == 1 || total_frames == 1 {
                     0
                 } else {
-                    ((i as f64) / (MAX_VIDEO_FRAMES as f64 - 1.0) * (total_frames as f64 - 1.0)).round() as usize
+                    ((i as f64) / (MAX_VIDEO_FRAMES as f64 - 1.0) * (total_frames as f64 - 1.0))
+                        .round() as usize
                 }
             })
             .collect()
@@ -307,32 +553,36 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
         .best_video()
         .ok_or(Error::msg("No video stream found"))?;
     let stream_index3 = video_stream3.index as i32;
-    
+
     let mut decoder3 = Decoder::new();
     decoder3.setup_decoder(video_stream3, None)?;
 
     let mut scaler = Scaler::new();
     let mut frames = Vec::new();
     let mut frame_index: usize = 0;
-    let mut frame_index_set: std::collections::HashSet<usize> = target_indices.iter().cloned().collect();
+    let mut frame_index_set: std::collections::HashSet<usize> =
+        target_indices.iter().cloned().collect();
 
     while let Ok((pkt, _)) = unsafe { demux3.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
             None => break,
         };
-        
+
         if pkt.stream_index != stream_index3 {
             continue;
         }
-        
+
         let decoded = decoder3.decode_pkt(Some(&pkt))?;
         for (frame, _) in decoded {
             if frame_index_set.contains(&frame_index) {
                 match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                     Ok(tensor) => frames.push(tensor),
                     Err(e) => {
-                        debug!("Failed to convert video frame at index {}: {}", frame_index, e);
+                        debug!(
+                            "Failed to convert video frame at index {}: {}",
+                            frame_index, e
+                        );
                     }
                 }
                 frame_index_set.remove(&frame_index);
@@ -348,7 +598,10 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                 Ok(tensor) => frames.push(tensor),
                 Err(e) => {
-                    debug!("Failed to convert video frame at index {}: {}", frame_index, e);
+                    debug!(
+                        "Failed to convert video frame at index {}: {}",
+                        frame_index, e
+                    );
                 }
             }
             frame_index_set.remove(&frame_index);
@@ -364,7 +617,7 @@ unsafe fn frame_to_tensor(
     scaler: &mut Scaler,
     device: &Device,
 ) -> Result<Tensor> {
-    let scaled = scaler.process_frame(frame, 224, 224, AV_PIX_FMT_RGB24)?;
+    let scaled = scaler.process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24)?;
     let width = 224usize;
     let height = 224usize;
 
@@ -401,8 +654,12 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
     macro_rules! try_frame {
         ($decoded:expr) => {
             if let Some((frame, _)) = $decoded.into_iter().next() {
-                let new_frame =
-                    scaler.process_frame(&frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
+                let new_frame = scaler.process_frame(
+                    &frame,
+                    width as u16,
+                    height as u16,
+                    AVPixelFormat::AV_PIX_FMT_RGB24,
+                )?;
                 let mut dst_vec = Vec::with_capacity(3 * width * height);
                 for row in 0..height {
                     let line_size = new_frame.linesize[0] as usize;

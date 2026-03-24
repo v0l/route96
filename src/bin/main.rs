@@ -12,17 +12,17 @@ use config::Config;
 #[cfg(feature = "payments")]
 use fedimint_tonic_lnd::lnrpc::GetInfoRequest;
 use log::{info, warn};
-use std::time::Duration;
 use route96::background::start_background_tasks;
 use route96::config_watcher::{build_settings, watch_config};
-use route96::db_config::seed_from_settings;
 use route96::cors::cors_layer;
 use route96::db::Database;
+use route96::db_config::seed_from_settings;
 use route96::file_stats::FileStatsTracker;
 use route96::filesystem::FileStore;
 use route96::routes;
 use route96::settings::{Settings, WhitelistMode};
 use route96::whitelist::Whitelist;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -74,9 +74,10 @@ async fn main() -> Result<(), Error> {
     // hot-reload them without restarting the server.
     let live_settings: Arc<RwLock<Settings>> = Arc::new(RwLock::new(settings.clone()));
     let fs = FileStore::new(live_settings.clone());
-    let live_wl: Arc<RwLock<Whitelist>> = Arc::new(RwLock::new(
-        Whitelist::from_mode(settings.whitelist.as_ref(), Some(&db)),
-    ));
+    let live_wl: Arc<RwLock<Whitelist>> = Arc::new(RwLock::new(Whitelist::from_mode(
+        settings.whitelist.as_ref(),
+        Some(&db),
+    )));
 
     #[cfg(feature = "payments")]
     let lnd = {
@@ -166,9 +167,14 @@ async fn main() -> Result<(), Error> {
         file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd.clone(),
-    ).await;
+    )
+    .await;
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
-        jh.spawn(Whitelist::watch_file(Arc::clone(&live_wl), path, shutdown.clone()));
+        jh.spawn(Whitelist::watch_file(
+            Arc::clone(&live_wl),
+            path,
+            shutdown.clone(),
+        ));
     }
 
     // Start the config hot-reload watcher.  It rebuilds both Settings and
@@ -197,8 +203,8 @@ async fn main() -> Result<(), Error> {
     // graceful-drain mode: it stops accepting new connections and waits for
     // existing ones to close.  We give that drain up to 5 s; after that we
     // abandon any lingering keep-alive connections.
-    let serve = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown.clone().cancelled_owned());
+    let serve =
+        axum::serve(listener, app).with_graceful_shutdown(shutdown.clone().cancelled_owned());
 
     tokio::select! {
         res = serve => { res.ok(); }

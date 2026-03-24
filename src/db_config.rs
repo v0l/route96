@@ -133,15 +133,16 @@ fn should_skip(key: &str) -> bool {
     // Secrets and deployment-specific paths that must not be overridden via UI
     const SKIP: &[&str] = &[
         "database",
-        "storage_dir",  // server-local path, not safe to change via UI
-        "listen",       // requires restart, not a runtime config
+        "storage_dir", // server-local path, not safe to change via UI
+        "listen",      // requires restart, not a runtime config
         "models_dir",
         // whitelist serialises as a complex type; the UI manages it directly
         "whitelist",
         // payments sub-tree contains LND credentials
         "payments",
     ];
-    SKIP.iter().any(|s| key == *s || key.starts_with(&format!("{}.", s)))
+    SKIP.iter()
+        .any(|s| key == *s || key.starts_with(&format!("{}.", s)))
 }
 
 /// Recursively flatten a JSON value into `(dot.notation.key, string_value)` pairs.
@@ -182,18 +183,12 @@ mod tests {
 
     #[test]
     fn test_parse_bool() {
-        assert!(matches!(
-            parse_value("true").kind,
-            ValueKind::Boolean(true)
-        ));
+        assert!(matches!(parse_value("true").kind, ValueKind::Boolean(true)));
         assert!(matches!(
             parse_value("false").kind,
             ValueKind::Boolean(false)
         ));
-        assert!(matches!(
-            parse_value("True").kind,
-            ValueKind::Boolean(true)
-        ));
+        assert!(matches!(parse_value("True").kind, ValueKind::Boolean(true)));
     }
 
     #[test]
@@ -212,10 +207,7 @@ mod tests {
 
     #[test]
     fn test_parse_string_fallback() {
-        assert!(matches!(
-            parse_value("hello").kind,
-            ValueKind::String(_)
-        ));
+        assert!(matches!(parse_value("hello").kind, ValueKind::String(_)));
     }
 
     #[test]

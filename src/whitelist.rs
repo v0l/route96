@@ -107,7 +107,10 @@ impl Whitelist {
         ) {
             Ok(w) => w,
             Err(e) => {
-                warn!("Falling back to polling: failed to create file watcher: {}", e);
+                warn!(
+                    "Falling back to polling: failed to create file watcher: {}",
+                    e
+                );
                 return fallback_polling(whitelist, path, last_modified, shutdown).await;
             }
         };
@@ -119,7 +122,10 @@ impl Whitelist {
                 return fallback_polling(whitelist, path, last_modified, shutdown).await;
             }
         };
-        let watch_path = path.parent().map(|p| p.to_path_buf()).unwrap_or(path.clone());
+        let watch_path = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(path.clone());
 
         if let Err(e) = watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
             warn!(
