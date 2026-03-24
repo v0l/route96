@@ -53,7 +53,7 @@ kamadak-exif = "0.6"
 http-range-header = "0.4"
 dashmap = "6"
 
-image = { version = "0.25", default-features = false }
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg"] }
 image_hasher = "3"
 
 libc = { version = "0.2", optional = true }
