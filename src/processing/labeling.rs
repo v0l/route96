@@ -248,12 +248,23 @@ impl GenericLlmLabeler {
             return Err(Error::msg(format!("File not found: {:?}", path)));
         }
 
+        let file_size = std::fs::metadata(path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        
+        log::debug!(
+            "Attempting to compress image {:?} (size: {} bytes, quality: {})",
+            path,
+            file_size,
+            quality
+        );
+
         let img = image::open(path).map_err(|e| {
             Error::msg(format!(
                 "Failed to open/decode image {:?}: {}. File size: {} bytes",
                 path,
                 e,
-                std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+                file_size
             ))
         })?;
 
