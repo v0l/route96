@@ -6,10 +6,10 @@ use anyhow::{Error, Result};
 use async_openai::{
     Client,
     config::OpenAIConfig,
-    types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
-        ChatCompletionRequestMessageContentPartImageArgs, ChatCompletionRequestUserMessageArgs,
-        ChatCompletionRequestUserMessageContent, ImageUrlArgs,
+    types::chat::{
+        ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImageArgs,
+        ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContent,
+        ChatCompletionRequestUserMessageContentPart, CreateChatCompletionRequest, ImageUrlArgs,
     },
 };
 use base64::Engine;
@@ -293,14 +293,11 @@ impl GenericLlmLabeler {
             .unwrap();
 
         let text_part =
-            async_openai::types::ChatCompletionRequestMessageContentPartTextArgs::default()
-                .text(prompt)
-                .build()
-                .unwrap();
+            async_openai::types::chat::ChatCompletionRequestMessageContentPartText { text: prompt };
 
         let content = ChatCompletionRequestUserMessageContent::Array(vec![
-            ChatCompletionRequestMessageContentPart::Image(image_part),
-            ChatCompletionRequestMessageContentPart::Text(text_part),
+            ChatCompletionRequestUserMessageContentPart::ImageUrl(image_part),
+            ChatCompletionRequestUserMessageContentPart::Text(text_part),
         ]);
 
         let message = ChatCompletionRequestUserMessageArgs::default()
@@ -315,14 +312,14 @@ impl GenericLlmLabeler {
     async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
         let messages = self.build_messages(mime_type, image_base64);
 
-        let request = async_openai::types::CreateChatCompletionRequestArgs::default()
-            .model(&self.model)
-            .messages(messages)
-            .max_tokens(100u16)
-            .build()
-            .unwrap();
+        let request = CreateChatCompletionRequest {
+            model: self.model.clone(),
+            messages,
+            max_completion_tokens: Some(100u32),
+            ..Default::default()
+        };
 
-        let response = self
+        let response: async_openai::types::chat::CreateChatCompletionResponse = self
             .client
             .chat()
             .create(request)
