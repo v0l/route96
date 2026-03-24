@@ -3,6 +3,15 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Error, Result};
+use async_openai::{
+    Client,
+    config::OpenAIConfig,
+    types::{
+        ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPart,
+        ChatCompletionRequestMessageContentPartImageArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionRequestUserMessageContent, ImageUrlArgs,
+    },
+};
 use base64::Engine;
 use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
@@ -12,8 +21,7 @@ use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info};
 use nostr::serde_json;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Minimum confidence threshold for a label to be included
 /// Increased from 0.25 to 0.4 for videos to reduce low-quality labels
@@ -193,37 +201,9 @@ impl MediaLabeler for VitLabeler {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct LlmImageUrl {
-    #[serde(rename = "url")]
-    image_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct LlmMessage {
-    role: String,
-    content: Vec<LlmContentItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-enum LlmContentItem {
-    Text { text: String },
-    Image { image_url: LlmImageUrl },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct LlmClassifyRequest {
-    model: String,
-    messages: Vec<LlmMessage>,
-    max_tokens: Option<u32>,
-}
-
 pub struct GenericLlmLabeler {
-    client: Client,
-    api_url: String,
+    client: Client<OpenAIConfig>,
     model: String,
-    api_key: Option<String>,
     prompt_template: Option<String>,
     label_exclude: Vec<String>,
     min_confidence: f32,
@@ -244,11 +224,14 @@ impl GenericLlmLabeler {
         max_image_size_bytes: Option<usize>,
         image_quality: Option<u8>,
     ) -> Result<Self> {
+        let config = OpenAIConfig::new()
+            .with_api_base(&api_url)
+            .with_api_key(api_key.unwrap_or_default());
+        let client = Client::with_config(config);
+
         Ok(Self {
-            client: Client::new(),
-            api_url,
+            client,
             model,
-            api_key,
             prompt_template,
             label_exclude,
             min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
@@ -288,75 +271,68 @@ impl GenericLlmLabeler {
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
 
-    fn build_messages(&self, mime_type: &str) -> Vec<LlmMessage> {
+    fn build_messages(
+        &self,
+        mime_type: &str,
+        image_base64: &str,
+    ) -> Vec<ChatCompletionRequestMessage> {
         let prompt = if let Some(template) = &self.prompt_template {
             template.replace("{mime_type}", mime_type)
         } else {
             "Analyze this image and describe what you see. Return a JSON object with a 'labels' field containing label-confidence pairs, e.g., {\"labels\": {\"cat\": 0.95, \"outdoor\": 0.87}}".to_string()
         };
 
-        vec![LlmMessage {
-            role: "user".to_string(),
-            content: vec![
-                LlmContentItem::Image {
-                    image_url: LlmImageUrl {
-                        image_url: "data:image/jpeg;base64,PLACEHOLDER".to_string(),
-                    },
-                },
-                LlmContentItem::Text { text: prompt },
-            ],
-        }]
+        let image_url = ImageUrlArgs::default()
+            .url(format!("data:image/jpeg;base64,{}", image_base64))
+            .build()
+            .unwrap();
+
+        let image_part = ChatCompletionRequestMessageContentPartImageArgs::default()
+            .image_url(image_url)
+            .build()
+            .unwrap();
+
+        let text_part =
+            async_openai::types::ChatCompletionRequestMessageContentPartTextArgs::default()
+                .text(prompt)
+                .build()
+                .unwrap();
+
+        let content = ChatCompletionRequestUserMessageContent::Array(vec![
+            ChatCompletionRequestMessageContentPart::Image(image_part),
+            ChatCompletionRequestMessageContentPart::Text(text_part),
+        ]);
+
+        let message = ChatCompletionRequestUserMessageArgs::default()
+            .content(content)
+            .build()
+            .unwrap()
+            .into();
+
+        vec![message]
     }
 
     async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
-        let messages = self.build_messages(mime_type);
-        let messages_json = serde_json::to_string(&messages)?.replace("PLACEHOLDER", image_base64);
-        let messages: Vec<LlmMessage> = serde_json::from_str(&messages_json)?;
+        let messages = self.build_messages(mime_type, image_base64);
 
-        let request = LlmClassifyRequest {
-            model: self.model.clone(),
-            messages,
-            max_tokens: Some(100),
-        };
+        let request = async_openai::types::CreateChatCompletionRequestArgs::default()
+            .model(&self.model)
+            .messages(messages)
+            .max_tokens(100u16)
+            .build()
+            .unwrap();
 
-        let mut req_builder = self.client.post(&self.api_url).json(&request);
-
-        if let Some(key) = &self.api_key {
-            req_builder = req_builder.bearer_auth(key);
-        }
-
-        let response = req_builder
-            .send()
+        let response = self
+            .client
+            .chat()
+            .create(request)
             .await
             .map_err(|e| Error::msg(format!("API request failed: {}", e)))?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "No error body".to_string());
-            return Err(Error::msg(format!(
-                "API returned status {}: {}",
-                status, body
-            )));
-        }
-
-        let text = response
-            .text()
-            .await
-            .map_err(|e| Error::msg(format!("Failed to read API response: {}", e)))?;
-
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| Error::msg(format!("Failed to parse API response: {}", e)))?;
-
-        let content = json
-            .get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|c| c.first())
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_str())
+        let content = response
+            .choices
+            .first()
+            .and_then(|c| c.message.content.as_ref())
             .ok_or_else(|| Error::msg("No content in API response"))?;
 
         let labels_json: serde_json::Value = serde_json::from_str(content)
