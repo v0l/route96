@@ -259,29 +259,11 @@ impl LabelFiles {
                         elapsed,
                         e
                     );
-                    db.add_labeled_by(&file.id, &model_name)
-                        .await
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to update labeled_by for {}: {}",
-                                hex::encode(file.id),
-                                e
-                            );
-                        });
                     continue;
                 }
                 Err(e) => {
                     let file_id = file.id.clone();
                     error!("Label task for {} panicked: {}", hex::encode(&file_id), e);
-                    db.add_labeled_by(&file.id, &model_name)
-                        .await
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to update labeled_by for {}: {}",
-                                hex::encode(file.id),
-                                e
-                            );
-                        });
                     continue;
                 }
             };

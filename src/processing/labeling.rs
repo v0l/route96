@@ -16,7 +16,7 @@ use base64::Engine;
 use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
-use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
+use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat;
 use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info};
@@ -241,51 +241,73 @@ impl GenericLlmLabeler {
         })
     }
 
-    fn compress_image_to_jpeg(path: &Path, max_size: usize, quality: u8) -> Result<Vec<u8>> {
-        use image::ImageFormat;
+    fn compress_image_to_jpeg(path: &Path, _max_size: usize, _quality: u8) -> Result<Vec<u8>> {
+        use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
+        use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
 
         if !path.exists() {
             return Err(Error::msg(format!("File not found: {:?}", path)));
         }
 
-        let file_size = std::fs::metadata(path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        
+        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
         log::debug!(
-            "Attempting to compress image {:?} (size: {} bytes, quality: {})",
+            "Attempting to compress image {:?} (size: {} bytes)",
             path,
-            file_size,
-            quality
+            file_size
         );
 
-        let img = image::open(path).map_err(|e| {
-            Error::msg(format!(
-                "Failed to open/decode image {:?}: {}. File size: {} bytes",
-                path,
-                e,
-                file_size
-            ))
-        })?;
+        let temp_path =
+            std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
 
-        let scaled = img.resize(1024, 1024, image::imageops::FilterType::Lanczos3);
-        let mut buffer = Vec::new();
-        scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
+        unsafe {
+            let mut transcoder =
+                Transcoder::new(path.to_str().unwrap(), temp_path.to_str().unwrap())
+                    .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
 
-        if buffer.len() <= max_size {
-            return Ok(buffer);
+            let probe = transcoder
+                .prepare()
+                .map_err(|e| Error::msg(format!("Failed to prepare transcoder: {}", e)))?;
+
+            let stream = probe
+                .streams
+                .iter()
+                .find(|s| s.stream_type == StreamType::Video)
+                .ok_or(Error::msg("No video/image stream found"))?;
+
+            let target_height = 1024i32;
+            let (out_width, out_height) = if stream.height as i32 > target_height {
+                let new_height = target_height;
+                let new_width =
+                    (stream.width as f32 * (new_height as f32 / stream.height as f32)) as i32;
+                (new_width, new_height)
+            } else {
+                (stream.width as i32, stream.height as i32)
+            };
+
+            let encoder = Encoder::new(AV_CODEC_ID_MJPEG)?
+                .with_width(out_width)
+                .with_height(out_height)
+                .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
+                .open(None)?;
+
+            transcoder
+                .transcode_stream(stream, encoder)
+                .map_err(|e| Error::msg(format!("Failed to setup transcoding: {}", e)))?;
+
+            let mut mux_options = HashMap::new();
+            mux_options.insert("update".to_string(), "1".to_string());
+            transcoder
+                .run(Some(mux_options))
+                .map_err(|e| Error::msg(format!("Failed to run transcoder: {}", e)))?;
+
+            let buffer = std::fs::read(&temp_path)
+                .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
+
+            let _ = std::fs::remove_file(&temp_path);
+
+            Ok(buffer)
         }
-
-        let mut quality = quality;
-        while buffer.len() > max_size && quality > 10 {
-            quality -= 5;
-            buffer.clear();
-            let img = image::open(path)?;
-            let scaled = img.resize(1024, 1024, image::imageops::FilterType::Lanczos3);
-            scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
-        }
-
-        Ok(buffer)
     }
 
     fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
@@ -302,7 +324,7 @@ impl GenericLlmLabeler {
         let prompt = if let Some(template) = &self.prompt_template {
             template.replace("{mime_type}", mime_type)
         } else {
-            "Analyze this image and describe what you see. Return a JSON object with a 'labels' field containing label-confidence pairs, e.g., {\"labels\": {\"cat\": 0.95, \"outdoor\": 0.87}}".to_string()
+            "Analyze this image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.".to_string()
         };
 
         let image_url = ImageUrlArgs::default()
@@ -338,7 +360,6 @@ impl GenericLlmLabeler {
         let request = CreateChatCompletionRequest {
             model: self.model.clone(),
             messages,
-            max_completion_tokens: Some(100u32),
             ..Default::default()
         };
 
@@ -355,19 +376,20 @@ impl GenericLlmLabeler {
             .and_then(|c| c.message.content.as_ref())
             .ok_or_else(|| Error::msg("No content in API response"))?;
 
-        let labels_json: serde_json::Value = serde_json::from_str(content)
-            .map_err(|e| Error::msg(format!("Failed to parse content as JSON: {}", e)))?;
-
-        let labels_map = labels_json
-            .get("labels")
-            .ok_or_else(|| Error::msg("No 'labels' field in response"))?
-            .as_object()
-            .ok_or_else(|| Error::msg("'labels' is not an object"))?;
+        info!("Prompt response: {:?}", content);
 
         let mut result = HashMap::new();
-        for (label, confidence) in labels_map {
-            if let Some(score) = confidence.as_f64() {
-                result.insert(label.clone(), score as f32);
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(eq_pos) = line.find('=') {
+                let label = line[..eq_pos].trim().to_string();
+                let score_str = line[eq_pos + 1..].trim();
+                if let Ok(score) = score_str.parse::<f32>() {
+                    result.insert(label, score);
+                }
             }
         }
 
@@ -598,7 +620,7 @@ unsafe fn frame_to_tensor(
     scaler: &mut Scaler,
     device: &Device,
 ) -> Result<Tensor> {
-    let scaled = scaler.process_frame(frame, 224, 224, AV_PIX_FMT_RGB24)?;
+    let scaled = scaler.process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24)?;
     let width = 224usize;
     let height = 224usize;
 
@@ -635,8 +657,12 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
     macro_rules! try_frame {
         ($decoded:expr) => {
             if let Some((frame, _)) = $decoded.into_iter().next() {
-                let new_frame =
-                    scaler.process_frame(&frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
+                let new_frame = scaler.process_frame(
+                    &frame,
+                    width as u16,
+                    height as u16,
+                    AVPixelFormat::AV_PIX_FMT_RGB24,
+                )?;
                 let mut dst_vec = Vec::with_capacity(3 * width * height);
                 for row in 0..height {
                     let line_size = new_frame.linesize[0] as usize;
