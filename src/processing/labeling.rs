@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use anyhow::{Error, Result};
-use candle_core::{DType, Device, IndexOp, Tensor, D};
+use base64::Engine;
+use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24;
@@ -11,7 +12,8 @@ use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info};
 use nostr::serde_json;
-use serde::Deserialize;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 /// Minimum confidence threshold for a label to be included
 /// Increased from 0.25 to 0.4 for videos to reduce low-quality labels
@@ -191,6 +193,150 @@ impl MediaLabeler for VitLabeler {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LlmClassifyRequest {
+    image: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LlmClassifyResponse {
+    labels: HashMap<String, f32>,
+}
+
+pub struct GenericLlmLabeler {
+    client: Client,
+    api_url: String,
+    model: Option<String>,
+    api_key: Option<String>,
+    prompt_template: Option<String>,
+    label_exclude: Vec<String>,
+    min_confidence: f32,
+    name: String,
+}
+
+impl GenericLlmLabeler {
+    pub fn new(
+        api_url: String,
+        model: Option<String>,
+        api_key: Option<String>,
+        prompt_template: Option<String>,
+        label_exclude: Vec<String>,
+        min_confidence: Option<f32>,
+        name: String,
+    ) -> Result<Self> {
+        Ok(Self {
+            client: Client::new(),
+            api_url,
+            model,
+            api_key,
+            prompt_template,
+            label_exclude,
+            min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
+            name,
+        })
+    }
+
+    fn encode_image_to_base64(path: &Path) -> Result<String> {
+        let bytes = std::fs::read(path)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    }
+
+    fn build_prompt(&self, mime_type: &str) -> String {
+        if let Some(template) = &self.prompt_template {
+            template.replace("{mime_type}", mime_type)
+        } else {
+            format!(
+                "Analyze this {} image and return up to 5 labels with confidence scores between 0 and 1. Return JSON format: {{\"labels\": {{\"label_name\": confidence_score}}}}",
+                mime_type
+            )
+        }
+    }
+
+    async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
+        let request = LlmClassifyRequest {
+            image: format!("data:{};base64,{}", mime_type, image_base64),
+            model: self.model.clone(),
+            prompt: Some(self.build_prompt(mime_type)),
+        };
+
+        let mut req_builder = self.client.post(&self.api_url).json(&request);
+
+        if let Some(key) = &self.api_key {
+            req_builder = req_builder.bearer_auth(key);
+        }
+
+        let response = req_builder
+            .send()
+            .await
+            .map_err(|e| Error::msg(format!("API request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "No error body".to_string());
+            return Err(Error::msg(format!(
+                "API returned status {}: {}",
+                status, body
+            )));
+        }
+
+        let classify_response: LlmClassifyResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::msg(format!("Failed to parse API response: {}", e)))?;
+
+        Ok(classify_response.labels)
+    }
+}
+
+impl MediaLabeler for GenericLlmLabeler {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn label_exclude(&self) -> &[String] {
+        &self.label_exclude
+    }
+
+    fn min_confidence(&self) -> f32 {
+        self.min_confidence
+    }
+
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
+        let image_base64 = Self::encode_image_to_base64(path)?;
+
+        let rt = tokio::runtime::Handle::current();
+        let labels = rt.block_on(self.call_api(&image_base64, mime_type))?;
+
+        let filtered: HashMap<String, f32> = labels
+            .into_iter()
+            .filter(|(label, score)| {
+                let lower = label.to_lowercase();
+                !self
+                    .label_exclude
+                    .iter()
+                    .any(|ex| ex.to_lowercase() == lower)
+                    && *score >= self.min_confidence
+            })
+            .collect();
+
+        debug!(
+            "Generic LLM labeler '{}' produced {} labels for {}",
+            self.name,
+            filtered.len(),
+            path.display()
+        );
+
+        Ok(filtered)
+    }
+}
+
 /// Convenience function: load a model from disk/HF and label one file.
 /// Prefer loading models once with [`VitModel::load_from_dir`] and calling
 /// [`VitModel::run`] directly when processing multiple files.
@@ -250,13 +396,13 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
 
     let _time_base_num = video_stream.timebase.0 as f64;
     let _time_base_den = video_stream.timebase.1 as f64;
-    
+
     // Calculate target frame indices spread evenly across the video
     // We don't know the total number of frames in advance, so we'll:
     // 1. First pass: count frames
     // 2. Calculate which frames to sample
     // 3. Second pass: extract those frames
-    
+
     // First, do a quick pass to count total frames
     let mut total_frames: usize = 0;
     let mut demux2 = Demuxer::new(path.to_str().unwrap())?;
@@ -265,26 +411,26 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
         .best_video()
         .ok_or(Error::msg("No video stream found"))?;
     let stream_index2 = video_stream2.index as i32;
-    
+
     let mut decoder2 = Decoder::new();
     decoder2.setup_decoder(video_stream2, None)?;
-    
+
     while let Ok((pkt, _)) = unsafe { demux2.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
             None => break,
         };
-        
+
         if pkt.stream_index != stream_index2 {
             continue;
         }
-        
+
         let decoded = decoder2.decode_pkt(Some(&pkt))?;
         for (_frame, _) in decoded {
             total_frames += 1;
         }
     }
-    
+
     // Calculate which frame indices to sample
     let target_indices: Vec<usize> = if total_frames > 0 {
         (0..MAX_VIDEO_FRAMES.min(total_frames))
@@ -292,7 +438,8 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
                 if MAX_VIDEO_FRAMES == 1 || total_frames == 1 {
                     0
                 } else {
-                    ((i as f64) / (MAX_VIDEO_FRAMES as f64 - 1.0) * (total_frames as f64 - 1.0)).round() as usize
+                    ((i as f64) / (MAX_VIDEO_FRAMES as f64 - 1.0) * (total_frames as f64 - 1.0))
+                        .round() as usize
                 }
             })
             .collect()
@@ -307,32 +454,36 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
         .best_video()
         .ok_or(Error::msg("No video stream found"))?;
     let stream_index3 = video_stream3.index as i32;
-    
+
     let mut decoder3 = Decoder::new();
     decoder3.setup_decoder(video_stream3, None)?;
 
     let mut scaler = Scaler::new();
     let mut frames = Vec::new();
     let mut frame_index: usize = 0;
-    let mut frame_index_set: std::collections::HashSet<usize> = target_indices.iter().cloned().collect();
+    let mut frame_index_set: std::collections::HashSet<usize> =
+        target_indices.iter().cloned().collect();
 
     while let Ok((pkt, _)) = unsafe { demux3.get_packet() } {
         let pkt = match pkt {
             Some(p) => p,
             None => break,
         };
-        
+
         if pkt.stream_index != stream_index3 {
             continue;
         }
-        
+
         let decoded = decoder3.decode_pkt(Some(&pkt))?;
         for (frame, _) in decoded {
             if frame_index_set.contains(&frame_index) {
                 match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                     Ok(tensor) => frames.push(tensor),
                     Err(e) => {
-                        debug!("Failed to convert video frame at index {}: {}", frame_index, e);
+                        debug!(
+                            "Failed to convert video frame at index {}: {}",
+                            frame_index, e
+                        );
                     }
                 }
                 frame_index_set.remove(&frame_index);
@@ -348,7 +499,10 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
                 Ok(tensor) => frames.push(tensor),
                 Err(e) => {
-                    debug!("Failed to convert video frame at index {}: {}", frame_index, e);
+                    debug!(
+                        "Failed to convert video frame at index {}: {}",
+                        frame_index, e
+                    );
                 }
             }
             frame_index_set.remove(&frame_index);

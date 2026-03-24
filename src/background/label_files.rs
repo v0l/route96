@@ -1,7 +1,7 @@
 use super::{BatchResult, next_sleep};
 use crate::db::{Database, FileLabel, ReviewState};
 use crate::filesystem::FileStore;
-use crate::processing::labeling::{MediaLabeler, VitLabeler};
+use crate::processing::labeling::{GenericLlmLabeler, MediaLabeler, VitLabeler};
 use crate::settings::{LabelModelConfig, LabelerType};
 use candle_core::Device;
 use log::{error, info, warn};
@@ -110,7 +110,8 @@ impl LabelFiles {
         }
 
         for h in handles {
-            h.await.unwrap_or_else(|e| error!("Label worker task failed: {:?}", e));
+            h.await
+                .unwrap_or_else(|e| error!("Label worker task failed: {:?}", e));
         }
     }
 
@@ -137,6 +138,29 @@ impl LabelFiles {
                     Ok(v) => Some(Box::new(v)),
                     Err(e) => {
                         error!("Failed to load label model '{}': {}", cfg.name, e);
+                        None
+                    }
+                }
+            }
+            LabelerType::GenericLlm {
+                api_url,
+                model,
+                api_key,
+                prompt_template,
+            } => {
+                info!("Initializing generic LLM labeler '{}'", cfg.name);
+                match GenericLlmLabeler::new(
+                    api_url.clone(),
+                    model.clone(),
+                    api_key.clone(),
+                    prompt_template.clone(),
+                    cfg.label_exclude.clone(),
+                    cfg.min_confidence,
+                    cfg.name.clone(),
+                ) {
+                    Ok(l) => Some(Box::new(l)),
+                    Err(e) => {
+                        error!("Failed to initialize LLM labeler '{}': {}", cfg.name, e);
                         None
                     }
                 }
