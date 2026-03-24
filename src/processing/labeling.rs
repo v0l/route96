@@ -244,7 +244,19 @@ impl GenericLlmLabeler {
     fn compress_image_to_jpeg(path: &Path, max_size: usize, quality: u8) -> Result<Vec<u8>> {
         use image::ImageFormat;
 
-        let img = image::open(path)?;
+        if !path.exists() {
+            return Err(Error::msg(format!("File not found: {:?}", path)));
+        }
+
+        let img = image::open(path).map_err(|e| {
+            Error::msg(format!(
+                "Failed to open/decode image {:?}: {}. File size: {} bytes",
+                path,
+                e,
+                std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+            ))
+        })?;
+
         let scaled = img.resize(1024, 1024, image::imageops::FilterType::Lanczos3);
         let mut buffer = Vec::new();
         scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
