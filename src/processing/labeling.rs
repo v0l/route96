@@ -262,7 +262,7 @@ impl GenericLlmLabeler {
         use image::ImageFormat;
 
         let img = image::open(path)?;
-        let scaled = img.resize_exact(1024, 1024, image::imageops::FilterType::Lanczos3);
+        let scaled = img.resize(1024, 1024, image::imageops::FilterType::Lanczos3);
         let mut buffer = Vec::new();
         scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
 
@@ -275,7 +275,7 @@ impl GenericLlmLabeler {
             quality -= 5;
             buffer.clear();
             let img = image::open(path)?;
-            let scaled = img.resize_exact(1024, 1024, image::imageops::FilterType::Lanczos3);
+            let scaled = img.resize(1024, 1024, image::imageops::FilterType::Lanczos3);
             scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
         }
 
