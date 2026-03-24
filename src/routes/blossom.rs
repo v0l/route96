@@ -469,7 +469,9 @@ where
             // is configured to allow client overrides.
             #[cfg(feature = "media-compression")]
             let client_override = acknowledged_identical.is_some()
-                && settings.identical_media_dedup_allow_override.unwrap_or(true);
+                && settings
+                    .identical_media_dedup_allow_override
+                    .unwrap_or(true);
             #[cfg(feature = "media-compression")]
             if settings.identical_media_dedup.unwrap_or(false)
                 && !client_override

@@ -99,10 +99,7 @@ pub async fn watch_config(
 
     let _watcher = match watcher_result {
         Ok(w) => {
-            info!(
-                "config_watcher: watching '{}' for changes",
-                config_path
-            );
+            info!("config_watcher: watching '{}' for changes", config_path);
             Some(w)
         }
         Err(e) => {
