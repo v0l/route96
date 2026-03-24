@@ -222,8 +222,8 @@ pub enum LabelerType {
         model: String,
         /// API key for authentication (optional).
         api_key: Option<String>,
-        /// Custom prompt template for the LLM (optional, `{mime_type}` placeholder).
-        prompt_template: Option<String>,
+        /// Additional prompt to append to the default label request (optional).
+        prompt: Option<String>,
     },
 }
 

@@ -146,7 +146,7 @@ impl LabelFiles {
                 api_url,
                 model,
                 api_key,
-                prompt_template,
+                prompt,
             } => {
                 if model.is_empty() {
                     error!("GenericLlm labeler '{}' requires a model name", cfg.name);
@@ -157,7 +157,7 @@ impl LabelFiles {
                     api_url.clone(),
                     model.clone(),
                     api_key.clone(),
-                    prompt_template.clone(),
+                    prompt.clone(),
                     cfg.label_exclude.clone(),
                     cfg.min_confidence,
                     cfg.name.clone(),

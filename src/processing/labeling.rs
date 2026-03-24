@@ -204,7 +204,7 @@ impl MediaLabeler for VitLabeler {
 pub struct GenericLlmLabeler {
     client: Client<OpenAIConfig>,
     model: String,
-    prompt_template: Option<String>,
+    prompt: Option<String>,
     label_exclude: Vec<String>,
     min_confidence: f32,
     name: String,
@@ -215,7 +215,7 @@ impl GenericLlmLabeler {
         api_url: String,
         model: String,
         api_key: Option<String>,
-        prompt_template: Option<String>,
+        prompt: Option<String>,
         label_exclude: Vec<String>,
         min_confidence: Option<f32>,
         name: String,
@@ -228,7 +228,7 @@ impl GenericLlmLabeler {
         Ok(Self {
             client,
             model,
-            prompt_template,
+            prompt,
             label_exclude,
             min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
             name,
@@ -314,10 +314,14 @@ impl GenericLlmLabeler {
         mime_type: &str,
         image_base64: &str,
     ) -> Vec<ChatCompletionRequestMessage> {
-        let prompt = if let Some(template) = &self.prompt_template {
-            template.replace("{mime_type}", mime_type)
+        let default_prompt = format!(
+            "Analyze this {} image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.",
+            mime_type
+        );
+        let prompt = if let Some(additional) = &self.prompt {
+            format!("{} {}", default_prompt, additional)
         } else {
-            "Analyze this image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.".to_string()
+            default_prompt
         };
 
         let image_url = ImageUrlArgs::default()
