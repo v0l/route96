@@ -49,10 +49,8 @@ label_models:
   #   api_url: "https://api.example.com/v1/chat/completions"
   #   model: "gpt-4o-mini"
   #   api_key: "your-api-key"
-  #   prompt_template: "Analyze this {mime_type} image and return JSON with labels field"
+  #   prompt: "Focus on clothing items"
   #   name: "my-llm-labeler"
-  #   max_image_size_bytes: 524288
-  #   image_quality: 85
   #   label_exclude:
   #     - "unknown"
   #   min_confidence: 0.5
