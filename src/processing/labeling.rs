@@ -208,8 +208,6 @@ pub struct GenericLlmLabeler {
     label_exclude: Vec<String>,
     min_confidence: f32,
     name: String,
-    max_image_size_bytes: usize,
-    image_quality: u8,
 }
 
 impl GenericLlmLabeler {
@@ -221,8 +219,6 @@ impl GenericLlmLabeler {
         label_exclude: Vec<String>,
         min_confidence: Option<f32>,
         name: String,
-        max_image_size_bytes: Option<usize>,
-        image_quality: Option<u8>,
     ) -> Result<Self> {
         let config = OpenAIConfig::new()
             .with_api_base(&api_url)
@@ -236,12 +232,10 @@ impl GenericLlmLabeler {
             label_exclude,
             min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
             name,
-            max_image_size_bytes: max_image_size_bytes.unwrap_or(512 * 1024),
-            image_quality: image_quality.unwrap_or(85),
         })
     }
 
-    fn compress_image_to_jpeg(path: &Path, _max_size: usize, _quality: u8) -> Result<Vec<u8>> {
+    fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>> {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
         use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
 
@@ -311,8 +305,7 @@ impl GenericLlmLabeler {
     }
 
     fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
-        let bytes =
-            Self::compress_image_to_jpeg(path, self.max_image_size_bytes, self.image_quality)?;
+        let bytes = Self::compress_image_to_jpeg(path)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
 

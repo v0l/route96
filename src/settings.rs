@@ -224,10 +224,6 @@ pub enum LabelerType {
         api_key: Option<String>,
         /// Custom prompt template for the LLM (optional, `{mime_type}` placeholder).
         prompt_template: Option<String>,
-        /// Maximum image size in bytes after compression (default: 512KB).
-        max_image_size_bytes: Option<usize>,
-        /// JPEG quality 1-100 for compression (default: 85).
-        image_quality: Option<u8>,
     },
 }
 
