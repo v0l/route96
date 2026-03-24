@@ -194,39 +194,55 @@ impl MediaLabeler for VitLabeler {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LlmClassifyRequest {
-    image: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt: Option<String>,
+struct LlmImageUrl {
+    #[serde(rename = "url")]
+    image_url: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct LlmClassifyResponse {
-    labels: HashMap<String, f32>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LlmMessage {
+    role: String,
+    content: Vec<LlmContentItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum LlmContentItem {
+    Text { text: String },
+    Image { image_url: LlmImageUrl },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LlmClassifyRequest {
+    model: String,
+    messages: Vec<LlmMessage>,
+    max_tokens: Option<u32>,
 }
 
 pub struct GenericLlmLabeler {
     client: Client,
     api_url: String,
-    model: Option<String>,
+    model: String,
     api_key: Option<String>,
     prompt_template: Option<String>,
     label_exclude: Vec<String>,
     min_confidence: f32,
     name: String,
+    max_image_size_bytes: usize,
+    image_quality: u8,
 }
 
 impl GenericLlmLabeler {
     pub fn new(
         api_url: String,
-        model: Option<String>,
+        model: String,
         api_key: Option<String>,
         prompt_template: Option<String>,
         label_exclude: Vec<String>,
         min_confidence: Option<f32>,
         name: String,
+        max_image_size_bytes: Option<usize>,
+        image_quality: Option<u8>,
     ) -> Result<Self> {
         Ok(Self {
             client: Client::new(),
@@ -237,30 +253,70 @@ impl GenericLlmLabeler {
             label_exclude,
             min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
             name,
+            max_image_size_bytes: max_image_size_bytes.unwrap_or(512 * 1024),
+            image_quality: image_quality.unwrap_or(85),
         })
     }
 
-    fn encode_image_to_base64(path: &Path) -> Result<String> {
-        let bytes = std::fs::read(path)?;
+    fn compress_image_to_jpeg(path: &Path, max_size: usize, quality: u8) -> Result<Vec<u8>> {
+        use image::ImageFormat;
+
+        let img = image::open(path)?;
+        let scaled = img.resize_exact(1024, 1024, image::imageops::FilterType::Lanczos3);
+        let mut buffer = Vec::new();
+        scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
+
+        if buffer.len() <= max_size {
+            return Ok(buffer);
+        }
+
+        let mut quality = quality;
+        while buffer.len() > max_size && quality > 10 {
+            quality -= 5;
+            buffer.clear();
+            let img = image::open(path)?;
+            let scaled = img.resize_exact(1024, 1024, image::imageops::FilterType::Lanczos3);
+            scaled.write_to(&mut std::io::Cursor::new(&mut buffer), ImageFormat::Jpeg)?;
+        }
+
+        Ok(buffer)
+    }
+
+    fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
+        let bytes =
+            Self::compress_image_to_jpeg(path, self.max_image_size_bytes, self.image_quality)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
 
-    fn build_prompt(&self, mime_type: &str) -> String {
-        if let Some(template) = &self.prompt_template {
+    fn build_messages(&self, mime_type: &str) -> Vec<LlmMessage> {
+        let prompt = if let Some(template) = &self.prompt_template {
             template.replace("{mime_type}", mime_type)
         } else {
-            format!(
-                "Analyze this {} image and return up to 5 labels with confidence scores between 0 and 1. Return JSON format: {{\"labels\": {{\"label_name\": confidence_score}}}}",
-                mime_type
-            )
-        }
+            "Analyze this image and describe what you see. Return a JSON object with a 'labels' field containing label-confidence pairs, e.g., {\"labels\": {\"cat\": 0.95, \"outdoor\": 0.87}}".to_string()
+        };
+
+        vec![LlmMessage {
+            role: "user".to_string(),
+            content: vec![
+                LlmContentItem::Image {
+                    image_url: LlmImageUrl {
+                        image_url: "data:image/jpeg;base64,PLACEHOLDER".to_string(),
+                    },
+                },
+                LlmContentItem::Text { text: prompt },
+            ],
+        }]
     }
 
     async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
+        let messages = self.build_messages(mime_type);
+        let messages_json = serde_json::to_string(&messages)?.replace("PLACEHOLDER", image_base64);
+        let messages: Vec<LlmMessage> = serde_json::from_str(&messages_json)?;
+
         let request = LlmClassifyRequest {
-            image: format!("data:{};base64,{}", mime_type, image_base64),
             model: self.model.clone(),
-            prompt: Some(self.build_prompt(mime_type)),
+            messages,
+            max_tokens: Some(100),
         };
 
         let mut req_builder = self.client.post(&self.api_url).json(&request);
@@ -286,12 +342,40 @@ impl GenericLlmLabeler {
             )));
         }
 
-        let classify_response: LlmClassifyResponse = response
-            .json()
+        let text = response
+            .text()
             .await
+            .map_err(|e| Error::msg(format!("Failed to read API response: {}", e)))?;
+
+        let json: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| Error::msg(format!("Failed to parse API response: {}", e)))?;
 
-        Ok(classify_response.labels)
+        let content = json
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|c| c.first())
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .ok_or_else(|| Error::msg("No content in API response"))?;
+
+        let labels_json: serde_json::Value = serde_json::from_str(content)
+            .map_err(|e| Error::msg(format!("Failed to parse content as JSON: {}", e)))?;
+
+        let labels_map = labels_json
+            .get("labels")
+            .ok_or_else(|| Error::msg("No 'labels' field in response"))?
+            .as_object()
+            .ok_or_else(|| Error::msg("'labels' is not an object"))?;
+
+        let mut result = HashMap::new();
+        for (label, confidence) in labels_map {
+            if let Some(score) = confidence.as_f64() {
+                result.insert(label.clone(), score as f32);
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -309,7 +393,7 @@ impl MediaLabeler for GenericLlmLabeler {
     }
 
     fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
-        let image_base64 = Self::encode_image_to_base64(path)?;
+        let image_base64 = self.encode_image_to_base64(path)?;
 
         let rt = tokio::runtime::Handle::current();
         let labels = rt.block_on(self.call_api(&image_base64, mime_type))?;
