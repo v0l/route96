@@ -83,6 +83,14 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "delete_zero_egress_days",
+    label: "Delete zero-egress files after",
+    description:
+      "Delete files that have never been downloaded (zero egress bytes) after this many days. This is different from 'Delete inactive files after' because it only targets files that have NEVER been downloaded, regardless of when they were last accessed. Set to 0 or leave unset to disable.",
+    type: "days",
+    optional: true,
+  },
+  {
     key: "identical_media_dedup",
     label: "Identical media deduplication (BUD-12)",
     description:
