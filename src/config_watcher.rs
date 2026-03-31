@@ -14,6 +14,7 @@
 
 #[cfg(feature = "labels")]
 use crate::settings::LabelModelConfig;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -43,27 +44,39 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
     let mut settings: Settings = built.try_deserialize()?;
 
     // Merge label models from the database into settings.
-    // Database models are appended to any models from the config file,
+    // Database models override any models from the config file with the same name,
     // allowing runtime management while preserving file-based defaults.
     #[cfg(feature = "labels")]
     {
-        if let Ok(db_models) = db.get_label_models().await {
-            if !db_models.is_empty() {
-                let file_models = settings.label_models.take().unwrap_or_default();
-                let mut all_models = file_models;
-                for db_model in db_models {
-                    if let Ok(model_config) =
-                        serde_json::from_str::<LabelModelConfig>(&db_model.config)
-                    {
-                        all_models.push(model_config);
-                    } else {
-                        error!(
-                            "Failed to parse label model config for '{}': invalid JSON",
-                            db_model.name
-                        );
+        match db.get_label_models().await {
+            Ok(db_models) => {
+                if !db_models.is_empty() {
+                    let file_models = settings.label_models.take().unwrap_or_default();
+                    // Start with file models and let DB models override by name
+                    let mut all_models: HashMap<String, LabelModelConfig> = file_models
+                        .into_iter()
+                        .map(|m| (m.name.clone(), m))
+                        .collect();
+                    
+                    for db_model in db_models {
+                        if let Ok(model_config) =
+                            serde_json::from_str::<LabelModelConfig>(&db_model.config)
+                        {
+                            all_models.insert(model_config.name.clone(), model_config);
+                        } else {
+                            error!(
+                                "Failed to parse label model config for '{}': invalid JSON",
+                                db_model.name
+                            );
+                        }
                     }
+                    settings.label_models = Some(
+                        all_models.into_values().collect()
+                    );
                 }
-                settings.label_models = Some(all_models);
+            }
+            Err(e) => {
+                error!("Failed to load label models from database: {}", e);
             }
         }
     }

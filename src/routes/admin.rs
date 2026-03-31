@@ -1,9 +1,11 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{
-    Database, FileStatSort, FileUpload, FileUploadWithStats, LabelModel, Report, ReviewState,
+    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState,
     SortOrder, User, WhitelistEntry,
 };
+#[cfg(feature = "labels")]
+use crate::db::LabelModel;
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -1203,29 +1205,42 @@ async fn admin_add_label_model(
         return AdminResponse::error(&e);
     }
 
+    // Clone name upfront to avoid move issues
+    let name = body.name.clone();
+
     // Build the config JSON based on model type
     let model_config = match body.model_type.as_str() {
         "vit" => {
-            let hf_repo =
-                body.hf_repo.ok_or("ViT model requires hf_repo field")?;
+            let hf_repo = match body.hf_repo {
+                Some(repo) => repo,
+                None => {
+                    return AdminResponse::error("ViT model requires hf_repo field");
+                }
+            };
             if hf_repo.is_empty() {
                 return AdminResponse::error("ViT model requires hf_repo field");
             }
             serde_json::json!({
-                "name": body.name,
+                "name": name,
                 "type": "vit",
                 "hf_repo": hf_repo,
             })
         }
         "generic_llm" => {
-            let api_url = body.api_url.ok_or(
-                "Generic LLM model requires api_url field",
-            )?;
-            let llm_model = body.llm_model.ok_or(
-                "Generic LLM model requires llm_model field",
-            )?;
+            let api_url = match body.api_url {
+                Some(url) => url,
+                None => {
+                    return AdminResponse::error("Generic LLM model requires api_url field");
+                }
+            };
+            let llm_model = match body.llm_model {
+                Some(model) => model,
+                None => {
+                    return AdminResponse::error("Generic LLM model requires llm_model field");
+                }
+            };
             let mut config = serde_json::json!({
-                "name": body.name,
+                "name": name,
                 "type": "generic_llm",
                 "api_url": api_url,
                 "model": llm_model,
@@ -1261,11 +1276,11 @@ async fn admin_add_label_model(
 
     match state
         .db
-        .add_label_model(&body.name, &body.model_type, &config_str)
+        .add_label_model(&name, &body.model_type, &config_str)
         .await
     {
         Ok(()) => {
-            log::info!("Added label model: {}", body.name);
+            log::info!("Added label model: {}", name);
             state.reload_config().await;
             AdminResponse::success(())
         }

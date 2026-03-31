@@ -967,7 +967,7 @@ impl Database {
     /// Get all configured label models from the database.
     #[cfg(feature = "labels")]
     pub async fn get_label_models(&self) -> Result<Vec<LabelModel>, Error> {
-        sqlx::query_as("select name, type as model_type, config from label_models order by name")
+        sqlx::query_as("select name, `type` as model_type, config from label_models order by name")
             .fetch_all(&self.pool)
             .await
     }
@@ -982,7 +982,7 @@ impl Database {
     ) -> Result<(), Error> {
         sqlx::query(
             "insert into label_models(`name`, `type`, `config`) values(?, ?, ?) \
-             on duplicate key update `config` = values(`config`), `updated` = current_timestamp",
+             on duplicate key update `type` = values(`type`), `config` = values(`config`), `updated` = current_timestamp",
         )
         .bind(name)
         .bind(model_type)
