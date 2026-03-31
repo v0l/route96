@@ -1,17 +1,19 @@
 //! Background task: enforce file-retention policies.
 //!
-//! Two independent policies can be active simultaneously:
+//! Three independent policies can be active simultaneously:
 //!
 //! * **Inactivity** (`delete_unaccessed_days`): delete files that have had no
 //!   downloads within the configured window.  Files uploaded within the same
 //!   window receive an implicit grace period.
 //! * **Hard age** (`delete_after_days`): delete all files older than the
 //!   configured duration, regardless of download activity.
+//! * **Zero egress** (`delete_zero_egress_days`): delete files that have never
+//!   been downloaded (egress_bytes = 0) after the configured duration.
 //!
 //! Thresholds are re-read from the live settings on every cycle so that
 //! config changes take effect without a restart.
 
-use super::{BatchResult, next_sleep};
+use super::{next_sleep, BatchResult};
 use crate::db::Database;
 use crate::filesystem::FileStore;
 use crate::settings::Settings;
@@ -88,9 +90,13 @@ impl FileDeleter {
         settings: &Arc<RwLock<Settings>>,
     ) -> BatchResult {
         // Snapshot thresholds from live config for this cycle.
-        let (inactive_days, age_days) = {
+        let (inactive_days, age_days, zero_egress_days) = {
             let s = settings.read().await;
-            (s.delete_unaccessed_days, s.delete_after_days)
+            (
+                s.delete_unaccessed_days,
+                s.delete_after_days,
+                s.delete_zero_egress_days,
+            )
         };
 
         let now = Utc::now();
@@ -118,6 +124,21 @@ impl FileDeleter {
                     }
                 }
                 Err(e) => error!("FileDeleter: hard-age query failed: {}", e),
+            }
+        }
+
+        // Zero-egress policy: delete files that have never been downloaded.
+        if let Some(days) = zero_egress_days.filter(|&d| d > 0) {
+            let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
+            match db.get_files_with_zero_egress(cutoff, BATCH_SIZE).await {
+                Ok(v) => {
+                    for id in v {
+                        if !ids.iter().any(|(existing, _)| existing == &id) {
+                            ids.push((id, "zero_egress"));
+                        }
+                    }
+                }
+                Err(e) => error!("FileDeleter: zero-egress query failed: {}", e),
             }
         }
 

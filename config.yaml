@@ -94,3 +94,16 @@ payments:
   # Billing interval (day / month / year)
   interval:
     month: 1
+
+# (Optional) Automatically delete files with zero egress bytes (never downloaded)
+# after this many days. This helps clean up files that were uploaded but never
+# actually used/downloaded by anyone.
+# delete_zero_egress_days: 7
+
+# (Optional) Automatically delete files that have had no downloads in this many days.
+# Files uploaded within the same window are given a grace period.
+# delete_unaccessed_days: 14
+
+# (Optional) Hard retention limit: delete all files older than this many days,
+# regardless of download activity.
+# delete_after_days: 30

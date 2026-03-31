@@ -178,6 +178,15 @@ pub struct Settings {
     ///
     /// Set to `0` or omit to disable.
     pub delete_after_days: Option<u64>,
+
+    /// Delete files with zero egress bytes (never downloaded) after this many days.
+    ///
+    /// This is different from `delete_unaccessed_days` because it only targets
+    /// files that have NEVER been downloaded (egress_bytes = 0), regardless of
+    /// when they were last accessed.
+    ///
+    /// Set to `0` or omit to disable.
+    pub delete_zero_egress_days: Option<u64>,
 }
 
 /// Configuration for a single labeling model / API endpoint.
@@ -331,5 +340,28 @@ mod tests {
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.delete_unaccessed_days, Some(14));
         assert_eq!(s.delete_after_days, Some(30));
+    }
+
+    #[test]
+    fn delete_zero_egress_days_deserializes_some() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com","delete_zero_egress_days":7}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_zero_egress_days, Some(7));
+    }
+
+    #[test]
+    fn delete_zero_egress_days_deserializes_absent_as_none() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com"}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_zero_egress_days, None);
+    }
+
+    #[test]
+    fn all_three_deletion_policies_can_coexist() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com","delete_unaccessed_days":14,"delete_after_days":30,"delete_zero_egress_days":7}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.delete_unaccessed_days, Some(14));
+        assert_eq!(s.delete_after_days, Some(30));
+        assert_eq!(s.delete_zero_egress_days, Some(7));
     }
 }
