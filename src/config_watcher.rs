@@ -12,6 +12,8 @@
 //! new settings at the same time so whitelist mode changes (e.g. enabling or
 //! disabling the whitelist) take effect immediately without a restart.
 
+#[cfg(feature = "labels")]
+use crate::settings::LabelModelConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,7 +40,35 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
         .add_async_source(DbConfigSource { db: db.clone() });
 
     let built = builder.build_cloned().await?;
-    Ok(built.try_deserialize()?)
+    let mut settings: Settings = built.try_deserialize()?;
+
+    // Merge label models from the database into settings.
+    // Database models are appended to any models from the config file,
+    // allowing runtime management while preserving file-based defaults.
+    #[cfg(feature = "labels")]
+    {
+        if let Ok(db_models) = db.get_label_models().await {
+            if !db_models.is_empty() {
+                let file_models = settings.label_models.take().unwrap_or_default();
+                let mut all_models = file_models;
+                for db_model in db_models {
+                    if let Ok(model_config) =
+                        serde_json::from_str::<LabelModelConfig>(&db_model.config)
+                    {
+                        all_models.push(model_config);
+                    } else {
+                        error!(
+                            "Failed to parse label model config for '{}': invalid JSON",
+                            db_model.name
+                        );
+                    }
+                }
+                settings.label_models = Some(all_models);
+            }
+        }
+    }
+
+    Ok(settings)
 }
 
 /// Spawn a background task that watches `config_path` for file-system changes
