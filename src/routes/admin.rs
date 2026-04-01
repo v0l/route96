@@ -1376,8 +1376,10 @@ async fn admin_set_label_flag_terms(
     }
 
     // Store as JSON in config table
-    let terms_json = serde_json::to_string(&body.terms)
-        .map_err(|e| format!("Failed to serialize terms: {}", e))?;
+    let terms_json = match serde_json::to_string(&body.terms) {
+        Ok(json) => json,
+        Err(e) => return AdminResponse::error(&format!("Failed to serialize terms: {}", e)),
+    };
 
     match state.db.config_set("label_flag_terms", &terms_json).await {
         Ok(()) => {
