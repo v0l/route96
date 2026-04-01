@@ -121,7 +121,7 @@ const KNOWN_FIELDS: KnownField[] = [
     key: "label_models",
     label: "AI Label Models",
     description:
-      "Configure AI models for automatic image labeling. Each model entry needs: name (identifier), type (labeler backend), and configuration specific to that backend. Valid types include 'vit' (local ViT model with hf_repo field pointing to HuggingFace repo), 'inference_api' (HuggingFace Inference API with hf_token and hf_model fields), and 'custom' (custom API endpoint with url, method, and response parsing config). Also supports label_exclude array to filter out unwanted labels and min_confidence threshold.",
+      "Configure AI models for automatic image labeling. Each model entry needs: name (identifier), type (labeler backend), and configuration specific to that backend. Valid types currently include 'vit' (vision transformer image classifier) and 'generic_llm' (generic text-based labeler); see the server config schema for the exact fields supported for each type. You can also use the optional label_exclude array to filter out unwanted labels and min_confidence to require a minimum score.",
     type: "json",
     optional: true,
   },
@@ -129,7 +129,7 @@ const KNOWN_FIELDS: KnownField[] = [
     key: "label_flag_terms",
     label: "Label Flag Terms",
     description:
-      "Comma-separated list of terms that, when found in AI-generated labels, will automatically flag the file for review. For example: 'nsfw,sensitive,adult' would flag any image whose AI labels contain these terms. Useful for content moderation workflows.",
+      "JSON array of terms that, when found in AI-generated labels, will automatically flag the file for review. For example: ['nsfw', 'sensitive', 'adult'] would flag any image whose AI labels contain these terms. Useful for content moderation workflows.",
     type: "json",
     optional: true,
   },
@@ -782,7 +782,6 @@ function JsonField({
   optional,
 }: {
   currentValue: string | undefined;
-  placeholder?: string;
   onSave: (v: string) => Promise<void>;
   onDelete: () => Promise<void>;
   optional?: boolean;
@@ -831,6 +830,8 @@ function JsonField({
         setError(null);
       } catch {
         setVal(currentValue);
+        setError(validate(currentValue));
+        return;
       }
     } else {
       setVal("");
