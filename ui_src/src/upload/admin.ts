@@ -38,6 +38,21 @@ export interface AdminUserInfo {
   total_size: number;
   created: string;
   paid_until?: number;
+}
+
+export interface LabelModel {
+  name: string;
+  type: string;
+  config: string;
+}
+
+export interface AdminUserInfo {
+  pubkey: string;
+  is_admin: boolean;
+  file_count: number;
+  total_size: number;
+  created: string;
+  paid_until?: number;
   quota?: number;
   free_quota?: number;
   total_available_quota?: number;
@@ -275,6 +290,52 @@ export class Route96 {
       `admin/config/${encodeURIComponent(key)}`,
       "DELETE",
     );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  // Label models API
+  async listLabelModels() {
+    const rsp = await this.#req("admin/label-models", "GET");
+    const data = await this.#handleResponse<AdminResponse<LabelModel[]>>(rsp);
+    if (!data.data) throw new Error(data.message || "List label models failed");
+    return data.data;
+  }
+
+  async addLabelModel(model: LabelModel) {
+    const rsp = await this.#req(
+      "admin/label-models",
+      "POST",
+      JSON.stringify(model),
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async removeLabelModel(name: string) {
+    const rsp = await this.#req(
+      `admin/label-models/${encodeURIComponent(name)}`,
+      "DELETE",
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  // Label flag terms API
+  async getLabelFlagTerms() {
+    const rsp = await this.#req("admin/label-flag-terms", "GET");
+    const data = await this.#handleResponse<AdminResponse<string[] | null>>(rsp);
+    return data.data;
+  }
+
+  async setLabelFlagTerms(terms: string[]) {
+    const rsp = await this.#req(
+      "admin/label-flag-terms",
+      "PUT",
+      JSON.stringify({ terms }),
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async deleteLabelFlagTerms() {
+    const rsp = await this.#req("admin/label-flag-terms", "DELETE");
     return this.#handleResponse<AdminResponse<void>>(rsp);
   }
 

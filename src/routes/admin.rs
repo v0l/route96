@@ -59,6 +59,14 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             .route(
                 "/admin/label-models/{name}",
                 delete(admin_remove_label_model),
+            )
+            .route(
+                "/admin/label-flag-terms",
+                get(admin_get_label_flag_terms).put(admin_set_label_flag_terms),
+            )
+            .route(
+                "/admin/label-flag-terms",
+                delete(admin_delete_label_flag_terms),
             );
     }
 
@@ -1323,6 +1331,81 @@ async fn admin_remove_label_model(
             AdminResponse::success(())
         }
         Err(e) => AdminResponse::error(&format!("Failed to remove label model: {}", e)),
+    }
+}
+
+/// `GET /admin/label-flag-terms` — get the current label flag terms.
+#[cfg(feature = "labels")]
+async fn admin_get_label_flag_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<serde_json::Value> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let settings = state.settings().await;
+    let flag_terms = settings
+        .label_flag_terms
+        .map(|terms| serde_json::to_value(terms).unwrap_or(serde_json::Value::Null))
+        .unwrap_or(serde_json::Value::Null);
+
+    AdminResponse::success(flag_terms)
+}
+
+/// `PUT /admin/label-flag-terms` body.
+#[derive(serde::Deserialize)]
+struct SetLabelFlagTermsBody {
+    terms: Vec<String>,
+}
+
+/// `PUT /admin/label-flag-terms` — set the label flag terms.
+#[cfg(feature = "labels")]
+async fn admin_set_label_flag_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<SetLabelFlagTermsBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    // Validate terms
+    if body.terms.is_empty() {
+        return AdminResponse::error("Terms list cannot be empty");
+    }
+
+    // Store as JSON in config table
+    let terms_json = serde_json::to_string(&body.terms)
+        .map_err(|e| format!("Failed to serialize terms: {}", e))?;
+
+    match state.db.config_set("label_flag_terms", &terms_json).await {
+        Ok(()) => {
+            log::info!("Updated label flag terms: {} terms", body.terms.len());
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to save label flag terms: {}", e)),
+    }
+}
+
+/// `DELETE /admin/label-flag-terms` — delete the label flag terms (revert to default).
+#[cfg(feature = "labels")]
+async fn admin_delete_label_flag_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.config_delete("label_flag_terms").await {
+        Ok(()) => {
+            log::info!("Deleted label flag terms");
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to delete label flag terms: {}", e)),
     }
 }
 

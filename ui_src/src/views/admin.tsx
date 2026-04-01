@@ -19,8 +19,9 @@ import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
 import FileListControls from "../components/file-list-controls";
 import ConfigEditor from "../components/config-editor";
+import LabelManagement from "../components/label-management";
 
-type Tab = "files" | "reports" | "review" | "config";
+type Tab = "files" | "reports" | "review" | "config" | "labeling";
 
 type AdminFileList = {
   count: number;
@@ -375,6 +376,7 @@ export default function Admin() {
     { id: "reports", label: "Reports" },
     { id: "review", label: "Review" },
     { id: "config", label: "Config" },
+    { id: "labeling", label: "Labeling" },
   ];
 
   return (
@@ -507,6 +509,10 @@ export default function Admin() {
           onSave={saveConfig}
           onDelete={deleteConfig}
         />
+      )}
+
+      {tab === "labeling" && pub && (
+        <LabelManagement pub={pub} url={url} />
       )}
 
       {(similarFiles || similarLoading) && similarSource && (
