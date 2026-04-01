@@ -835,6 +835,7 @@ function JsonField({
       }
     } else {
       setVal("");
+      setError(null);
     }
   }, [currentValue]);
 
