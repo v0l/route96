@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Route96 } from "../upload/admin";
-import { Publisher } from "@snort/system";
+import { EventPublisher } from "@snort/system";
 
 interface LabelModel {
   name: string;
@@ -42,7 +42,7 @@ function LabelFlagTerms({
   url,
   onDirty,
 }: {
-  pub: Publisher;
+  pub: EventPublisher;
   url: string;
   onDirty?: (isDirty: boolean) => void;
 }) {
@@ -204,7 +204,7 @@ function LabelModels({
   pub,
   url,
 }: {
-  pub: Publisher;
+  pub: EventPublisher;
   url: string;
 }) {
   const [models, setModels] = useState<LabelModel[]>([]);
@@ -378,20 +378,13 @@ export default function LabelManagement({
   pub,
   url,
 }: {
-  pub: Publisher;
+  pub: EventPublisher;
   url: string;
 }) {
   const [tab, setTab] = useState<Tab>("flag-terms");
-  const [error, setError] = useState<string>();
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="bg-red-900/20 border border-red-800 rounded-sm p-3 text-sm text-red-400">
-          {error}
-        </div>
-      )}
-
       <div className="flex gap-2 border-b border-neutral-800 pb-2">
         <button
           onClick={() => setTab("flag-terms")}
