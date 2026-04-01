@@ -1205,8 +1205,11 @@ async fn admin_add_label_model(
         return AdminResponse::error(&e);
     }
 
-    // Clone name upfront to avoid move issues
-    let name = body.name.clone();
+    // Normalize and validate the model name
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return AdminResponse::error("Model name cannot be empty or whitespace");
+    }
 
     // Build the config JSON based on model type
     let model_config = match body.model_type.as_str() {
@@ -1218,10 +1221,10 @@ async fn admin_add_label_model(
                 }
             };
             if hf_repo.is_empty() {
-                return AdminResponse::error("ViT model requires hf_repo field");
+                return AdminResponse::error("ViT model requires non-empty hf_repo field");
             }
             serde_json::json!({
-                "name": name,
+                "name": name.clone(),
                 "type": "vit",
                 "hf_repo": hf_repo,
             })
@@ -1233,14 +1236,20 @@ async fn admin_add_label_model(
                     return AdminResponse::error("Generic LLM model requires api_url field");
                 }
             };
+            if api_url.is_empty() {
+                return AdminResponse::error("Generic LLM model requires non-empty api_url field");
+            }
             let llm_model = match body.llm_model {
                 Some(model) => model,
                 None => {
                     return AdminResponse::error("Generic LLM model requires llm_model field");
                 }
             };
+            if llm_model.is_empty() {
+                return AdminResponse::error("Generic LLM model requires non-empty llm_model field");
+            }
             let mut config = serde_json::json!({
-                "name": name,
+                "name": name.clone(),
                 "type": "generic_llm",
                 "api_url": api_url,
                 "model": llm_model,
@@ -1272,7 +1281,15 @@ async fn admin_add_label_model(
         model_config["min_confidence"] = serde_json::json!(confidence);
     }
 
-    let config_str = serde_json::to_string(&model_config).unwrap_or_default();
+    let config_str = match serde_json::to_string(&model_config) {
+        Ok(s) => s,
+        Err(e) => {
+            return AdminResponse::error(&format!(
+                "Failed to serialize label model configuration: {}",
+                e
+            ));
+        }
+    };
 
     match state
         .db

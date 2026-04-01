@@ -14,6 +14,7 @@
 
 #[cfg(feature = "labels")]
 use crate::settings::LabelModelConfig;
+#[cfg(feature = "labels")]
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
