@@ -12,6 +12,10 @@
 //! new settings at the same time so whitelist mode changes (e.g. enabling or
 //! disabling the whitelist) take effect immediately without a restart.
 
+#[cfg(feature = "labels")]
+use crate::settings::LabelModelConfig;
+#[cfg(feature = "labels")]
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,7 +42,47 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
         .add_async_source(DbConfigSource { db: db.clone() });
 
     let built = builder.build_cloned().await?;
-    Ok(built.try_deserialize()?)
+    let mut settings: Settings = built.try_deserialize()?;
+
+    // Merge label models from the database into settings.
+    // Database models override any models from the config file with the same name,
+    // allowing runtime management while preserving file-based defaults.
+    #[cfg(feature = "labels")]
+    {
+        match db.get_label_models().await {
+            Ok(db_models) => {
+                if !db_models.is_empty() {
+                    let file_models = settings.label_models.take().unwrap_or_default();
+                    // Start with file models and let DB models override by name
+                    let mut all_models: HashMap<String, LabelModelConfig> = file_models
+                        .into_iter()
+                        .map(|m| (m.name.clone(), m))
+                        .collect();
+                    
+                    for db_model in db_models {
+                        if let Ok(model_config) =
+                            serde_json::from_str::<LabelModelConfig>(&db_model.config)
+                        {
+                            all_models.insert(model_config.name.clone(), model_config);
+                        } else {
+                            error!(
+                                "Failed to parse label model config for '{}': invalid JSON",
+                                db_model.name
+                            );
+                        }
+                    }
+                    settings.label_models = Some(
+                        all_models.into_values().collect()
+                    );
+                }
+            }
+            Err(e) => {
+                error!("Failed to load label models from database: {}", e);
+            }
+        }
+    }
+
+    Ok(settings)
 }
 
 /// Spawn a background task that watches `config_path` for file-system changes

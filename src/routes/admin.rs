@@ -1,9 +1,11 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
 use crate::db::{
-    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User,
-    WhitelistEntry,
+    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState,
+    SortOrder, User, WhitelistEntry,
 };
+#[cfg(feature = "labels")]
+use crate::db::LabelModel;
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -46,6 +48,19 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             "/admin/config/{key}",
             put(admin_set_config).delete(admin_delete_config),
         );
+
+    #[cfg(feature = "labels")]
+    {
+        router = router
+            .route(
+                "/admin/label-models",
+                get(admin_list_label_models).post(admin_add_label_model),
+            )
+            .route(
+                "/admin/label-models/{name}",
+                delete(admin_remove_label_model),
+            );
+    }
 
     #[cfg(feature = "media-compression")]
     {
@@ -1136,6 +1151,178 @@ async fn admin_delete_config(
             AdminResponse::success(())
         }
         Err(e) => AdminResponse::error(&format!("Failed to delete config key '{}': {}", key, e)),
+    }
+}
+
+/// Request body for adding a new label model.
+#[cfg(feature = "labels")]
+#[derive(Deserialize)]
+struct AddLabelModelBody {
+    /// Human-readable model name (e.g., "vit224", "nsfw-detector")
+    name: String,
+    /// Model type: "vit" or "generic_llm"
+    model_type: String,
+    /// HuggingFace repo ID (for vit type)
+    hf_repo: Option<String>,
+    /// API URL (for generic_llm type)
+    api_url: Option<String>,
+    /// Model name for API (for generic_llm type)
+    llm_model: Option<String>,
+    /// API key (optional, for generic_llm type)
+    api_key: Option<String>,
+    /// Custom prompt (optional, for generic_llm type)
+    prompt: Option<String>,
+    /// Labels to exclude (comma-separated)
+    label_exclude: Option<String>,
+    /// Minimum confidence threshold (optional)
+    min_confidence: Option<f32>,
+}
+
+/// `GET /admin/label-models` — list all configured label models.
+#[cfg(feature = "labels")]
+async fn admin_list_label_models(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<Vec<LabelModel>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.get_label_models().await {
+        Ok(models) => AdminResponse::success(models),
+        Err(e) => AdminResponse::error(&format!("Failed to list label models: {}", e)),
+    }
+}
+
+/// `POST /admin/label-models` — add a new label model.
+#[cfg(feature = "labels")]
+async fn admin_add_label_model(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AddLabelModelBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    // Normalize and validate the model name
+    let name = body.name.trim().to_string();
+    if name.is_empty() {
+        return AdminResponse::error("Model name cannot be empty or whitespace");
+    }
+
+    // Build the config JSON based on model type
+    let model_config = match body.model_type.as_str() {
+        "vit" => {
+            let hf_repo = match body.hf_repo {
+                Some(repo) => repo,
+                None => {
+                    return AdminResponse::error("ViT model requires hf_repo field");
+                }
+            };
+            if hf_repo.is_empty() {
+                return AdminResponse::error("ViT model requires non-empty hf_repo field");
+            }
+            serde_json::json!({
+                "name": name.clone(),
+                "type": "vit",
+                "hf_repo": hf_repo,
+            })
+        }
+        "generic_llm" => {
+            let api_url = match body.api_url {
+                Some(url) => url,
+                None => {
+                    return AdminResponse::error("Generic LLM model requires api_url field");
+                }
+            };
+            if api_url.is_empty() {
+                return AdminResponse::error("Generic LLM model requires non-empty api_url field");
+            }
+            let llm_model = match body.llm_model {
+                Some(model) => model,
+                None => {
+                    return AdminResponse::error("Generic LLM model requires llm_model field");
+                }
+            };
+            if llm_model.is_empty() {
+                return AdminResponse::error("Generic LLM model requires non-empty llm_model field");
+            }
+            let mut config = serde_json::json!({
+                "name": name.clone(),
+                "type": "generic_llm",
+                "api_url": api_url,
+                "model": llm_model,
+            });
+            if let Some(key) = body.api_key {
+                config["api_key"] = serde_json::json!(key);
+            }
+            if let Some(prompt) = body.prompt {
+                config["prompt"] = serde_json::json!(prompt);
+            }
+            config
+        }
+        _ => {
+            return AdminResponse::error("Invalid model_type. Use 'vit' or 'generic_llm'");
+        }
+    };
+
+    // Add optional fields
+    let mut model_config = model_config;
+    if let Some(exclude) = body.label_exclude {
+        model_config["label_exclude"] = serde_json::json!(
+            exclude
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+    if let Some(confidence) = body.min_confidence {
+        model_config["min_confidence"] = serde_json::json!(confidence);
+    }
+
+    let config_str = match serde_json::to_string(&model_config) {
+        Ok(s) => s,
+        Err(e) => {
+            return AdminResponse::error(&format!(
+                "Failed to serialize label model configuration: {}",
+                e
+            ));
+        }
+    };
+
+    match state
+        .db
+        .add_label_model(&name, &body.model_type, &config_str)
+        .await
+    {
+        Ok(()) => {
+            log::info!("Added label model: {}", name);
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to add label model: {}", e)),
+    }
+}
+
+/// `DELETE /admin/label-models/{name}` — remove a label model.
+#[cfg(feature = "labels")]
+async fn admin_remove_label_model(
+    auth: Nip98Auth,
+    Path(name): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.remove_label_model(&name).await {
+        Ok(()) => {
+            log::info!("Removed label model: {}", name);
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to remove label model: {}", e)),
     }
 }
 

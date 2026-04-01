@@ -186,6 +186,16 @@ pub struct Report {
     pub reviewed: bool,
 }
 
+/// Database row for a label model configuration.
+#[cfg(feature = "labels")]
+#[derive(Clone, FromRow, Serialize)]
+pub struct LabelModel {
+    pub name: String,
+    #[sqlx(rename = "model_type")]
+    pub model_type: String,
+    pub config: String,
+}
+
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
@@ -949,6 +959,44 @@ impl Database {
     pub async fn config_delete(&self, key: &str) -> Result<(), Error> {
         sqlx::query("delete from config where `key` = ?")
             .bind(key)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Get all configured label models from the database.
+    #[cfg(feature = "labels")]
+    pub async fn get_label_models(&self) -> Result<Vec<LabelModel>, Error> {
+        sqlx::query_as("select name, `type` as model_type, config from label_models order by name")
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Add or update a label model.
+    #[cfg(feature = "labels")]
+    pub async fn add_label_model(
+        &self,
+        name: &str,
+        model_type: &str,
+        config: &str,
+    ) -> Result<(), Error> {
+        sqlx::query(
+            "insert into label_models(`name`, `type`, `config`) values(?, ?, ?) \
+             on duplicate key update `type` = values(`type`), `config` = values(`config`), `updated` = current_timestamp",
+        )
+        .bind(name)
+        .bind(model_type)
+        .bind(config)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a label model by name.
+    #[cfg(feature = "labels")]
+    pub async fn remove_label_model(&self, name: &str) -> Result<(), Error> {
+        sqlx::query("delete from label_models where `name` = ?")
+            .bind(name)
             .execute(&self.pool)
             .await?;
         Ok(())
