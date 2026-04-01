@@ -38,21 +38,6 @@ export interface AdminUserInfo {
   total_size: number;
   created: string;
   paid_until?: number;
-}
-
-export interface LabelModel {
-  name: string;
-  type: string;
-  config: string;
-}
-
-export interface AdminUserInfo {
-  pubkey: string;
-  is_admin: boolean;
-  file_count: number;
-  total_size: number;
-  created: string;
-  paid_until?: number;
   quota?: number;
   free_quota?: number;
   total_available_quota?: number;
@@ -64,6 +49,21 @@ export interface AdminUserInfo {
     files: Array<Route96File>;
   };
 }
+
+export interface LabelModel {
+  name: string;
+  type: string;
+  config: string;
+}
+
+export interface LabelFlagTermsResponse {
+  terms: string[];
+}
+
+export interface LabelModelsResponse {
+  models: LabelModel[];
+}
+
 
 export interface Report {
   id: number;
