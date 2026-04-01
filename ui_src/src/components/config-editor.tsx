@@ -18,7 +18,7 @@ interface KnownField {
   key: string;
   label: string;
   description: string;
-  type: "bytes" | "text" | "url" | "bool" | "whitelist" | "days" | "integer";
+  type: "bytes" | "text" | "url" | "bool" | "whitelist" | "days" | "integer" | "json";
   optional?: boolean;
   /** Unit label shown after the integer input (e.g. "bits") */
   unit?: string;
@@ -115,6 +115,22 @@ const KNOWN_FIELDS: KnownField[] = [
     description:
       "When enabled (default), clients can bypass deduplication by echoing back the X-Identical-Media header from a prior 409 response, forcing the server to store a distinct copy. When disabled, the server always enforces deduplication regardless of what the client sends.",
     type: "bool",
+    optional: true,
+  },
+  {
+    key: "label_models",
+    label: "AI Label Models",
+    description:
+      "Configure AI models for automatic image labeling. Each model entry needs: name (identifier), type (labeler backend), and configuration specific to that backend. Valid types include 'vit' (local ViT model with hf_repo field pointing to HuggingFace repo), 'inference_api' (HuggingFace Inference API with hf_token and hf_model fields), and 'custom' (custom API endpoint with url, method, and response parsing config). Also supports label_exclude array to filter out unwanted labels and min_confidence threshold.",
+    type: "json",
+    optional: true,
+  },
+  {
+    key: "label_flag_terms",
+    label: "Label Flag Terms",
+    description:
+      "Comma-separated list of terms that, when found in AI-generated labels, will automatically flag the file for review. For example: 'nsfw,sensitive,adult' would flag any image whose AI labels contain these terms. Useful for content moderation workflows.",
+    type: "json",
     optional: true,
   },
 ];
@@ -757,6 +773,104 @@ function WhitelistField({
   );
 }
 
+// ── JsonField ────────────────────────────────────────────────────────────────
+
+function JsonField({
+  currentValue,
+  onSave,
+  onDelete,
+  optional,
+}: {
+  currentValue: string | undefined;
+  placeholder?: string;
+  onSave: (v: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  optional?: boolean;
+}) {
+  const [val, setVal] = useState(currentValue ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dirty = val !== (currentValue ?? "");
+
+  // Validate JSON on every change
+  function validate(json: string): string | null {
+    if (!json.trim()) return null;
+    try {
+      JSON.parse(json);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "Invalid JSON";
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const newVal = e.target.value;
+    setVal(newVal);
+    setError(validate(newVal));
+  }
+
+  async function save() {
+    if (!val.trim()) return;
+    const validationError = validate(val);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSaving(true);
+    await onSave(val.trim());
+    setSaving(false);
+    setError(null);
+  }
+
+  // Pretty-print JSON when value changes externally
+  useEffect(() => {
+    if (currentValue !== undefined) {
+      try {
+        const parsed = JSON.parse(currentValue);
+        setVal(JSON.stringify(parsed, null, 2));
+        setError(null);
+      } catch {
+        setVal(currentValue);
+      }
+    } else {
+      setVal("");
+    }
+  }, [currentValue]);
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        className={`${inputCls("w-full font-mono text-xs")} min-h-[200px]`}
+        value={val}
+        onChange={handleChange}
+        placeholder='Enter valid JSON, e.g.: ["term1", "term2"] or [{"name": "model1", "type": "vit", "hf_repo": "google/vit-base-patch16-224"}]'
+      />
+      {error && (
+        <div className="text-xs text-red-400">
+          JSON Error: {error}
+        </div>
+      )}
+      {!error && val.trim() && (
+        <div className="text-xs text-green-400">
+          Valid JSON
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        {dirty && val.trim() && !error && (
+          <BtnSmall onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </BtnSmall>
+        )}
+        {optional && currentValue !== undefined && (
+          <BtnSmall onClick={onDelete} danger>
+            Revert
+          </BtnSmall>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── RawEditor ─────────────────────────────────────────────────────────────────
 
 function RawEditor({
@@ -937,6 +1051,15 @@ export default function ConfigEditor({
           onDelete={del}
           pub={pub}
           url={url}
+        />
+      );
+    } else if (field.type === "json") {
+      control = (
+        <JsonField
+          currentValue={current}
+          onSave={save}
+          onDelete={del}
+          optional={field.optional}
         />
       );
     } else {
