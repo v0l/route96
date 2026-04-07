@@ -17,6 +17,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
+use chrono;
 use std::sync::Arc;
 
 /// Helper function to deserialize empty strings as None for Option<f32>
@@ -307,14 +308,14 @@ async fn admin_stats(
 
     let mut stats = Vec::new();
     for row in rows {
-        let date: String = row.get("date");
-        let uploads: u64 = row.get("uploads");
-        let bytes: u64 = row.get("bytes");
+        let date: chrono::NaiveDate = row.get("date");
+        let uploads: i64 = row.get("uploads");
+        let bytes: i64 = row.get("bytes");
         
         stats.push(DailyStat {
-            date,
-            uploads,
-            bytes,
+            date: date.format("%Y-%m-%d").to_string(),
+            uploads: uploads as u64,
+            bytes: bytes as u64,
         });
     }
 
