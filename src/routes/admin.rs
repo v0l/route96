@@ -287,7 +287,7 @@ async fn admin_stats(
         "SELECT 
             DATE(created) as date,
             COUNT(*) as uploads,
-            COALESCE(SUM(size), 0) as bytes
+            COALESCE(SUM(ROUND(size)), 0) as bytes
         FROM uploads
         WHERE created >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
         GROUP BY DATE(created)
