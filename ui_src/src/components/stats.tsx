@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react";
 import { Route96, DailyStat } from "../upload/admin";
 import { FormatBytes } from "../const";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 interface StatsProps {
   pub: any;
@@ -57,8 +66,27 @@ export default function Stats({ pub, url }: StatsProps) {
     );
   }
 
-  const maxUploads = Math.max(...stats.map((s) => s.uploads), 1);
-  const maxBytes = Math.max(...stats.map((s) => s.bytes), 1);
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
+          <div>{payload[0].value.toLocaleString()} uploads</div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const CustomBytesTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
+          <div>{FormatBytes(payload[0].value, 2)}</div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-4">
@@ -98,53 +126,31 @@ export default function Stats({ pub, url }: StatsProps) {
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">
         <h3 className="text-xs text-neutral-500 mb-3">Uploads per Day</h3>
-        <div className="flex items-end gap-1 h-40">
-          {stats.map((s, i) => {
-            const height = (s.uploads / maxUploads) * 100;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center group">
-                <div className="relative w-full">
-                  <div
-                    className="bg-blue-600 hover:bg-blue-500 transition-colors rounded-t-sm"
-                    style={{ height: `${Math.max(height, 2)}%` }}
-                  />
-                  <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-neutral-800 text-xs text-white rounded-sm whitespace-nowrap z-10 pointer-events-none">
-                    {s.uploads} uploads
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between text-xs text-neutral-500 mt-2">
-          <span>{stats[0]?.date}</span>
-          <span>{stats[stats.length - 1]?.date}</span>
+        <div className="h-40">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+              <XAxis dataKey="date" stroke="#666" fontSize={12} />
+              <YAxis stroke="#666" fontSize={12} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: "#222" }} />
+              <Bar dataKey="uploads" fill="#2563eb" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">
         <h3 className="text-xs text-neutral-500 mb-3">Data Uploaded per Day</h3>
-        <div className="flex items-end gap-1 h-40">
-          {stats.map((s, i) => {
-            const height = (s.bytes / maxBytes) * 100;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center group">
-                <div className="relative w-full">
-                  <div
-                    className="bg-green-600 hover:bg-green-500 transition-colors rounded-t-sm"
-                    style={{ height: `${Math.max(height, 2)}%` }}
-                  />
-                  <div className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-neutral-800 text-xs text-white rounded-sm whitespace-nowrap z-10 pointer-events-none">
-                    {FormatBytes(s.bytes, 2)}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between text-xs text-neutral-500 mt-2">
-          <span>{stats[0]?.date}</span>
-          <span>{stats[stats.length - 1]?.date}</span>
+        <div className="h-40">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stats}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+              <XAxis dataKey="date" stroke="#666" fontSize={12} />
+              <YAxis stroke="#666" fontSize={12} />
+              <Tooltip content={<CustomBytesTooltip />} cursor={{ fill: "#222" }} />
+              <Bar dataKey="bytes" fill="#16a34a" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>
