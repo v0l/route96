@@ -16,6 +16,38 @@ interface StatsProps {
   url: string;
 }
 
+function formatShortDate(date: string) {
+  const d = new Date(date + "T00:00:00");
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function formatShortBytes(value: number) {
+  if (value >= 1e9) return `${(value / 1e9).toFixed(1)}G`;
+  if (value >= 1e6) return `${(value / 1e6).toFixed(0)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  return `${value}`;
+}
+
+function UploadsTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
+      <div className="text-neutral-400">{label}</div>
+      <div>{payload[0].value.toLocaleString()} uploads</div>
+    </div>
+  );
+}
+
+function BytesTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
+      <div className="text-neutral-400">{label}</div>
+      <div>{FormatBytes(payload[0].value, 2)}</div>
+    </div>
+  );
+}
+
 export default function Stats({ pub, url }: StatsProps) {
   const [stats, setStats] = useState<DailyStat[]>([]);
   const [days, setDays] = useState(30);
@@ -66,32 +98,12 @@ export default function Stats({ pub, url }: StatsProps) {
     );
   }
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
-          <div>{payload[0].value.toLocaleString()} uploads</div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  const CustomBytesTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-neutral-800 border border-neutral-700 px-2 py-1 text-xs text-white rounded-sm">
-          <div>{FormatBytes(payload[0].value, 2)}</div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-white">Upload Stats (Last {days} Days)</h2>
+        <h2 className="text-sm font-medium text-white">
+          Upload Stats (Last {days} Days)
+        </h2>
         <div className="flex gap-2">
           {[7, 30, 90, 365].map((d) => (
             <button
@@ -119,21 +131,34 @@ export default function Stats({ pub, url }: StatsProps) {
         <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">
           <div className="text-xs text-neutral-500 mb-1">Total Data</div>
           <div className="text-lg font-medium text-white">
-            {FormatBytes(stats.reduce((sum, s) => sum + s.bytes, 0), 2)}
+            {FormatBytes(
+              stats.reduce((sum, s) => sum + s.bytes, 0),
+              2,
+            )}
           </div>
         </div>
       </div>
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">
         <h3 className="text-xs text-neutral-500 mb-3">Uploads per Day</h3>
-        <div className="h-40">
+        <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={stats}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis dataKey="date" stroke="#666" fontSize={12} />
-              <YAxis stroke="#666" fontSize={12} />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: "#222" }} />
-              <Bar dataKey="uploads" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#333"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                stroke="#666"
+                fontSize={11}
+                tickFormatter={formatShortDate}
+                interval="preserveStartEnd"
+              />
+              <YAxis stroke="#666" fontSize={11} width={40} />
+              <Tooltip content={<UploadsTooltip />} cursor={{ fill: "#222" }} />
+              <Bar dataKey="uploads" fill="#2563eb" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -141,14 +166,29 @@ export default function Stats({ pub, url }: StatsProps) {
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">
         <h3 className="text-xs text-neutral-500 mb-3">Data Uploaded per Day</h3>
-        <div className="h-40">
+        <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={stats}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis dataKey="date" stroke="#666" fontSize={12} />
-              <YAxis stroke="#666" fontSize={12} />
-              <Tooltip content={<CustomBytesTooltip />} cursor={{ fill: "#222" }} />
-              <Bar dataKey="bytes" fill="#16a34a" radius={[4, 4, 0, 0]} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#333"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                stroke="#666"
+                fontSize={11}
+                tickFormatter={formatShortDate}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                stroke="#666"
+                fontSize={11}
+                width={45}
+                tickFormatter={formatShortBytes}
+              />
+              <Tooltip content={<BytesTooltip />} cursor={{ fill: "#222" }} />
+              <Bar dataKey="bytes" fill="#16a34a" radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
