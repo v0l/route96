@@ -19,6 +19,19 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
 use std::sync::Arc;
 
+/// Helper function to deserialize empty strings as None for Option<f32>
+fn deserialize_empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => s.parse::<f32>().map(Some).map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
+}
+
 pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
@@ -228,69 +241,6 @@ async fn require_admin(auth: &Nip98Auth, db: &Database) -> Result<User, String> 
     Ok(user)
 }
 
-async fn admin_get_self(
-    auth: Nip98Auth,
-    AxumState(state): AxumState<Arc<AppState>>,
-) -> AdminResponse<SelfUser> {
-    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    // Upsert so that the very first caller gets created (and auto-promoted to
-    // admin by upsert_user's id=1 logic) before we read their record back.
-    if let Err(e) = state.db.upsert_user(&pubkey_vec).await {
-        return AdminResponse::error(&format!("Failed to upsert user: {}", e));
-    }
-    let setup_mode = state.is_setup_mode().await;
-    match state.db.get_user(&pubkey_vec).await {
-        Ok(user) => {
-            let s = match state.db.get_user_stats(user.id).await {
-                Ok(r) => r,
-                Err(e) => {
-                    return AdminResponse::error(&format!("Failed to load user stats: {}", e));
-                }
-            };
-
-            #[cfg(feature = "payments")]
-            let (free_quota, total_available_quota) = {
-                if let Some(payment_config) = &state.settings().await.payments {
-                    let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
-                    let mut total_available = free_quota;
-
-                    // Add paid quota if still valid
-                    if let Some(paid_until) = &user.paid_until {
-                        if *paid_until > chrono::Utc::now() {
-                            total_available += user.paid_size;
-                        }
-                    }
-
-                    (free_quota, total_available)
-                } else {
-                    // No payments config - quota disabled
-                    (0, 0)
-                }
-            };
-
-            AdminResponse::success(SelfUser {
-                is_admin: user.is_admin,
-                setup_mode,
-                file_count: s.file_count,
-                total_size: s.total_size,
-                #[cfg(feature = "payments")]
-                paid_until: if let Some(u) = &user.paid_until {
-                    u.timestamp() as u64
-                } else {
-                    0
-                },
-                #[cfg(feature = "payments")]
-                quota: user.paid_size,
-                #[cfg(feature = "payments")]
-                free_quota,
-                #[cfg(feature = "payments")]
-                total_available_quota,
-            })
-        }
-        Err(_) => AdminResponse::error("User not found"),
-    }
-}
-
 /// Request query parameters for `/admin/stats`.
 #[derive(Deserialize)]
 struct AdminStatsQuery {
@@ -371,6 +321,69 @@ async fn admin_stats(
     }
 
     AdminResponse::success(AdminStatsResponse { days, stats })
+}
+
+async fn admin_get_self(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<SelfUser> {
+    let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+    // Upsert so that the very first caller gets created (and auto-promoted to
+    // admin by upsert_user's id=1 logic) before we read their record back.
+    if let Err(e) = state.db.upsert_user(&pubkey_vec).await {
+        return AdminResponse::error(&format!("Failed to upsert user: {}", e));
+    }
+    let setup_mode = state.is_setup_mode().await;
+    match state.db.get_user(&pubkey_vec).await {
+        Ok(user) => {
+            let s = match state.db.get_user_stats(user.id).await {
+                Ok(r) => r,
+                Err(e) => {
+                    return AdminResponse::error(&format!("Failed to load user stats: {}", e));
+                }
+            };
+
+            #[cfg(feature = "payments")]
+            let (free_quota, total_available_quota) = {
+                if let Some(payment_config) = &state.settings().await.payments {
+                    let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600);
+                    let mut total_available = free_quota;
+
+                    // Add paid quota if still valid
+                    if let Some(paid_until) = &user.paid_until {
+                        if *paid_until > chrono::Utc::now() {
+                            total_available += user.paid_size;
+                        }
+                    }
+
+                    (free_quota, total_available)
+                } else {
+                    // No payments config - quota disabled
+                    (0, 0)
+                }
+            };
+
+            AdminResponse::success(SelfUser {
+                is_admin: user.is_admin,
+                setup_mode,
+                file_count: s.file_count,
+                total_size: s.total_size,
+                #[cfg(feature = "payments")]
+                paid_until: if let Some(u) = &user.paid_until {
+                    u.timestamp() as u64
+                } else {
+                    0
+                },
+                #[cfg(feature = "payments")]
+                quota: user.paid_size,
+                #[cfg(feature = "payments")]
+                free_quota,
+                #[cfg(feature = "payments")]
+                total_available_quota,
+            })
+        }
+        Err(_) => AdminResponse::error("User not found"),
+    }
 }
 
 /// `POST /setup` — complete initial server setup.
@@ -1266,6 +1279,7 @@ struct AddLabelModelBody {
     /// Labels to exclude (comma-separated)
     label_exclude: Option<String>,
     /// Minimum confidence threshold (optional)
+    #[serde(default, deserialize_with = "deserialize_empty_string_as_none")]
     min_confidence: Option<f32>,
 }
 
