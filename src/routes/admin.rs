@@ -22,7 +22,6 @@ use std::sync::Arc;
 pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
-        .route("/admin/stats", get(admin_stats))
         .route("/setup", post(post_setup))
         .route("/admin/self", get(admin_get_self))
         .route("/user/files", get(user_list_files))
@@ -289,88 +288,6 @@ async fn admin_get_self(
         }
         Err(_) => AdminResponse::error("User not found"),
     }
-}
-
-/// Request query parameters for `/admin/stats`.
-#[derive(Deserialize)]
-struct AdminStatsQuery {
-    #[serde(default = "default_days")]
-    days: u32,
-}
-
-fn default_days() -> u32 {
-    30
-}
-
-/// Daily stat entry for time series data.
-#[derive(Serialize)]
-struct DailyStat {
-    date: String,
-    uploads: u64,
-    bytes: u64,
-}
-
-/// Response for `/admin/stats` endpoint.
-#[derive(Serialize)]
-struct AdminStatsResponse {
-    days: u32,
-    stats: Vec<DailyStat>,
-}
-
-/// `GET /admin/stats` — return time series data for admin dashboard.
-///
-/// Returns the number of uploads and total bytes uploaded for each day
-/// over the past N days (default 30 days).
-async fn admin_stats(
-    auth: Nip98Auth,
-    Query(params): Query<AdminStatsQuery>,
-    AxumState(state): AxumState<Arc<AppState>>,
-) -> AdminResponse<AdminStatsResponse> {
-    if let Err(e) = require_admin(&auth, &state.db).await {
-        return AdminResponse::error(&e);
-    }
-
-    let days = params.days.min(365); // Limit to max 1 year of data
-    
-    // Build the query to get daily stats
-    // MySQL DATE function extracts the date part, and we count uploads and sum size per day
-    let query = format!(
-        "SELECT 
-            DATE(created) as date,
-            COUNT(*) as uploads,
-            COALESCE(SUM(size), 0) as bytes
-        FROM uploads
-        WHERE created >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-        GROUP BY DATE(created)
-        ORDER BY date ASC"
-    );
-
-    let rows = sqlx::query(&query)
-        .bind(days as i32)
-        .fetch_all(&state.db.pool)
-        .await;
-
-    let rows = match rows {
-        Ok(rows) => rows,
-        Err(e) => {
-            return AdminResponse::error(&format!("Failed to fetch stats: {}", e));
-        }
-    };
-
-    let mut stats = Vec::new();
-    for row in rows {
-        let date: String = row.get("date");
-        let uploads: u64 = row.get("uploads");
-        let bytes: u64 = row.get("bytes");
-        
-        stats.push(DailyStat {
-            date,
-            uploads,
-            bytes,
-        });
-    }
-
-    AdminResponse::success(AdminStatsResponse { days, stats })
 }
 
 /// `POST /setup` — complete initial server setup.
