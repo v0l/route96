@@ -280,10 +280,8 @@ async fn admin_stats(
         return AdminResponse::error(&e);
     }
 
-    let days = params.days.min(365); // Limit to max 1 year of data
+    let days = params.days.min(365);
     
-    // Build the query to get daily stats
-    // MySQL DATE function extracts the date part, and we count uploads and sum size per day
     let query = format!(
         "SELECT 
             DATE(created) as date,
