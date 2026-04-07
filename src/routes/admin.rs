@@ -1,11 +1,11 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
-use crate::db::{
-    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState,
-    SortOrder, User, WhitelistEntry,
-};
 #[cfg(feature = "labels")]
 use crate::db::LabelModel;
+use crate::db::{
+    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User,
+    WhitelistEntry,
+};
 use crate::file_stats::FileStats;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
@@ -15,9 +15,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
+use chrono;
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
-use chrono;
 use std::sync::Arc;
 
 /// Helper function to deserialize empty strings as None for Option<f32>
@@ -282,7 +282,7 @@ async fn admin_stats(
     }
 
     let days = params.days.min(365);
-    
+
     let query = format!(
         "SELECT 
             DATE(created) as date,
@@ -311,7 +311,7 @@ async fn admin_stats(
         let date: chrono::NaiveDate = row.get("date");
         let uploads: i64 = row.get("uploads");
         let bytes: i64 = row.get("bytes");
-        
+
         stats.push(DailyStat {
             date: date.format("%Y-%m-%d").to_string(),
             uploads: uploads as u64,
@@ -1350,7 +1350,9 @@ async fn admin_add_label_model(
                 }
             };
             if llm_model.is_empty() {
-                return AdminResponse::error("Generic LLM model requires non-empty llm_model field");
+                return AdminResponse::error(
+                    "Generic LLM model requires non-empty llm_model field",
+                );
             }
             let mut config = serde_json::json!({
                 "name": name.clone(),
@@ -1560,8 +1562,10 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
-            #[cfg(feature = "blossom")]
+             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
+            #[cfg(feature = "blossom")]
+            reject_steganography: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]

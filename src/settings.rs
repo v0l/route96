@@ -128,6 +128,18 @@ pub struct Settings {
     #[cfg(feature = "blossom")]
     pub reject_sensitive_exif: Option<bool>,
 
+    /// Reject image uploads suspected of containing steganography or hidden data.
+    ///
+    /// When enabled, performs the following checks on JPEG uploads:
+    /// - Scan data entropy > 7.5 bits (indicates hidden/random data)
+    /// - Scan data significantly smaller than expected (DCT coefficient manipulation)
+    /// - Mismatched XMP toolkit versions (indicates image stitching/fabrication)
+    /// - Malformed MPF directories in gain maps
+    ///
+    /// Defaults to `false` when absent.
+    #[cfg(feature = "blossom")]
+    pub reject_steganography: Option<bool>,
+
     /// Enable BUD-12 identical media deduplication.
     ///
     /// When set to `true`, image uploads are checked against existing blobs using

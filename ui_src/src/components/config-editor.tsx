@@ -59,6 +59,14 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "reject_steganography",
+    label: "Reject suspicious images",
+    description:
+      "Refuse JPEG uploads that contain signs of hidden data, including data after end-of-image, binary comments, or excessive metadata.",
+    type: "bool",
+    optional: true,
+  },
+  {
     key: "whitelist",
     label: "Whitelist",
     description:

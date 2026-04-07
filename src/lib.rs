@@ -7,6 +7,8 @@ pub mod db;
 pub mod db_config;
 #[cfg(feature = "blossom")]
 pub mod exif_validator;
+#[cfg(feature = "blossom")]
+pub mod steganography_detector;
 pub mod file_stats;
 pub mod filesystem;
 #[cfg(feature = "payments")]

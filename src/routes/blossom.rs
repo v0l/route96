@@ -460,6 +460,21 @@ where
                 }
             }
 
+            // Check for steganography/hidden data if enabled
+            #[cfg(feature = "blossom")]
+            if settings.reject_steganography.unwrap_or(false) && mime_type.starts_with("image/") {
+                let file_path = state.fs.get(&ret.id);
+                if let Err(e) = crate::steganography_detector::check_for_steganography(&file_path) {
+                    if let Err(cleanup_err) = state.fs.delete(&ret.id).await {
+                        log::warn!(
+                            "Failed to cleanup file with steganography: {}",
+                            cleanup_err
+                        );
+                    }
+                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                }
+            }
+
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
 

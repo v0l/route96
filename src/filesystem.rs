@@ -210,9 +210,8 @@ impl FileStore {
                                 res.phash = Some(bytes);
                                 // Check if this image is visually similar to any banned image
                                 let settings = self.settings().await;
-                                let max_distance = settings
-                                    .identical_media_dedup_distance
-                                    .unwrap_or(0);
+                                let max_distance =
+                                    settings.identical_media_dedup_distance.unwrap_or(0);
                                 if max_distance > 0 {
                                     match db_clone
                                         .is_file_similar_to_banned(&bytes, max_distance)
@@ -224,10 +223,9 @@ impl FileStore {
                                             return Ok(FileSystemResult::Banned);
                                         }
                                         Ok(false) => {}
-                                        Err(e) => log::warn!(
-                                            "Failed to check banned similarity: {}",
-                                            e
-                                        ),
+                                        Err(e) => {
+                                            log::warn!("Failed to check banned similarity: {}", e)
+                                        }
                                     }
                                 }
                             }
@@ -400,6 +398,8 @@ mod tests {
             webhook_url: None,
             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
+            #[cfg(feature = "blossom")]
+            reject_steganography: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
@@ -410,6 +410,7 @@ mod tests {
             payments: None,
             delete_unaccessed_days: None,
             delete_after_days: None,
+            delete_zero_egress_days: None,
         };
         FileStore::new(Arc::new(RwLock::new(settings)))
     }
