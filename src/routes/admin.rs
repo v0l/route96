@@ -1573,6 +1573,7 @@ mod tests {
             payments: None,
             delete_unaccessed_days: None,
             delete_after_days: None,
+            delete_zero_egress_days: None,
         }
     }
 

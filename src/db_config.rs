@@ -55,7 +55,7 @@ impl AsyncSource for DbConfigSource {
 }
 
 /// Parse a raw string value into the most specific [`Value`] type possible:
-/// boolean → bool, integer → i64, float → f64, otherwise string.
+/// boolean → bool, integer → i64, float → f64, JSON array → array, otherwise string.
 fn parse_value(raw: &str) -> Value {
     // Boolean
     match raw.to_lowercase().as_str() {
@@ -70,6 +70,10 @@ fn parse_value(raw: &str) -> Value {
     // Float
     if let Ok(f) = raw.parse::<f64>() {
         return Value::new(None, ValueKind::Float(f));
+    }
+    // JSON array
+    if let Ok(vals) = serde_json::from_str::<Vec<String>>(raw) {
+        return Value::new(None, ValueKind::Array(vals.into_iter().map(|s| Value::new(None, ValueKind::String(s))).collect()));
     }
     // String fallback
     Value::new(None, ValueKind::String(raw.to_owned()))

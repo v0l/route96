@@ -20,8 +20,9 @@ import { FormatBytes } from "../const";
 import FileListControls from "../components/file-list-controls";
 import ConfigEditor from "../components/config-editor";
 import LabelManagement from "../components/label-management";
+import Stats from "../components/stats";
 
-type Tab = "files" | "reports" | "review" | "config" | "labeling";
+type Tab = "files" | "reports" | "review" | "config" | "labeling" | "stats";
 
 type AdminFileList = {
   count: number;
@@ -377,6 +378,7 @@ export default function Admin() {
     { id: "review", label: "Review" },
     { id: "config", label: "Config" },
     { id: "labeling", label: "Labeling" },
+    { id: "stats", label: "Stats" },
   ];
 
   return (
@@ -514,6 +516,8 @@ export default function Admin() {
       {tab === "labeling" && pub && (
         <LabelManagement pub={pub} url={url} />
       )}
+
+      {tab === "stats" && pub && <Stats pub={pub} url={url} />}
 
       {(similarFiles || similarLoading) && similarSource && (
         <div

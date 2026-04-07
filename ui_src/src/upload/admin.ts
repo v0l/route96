@@ -76,6 +76,17 @@ export interface LabelModelsResponse {
   models: LabelModel[];
 }
 
+export interface DailyStat {
+  date: string;
+  uploads: number;
+  bytes: number;
+}
+
+export interface AdminStatsResponse {
+  days: number;
+  stats: DailyStat[];
+}
+
 
 export interface Report {
   id: number;
@@ -349,6 +360,13 @@ export class Route96 {
   async deleteLabelFlagTerms() {
     const rsp = await this.#req("admin/label-flag-terms", "DELETE");
     return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async getStats(days: number = 30) {
+    const rsp = await this.#req(`admin/stats?days=${days}`, "GET");
+    const data = await this.#handleResponse<AdminResponse<AdminStatsResponse>>(rsp);
+    if (!data.data) throw new Error(data.message || "Get stats failed");
+    return data.data;
   }
 
   async listUserFiles(
