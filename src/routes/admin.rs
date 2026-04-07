@@ -19,6 +19,19 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Error, QueryBuilder, Row};
 use std::sync::Arc;
 
+/// Helper function to deserialize empty strings as None for Option<f32>
+fn deserialize_empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => s.parse::<f32>().map(Some).map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
+}
+
 pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
@@ -1183,6 +1196,7 @@ struct AddLabelModelBody {
     /// Labels to exclude (comma-separated)
     label_exclude: Option<String>,
     /// Minimum confidence threshold (optional)
+    #[serde(default, deserialize_with = "deserialize_empty_string_as_none")]
     min_confidence: Option<f32>,
 }
 
