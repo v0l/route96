@@ -148,6 +148,8 @@ impl VitModel {
         if mime_type.starts_with("video/") {
             let frames = unsafe { extract_video_frames(path, &self.device)? };
             classify_frames(self, &frames, min_confidence)
+        } else if mime_type.starts_with("image/svg") {
+            return Ok(HashMap::new());
         } else {
             let image = unsafe { load_frame_224(path, &self.device)? };
             self.classify(&image, min_confidence)
