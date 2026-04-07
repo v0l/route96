@@ -44,6 +44,18 @@ pub trait MediaLabeler: Send + Sync {
     /// Minimum confidence threshold for this labeler.
     fn min_confidence(&self) -> f32;
 
+    /// Whether this labeler depends on a remote service.
+    ///
+    /// Remote labelers may fail due to transient network issues, so failed
+    /// files should NOT be permanently marked as labeled — they will be
+    /// retried on the next batch (with exponential backoff).
+    ///
+    /// Local labelers (e.g. ViT) should mark failed files as labeled to
+    /// prevent infinite retry loops on corrupt/unsupported files.
+    fn is_remote(&self) -> bool {
+        false
+    }
+
     /// Classify a file on disk and return `(label, confidence)` pairs.
     fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>>;
 }
@@ -139,7 +151,7 @@ impl VitModel {
     /// Run this model against a file on disk.
     /// Videos are sampled at 1 frame/second; images are classified directly.
     /// `min_confidence` overrides the global `MIN_CONFIDENCE` default.
-      pub fn run(
+    pub fn run(
         &self,
         path: &Path,
         mime_type: &str,
@@ -261,9 +273,14 @@ impl GenericLlmLabeler {
             std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
 
         unsafe {
-            let mut transcoder =
-                Transcoder::new(path.to_str().unwrap(), temp_path.to_str().unwrap())
-                    .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
+            let path_str = path
+                .to_str()
+                .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
+            let temp_str = temp_path
+                .to_str()
+                .ok_or_else(|| Error::msg("Non-UTF-8 temp path"))?;
+            let mut transcoder = Transcoder::new(path_str, temp_str)
+                .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
 
             let probe = transcoder
                 .prepare()
@@ -319,7 +336,7 @@ impl GenericLlmLabeler {
         &self,
         mime_type: &str,
         image_base64: &str,
-    ) -> Vec<ChatCompletionRequestMessage> {
+    ) -> Result<Vec<ChatCompletionRequestMessage>> {
         let default_prompt = format!(
             "Analyze this {} image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.",
             mime_type
@@ -333,12 +350,12 @@ impl GenericLlmLabeler {
         let image_url = ImageUrlArgs::default()
             .url(format!("data:image/jpeg;base64,{}", image_base64))
             .build()
-            .unwrap();
+            .map_err(|e| Error::msg(format!("Failed to build image URL: {}", e)))?;
 
         let image_part = ChatCompletionRequestMessageContentPartImageArgs::default()
             .image_url(image_url)
             .build()
-            .unwrap();
+            .map_err(|e| Error::msg(format!("Failed to build image part: {}", e)))?;
 
         let text_part =
             async_openai::types::chat::ChatCompletionRequestMessageContentPartText { text: prompt };
@@ -351,14 +368,14 @@ impl GenericLlmLabeler {
         let message = ChatCompletionRequestUserMessageArgs::default()
             .content(content)
             .build()
-            .unwrap()
+            .map_err(|e| Error::msg(format!("Failed to build chat message: {}", e)))?
             .into();
 
-        vec![message]
+        Ok(vec![message])
     }
 
     async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
-        let messages = self.build_messages(mime_type, image_base64);
+        let messages = self.build_messages(mime_type, image_base64)?;
 
         let request = CreateChatCompletionRequest {
             model: self.model.clone(),
@@ -366,11 +383,13 @@ impl GenericLlmLabeler {
             ..Default::default()
         };
 
-        let response: async_openai::types::chat::CreateChatCompletionResponse = self
-            .client
-            .chat()
-            .create(request)
+        let response: async_openai::types::chat::CreateChatCompletionResponse =
+            tokio::time::timeout(
+                std::time::Duration::from_secs(120),
+                self.client.chat().create(request),
+            )
             .await
+            .map_err(|_| Error::msg("API request timed out after 120s"))?
             .map_err(|e| Error::msg(format!("API request failed: {}", e)))?;
 
         let content = response
@@ -411,6 +430,10 @@ impl MediaLabeler for GenericLlmLabeler {
 
     fn min_confidence(&self) -> f32 {
         self.min_confidence
+    }
+
+    fn is_remote(&self) -> bool {
+        true
     }
 
     fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
@@ -493,7 +516,10 @@ fn classify_frames(
 
 /// Extract up to MAX_VIDEO_FRAMES frames from a video, spread evenly across the entire duration.
 unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>> {
-    let mut demux = Demuxer::new(path.to_str().unwrap())?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
+    let mut demux = Demuxer::new(path_str)?;
     let info = unsafe { demux.probe_input()? };
     let video_stream = info
         .best_video()
@@ -502,15 +528,8 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     let _time_base_num = video_stream.timebase.0 as f64;
     let _time_base_den = video_stream.timebase.1 as f64;
 
-    // Calculate target frame indices spread evenly across the video
-    // We don't know the total number of frames in advance, so we'll:
-    // 1. First pass: count frames
-    // 2. Calculate which frames to sample
-    // 3. Second pass: extract those frames
-
-    // First, do a quick pass to count total frames
     let mut total_frames: usize = 0;
-    let mut demux2 = Demuxer::new(path.to_str().unwrap())?;
+    let mut demux2 = Demuxer::new(path_str)?;
     let info2 = unsafe { demux2.probe_input()? };
     let video_stream2 = info2
         .best_video()
@@ -553,7 +572,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     };
 
     // Second pass: extract the target frames
-    let mut demux3 = Demuxer::new(path.to_str().unwrap())?;
+    let mut demux3 = Demuxer::new(path_str)?;
     let info3 = unsafe { demux3.probe_input()? };
     let video_stream3 = info3
         .best_video()
@@ -646,7 +665,10 @@ unsafe fn frame_to_tensor(
 
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
 unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>> {
-    let mut demux = Demuxer::new(path_buf.to_str().unwrap())?;
+    let path_str = path_buf
+        .to_str()
+        .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
+    let mut demux = Demuxer::new(path_str)?;
     let info = unsafe { demux.probe_input()? };
     let image_stream = info
         .best_video()

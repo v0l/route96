@@ -255,11 +255,33 @@ impl LabelFiles {
                         elapsed,
                         e
                     );
+                    if !labeler.is_remote() {
+                        db.add_labeled_by(&file_id, &model_name)
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!(
+                                    "Failed to mark failed file {} as labeled: {}",
+                                    hex::encode(&file_id),
+                                    e
+                                );
+                            });
+                    }
                     continue;
                 }
                 Err(e) => {
                     let file_id = file.id.clone();
                     error!("Label task for {} panicked: {}", hex::encode(&file_id), e);
+                    if !labeler.is_remote() {
+                        db.add_labeled_by(&file_id, &model_name)
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!(
+                                    "Failed to mark panicked file {} as labeled: {}",
+                                    hex::encode(&file_id),
+                                    e
+                                );
+                            });
+                    }
                     continue;
                 }
             };
