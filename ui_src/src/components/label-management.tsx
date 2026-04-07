@@ -8,6 +8,18 @@ interface LabelModel {
   config: string;
 }
 
+interface LabelModelInput {
+  name: string;
+  model_type: string;
+  hf_repo: string;
+  api_url: string;
+  llm_model: string;
+  api_key: string;
+  prompt: string;
+  label_exclude: string;
+  min_confidence: string;
+}
+
 const inputCls = (extra = "") =>
   `bg-neutral-950 border border-neutral-800 rounded-sm px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${extra}`;
 
@@ -210,10 +222,16 @@ function LabelModels({
   const [models, setModels] = useState<LabelModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [newModel, setNewModel] = useState<LabelModel>({
+  const [newModel, setNewModel] = useState<LabelModelInput>({
     name: "",
-    type: "",
-    config: "",
+    model_type: "",
+    hf_repo: "",
+    api_url: "",
+    llm_model: "",
+    api_key: "",
+    prompt: "",
+    label_exclude: "",
+    min_confidence: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -237,16 +255,40 @@ function LabelModels({
   }, [loadModels]);
 
   const handleAddModel = async () => {
-    if (!newModel.name || !newModel.type || !newModel.config) {
-      setError("Please fill in all fields");
+    if (!newModel.name || !newModel.model_type) {
+      setError("Please fill in model name and type");
       return;
     }
+
+    // Validate type-specific required fields
+    if (newModel.model_type === "vit" && !newModel.hf_repo) {
+      setError("ViT model requires HuggingFace repo ID");
+      return;
+    }
+    if (
+      newModel.model_type === "generic_llm" &&
+      (!newModel.api_url || !newModel.llm_model)
+    ) {
+      setError("LLM model requires API URL and model name");
+      return;
+    }
+
     try {
       setSaving(true);
       setError(undefined);
       const route96 = new Route96(url, pub);
       await route96.addLabelModel(newModel);
-      setNewModel({ name: "", type: "", config: "" });
+      setNewModel({
+        name: "",
+        model_type: "",
+        hf_repo: "",
+        api_url: "",
+        llm_model: "",
+        api_key: "",
+        prompt: "",
+        label_exclude: "",
+        min_confidence: "",
+      });
       await loadModels();
     } catch (e) {
       setError(
@@ -255,6 +297,91 @@ function LabelModels({
     } finally {
       setSaving(false);
     }
+  };
+
+  const renderTypeSpecificFields = () => {
+    if (newModel.model_type === "vit") {
+      return (
+        <>
+          <div className="md:col-span-2">
+            <label className="block text-xs text-neutral-400 mb-1">
+              HuggingFace Repo ID
+            </label>
+            <input
+              type="text"
+              value={newModel.hf_repo}
+              onChange={(e) =>
+                setNewModel({ ...newModel, hf_repo: e.target.value })
+              }
+              placeholder="e.g., google/vit-base-patch16-224"
+              className={inputCls()}
+            />
+          </div>
+        </>
+      );
+    }
+    if (newModel.model_type === "generic_llm") {
+      return (
+        <>
+          <div className="md:col-span-2">
+            <label className="block text-xs text-neutral-400 mb-1">
+              API URL
+            </label>
+            <input
+              type="text"
+              value={newModel.api_url}
+              onChange={(e) =>
+                setNewModel({ ...newModel, api_url: e.target.value })
+              }
+              placeholder="e.g., https://api.openai.com/v1"
+              className={inputCls()}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">
+              Model Name
+            </label>
+            <input
+              type="text"
+              value={newModel.llm_model}
+              onChange={(e) =>
+                setNewModel({ ...newModel, llm_model: e.target.value })
+              }
+              placeholder="e.g., gpt-4-vision-preview"
+              className={inputCls()}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">
+              API Key (optional)
+            </label>
+            <input
+              type="password"
+              value={newModel.api_key}
+              onChange={(e) =>
+                setNewModel({ ...newModel, api_key: e.target.value })
+              }
+              placeholder="API key"
+              className={inputCls()}
+            />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-xs text-neutral-400 mb-1">
+              Custom Prompt (optional)
+            </label>
+            <textarea
+              value={newModel.prompt}
+              onChange={(e) =>
+                setNewModel({ ...newModel, prompt: e.target.value })
+              }
+              placeholder="Custom prompt for the LLM"
+              className={inputCls("min-h-[60px] resize-none")}
+            />
+          </div>
+        </>
+      );
+    }
+    return null;
   };
 
   const handleRemoveModel = async (name: string) => {
@@ -301,24 +428,53 @@ function LabelModels({
             placeholder="Model name"
             className={inputCls()}
           />
-          <input
-            type="text"
-            value={newModel.type}
+          <select
+            value={newModel.model_type}
             onChange={(e) =>
-              setNewModel({ ...newModel, type: e.target.value })
+              setNewModel({ ...newModel, model_type: e.target.value })
             }
-            placeholder="Type (vit, generic_llm, custom)"
             className={inputCls()}
-          />
-          <input
-            type="text"
-            value={newModel.config}
-            onChange={(e) =>
-              setNewModel({ ...newModel, config: e.target.value })
-            }
-            placeholder="Config JSON"
-            className={inputCls()}
-          />
+          >
+            <option value="">Select type</option>
+            <option value="vit">ViT (Vision Transformer)</option>
+            <option value="generic_llm">Generic LLM</option>
+          </select>
+        </div>
+
+        {newModel.model_type && renderTypeSpecificFields()}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">
+              Labels to Exclude (comma-separated)
+            </label>
+            <input
+              type="text"
+              value={newModel.label_exclude}
+              onChange={(e) =>
+                setNewModel({ ...newModel, label_exclude: e.target.value })
+              }
+              placeholder="nsfw, adult"
+              className={inputCls()}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">
+              Min Confidence (0-1)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={newModel.min_confidence}
+              onChange={(e) =>
+                setNewModel({ ...newModel, min_confidence: e.target.value })
+              }
+              placeholder="0.4"
+              className={inputCls()}
+            />
+          </div>
         </div>
 
         <div className="flex gap-2 mb-4">
