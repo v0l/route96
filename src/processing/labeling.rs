@@ -254,77 +254,29 @@ impl GenericLlmLabeler {
     }
 
     fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>> {
-        use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
-        use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
-
         if !path.exists() {
             return Err(Error::msg(format!("File not found: {:?}", path)));
         }
 
-        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let img =
+            image::open(path).map_err(|e| Error::msg(format!("Failed to open image: {}", e)))?;
 
-        log::debug!(
-            "Attempting to compress image {:?} (size: {} bytes)",
-            path,
-            file_size
-        );
+        let target_height = 1024u32;
+        let img = if img.height() > target_height {
+            img.resize(
+                u32::MAX,
+                target_height,
+                image::imageops::FilterType::Triangle,
+            )
+        } else {
+            img
+        };
 
-        let temp_path =
-            std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Jpeg)
+            .map_err(|e| Error::msg(format!("Failed to encode JPEG: {}", e)))?;
 
-        unsafe {
-            let path_str = path
-                .to_str()
-                .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
-            let temp_str = temp_path
-                .to_str()
-                .ok_or_else(|| Error::msg("Non-UTF-8 temp path"))?;
-            let mut transcoder = Transcoder::new(path_str, temp_str)
-                .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
-
-            let probe = transcoder
-                .prepare()
-                .map_err(|e| Error::msg(format!("Failed to prepare transcoder: {}", e)))?;
-
-            let stream = probe
-                .streams
-                .iter()
-                .find(|s| s.stream_type == StreamType::Video)
-                .ok_or(Error::msg("No video/image stream found"))?;
-
-            let target_height = 1024i32;
-            let (out_width, out_height) = if stream.height as i32 > target_height {
-                let new_height = target_height;
-                let new_width =
-                    (stream.width as f32 * (new_height as f32 / stream.height as f32)) as i32;
-                (new_width, new_height)
-            } else {
-                (stream.width as i32, stream.height as i32)
-            };
-
-            let encoder = Encoder::new(AV_CODEC_ID_MJPEG)?
-                .with_width(out_width)
-                .with_height(out_height)
-                .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
-                .open(None)?;
-
-            transcoder
-                .transcode_stream(stream, encoder)
-                .map_err(|e| Error::msg(format!("Failed to setup transcoding: {}", e)))?;
-
-            let mut mux_options = HashMap::new();
-            mux_options.insert("update".to_string(), "1".to_string());
-            transcoder
-                .run(Some(mux_options))
-                .map_err(|e| Error::msg(format!("Failed to run transcoder: {}", e)))?;
-
-            let buffer = std::fs::read(&temp_path)
-                .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
-
-            let _ = std::fs::remove_file(&temp_path);
-
-            Ok(buffer)
-        }
+        Ok(buf.into_inner())
     }
 
     fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
