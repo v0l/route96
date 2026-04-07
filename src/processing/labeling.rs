@@ -139,20 +139,24 @@ impl VitModel {
     /// Run this model against a file on disk.
     /// Videos are sampled at 1 frame/second; images are classified directly.
     /// `min_confidence` overrides the global `MIN_CONFIDENCE` default.
-    pub fn run(
+      pub fn run(
         &self,
         path: &Path,
         mime_type: &str,
         min_confidence: f32,
     ) -> Result<HashMap<String, f32>> {
         if mime_type.starts_with("video/") {
-            let frames = unsafe { extract_video_frames(path, &self.device)? };
-            classify_frames(self, &frames, min_confidence)
+            match unsafe { extract_video_frames(path, &self.device) } {
+                Ok(frames) => classify_frames(self, &frames, min_confidence),
+                Err(_) => Ok(HashMap::new()),
+            }
         } else if mime_type.starts_with("image/svg") {
             return Ok(HashMap::new());
         } else {
-            let image = unsafe { load_frame_224(path, &self.device)? };
-            self.classify(&image, min_confidence)
+            match unsafe { load_frame_224(path, &self.device) } {
+                Ok(image) => self.classify(&image, min_confidence),
+                Err(_) => Ok(HashMap::new()),
+            }
         }
     }
 }
