@@ -200,13 +200,40 @@ impl FileStore {
             if res.mime_type.starts_with("image/") {
                 let path = res.path.clone();
                 let mime = res.mime_type.clone();
+                let db_clone = db.clone();
                 match tokio::task::spawn_blocking(move || crate::phash::phash_image(&path, &mime))
                     .await
                 {
-                    Ok(Ok(phash)) => match phash.as_bytes().try_into() {
-                        Ok(bytes) => res.phash = Some(bytes),
-                        Err(_) => log::warn!("phash produced unexpected byte length; skipping"),
-                    },
+                    Ok(Ok(phash)) => {
+                        match phash.as_bytes().try_into() {
+                            Ok(bytes) => {
+                                res.phash = Some(bytes);
+                                // Check if this image is visually similar to any banned image
+                                let settings = self.settings().await;
+                                let max_distance = settings
+                                    .identical_media_dedup_distance
+                                    .unwrap_or(0);
+                                if max_distance > 0 {
+                                    match db_clone
+                                        .is_file_similar_to_banned(&bytes, max_distance)
+                                        .await
+                                    {
+                                        Ok(true) => {
+                                            // Remove the uploaded file and reject
+                                            tokio::fs::remove_file(&res.path).await.ok();
+                                            return Ok(FileSystemResult::Banned);
+                                        }
+                                        Ok(false) => {}
+                                        Err(e) => log::warn!(
+                                            "Failed to check banned similarity: {}",
+                                            e
+                                        ),
+                                    }
+                                }
+                            }
+                            Err(_) => log::warn!("phash produced unexpected byte length; skipping"),
+                        }
+                    }
                     Ok(Err(e)) => log::warn!("Failed to compute phash: {}", e),
                     Err(e) => log::warn!("phash task panicked: {}", e),
                 }
