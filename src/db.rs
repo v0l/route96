@@ -1058,6 +1058,28 @@ impl FilePhash {
     }
 }
 
+/// Candidate row for banned pHash similarity check.
+#[cfg(feature = "media-compression")]
+#[derive(Clone, FromRow)]
+struct BannedPHashCandidate {
+    pub id: Vec<u8>,
+    pub band0: i16,
+    pub band1: i16,
+    pub band2: i16,
+    pub band3: i16,
+}
+
+#[cfg(feature = "media-compression")]
+impl BannedPHashCandidate {
+    /// Hamming distance between this banned hash and `query` bands.
+    pub fn hamming_distance(&self, query: &[i16; 4]) -> u32 {
+        (self.band0 ^ query[0]).count_ones()
+            + (self.band1 ^ query[1]).count_ones()
+            + (self.band2 ^ query[2]).count_ones()
+            + (self.band3 ^ query[3]).count_ones()
+    }
+}
+
 /// Extract four 16-bit LSH bands from an 8-byte hash.
 #[cfg(feature = "media-compression")]
 fn hash_bands(hash: &[u8; 8]) -> [i16; 4] {
@@ -1162,6 +1184,41 @@ impl Database {
             let b3 = r.band3.to_be_bytes();
             [b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], b3[0], b3[1]]
         }))
+    }
+
+    /// Returns true if any banned image has a pHash within `max_distance`
+    /// Hamming bits of `query`.
+    ///
+    /// This prevents re-uploading content that is visually identical to
+    /// admin-banned images, even when the SHA-256 hash differs due to
+    /// compression, cropping, or minor edits.
+    pub async fn is_file_similar_to_banned(
+        &self,
+        query: &[u8; 8],
+        max_distance: u32,
+    ) -> Result<bool, Error> {
+        let bands = hash_bands(query);
+
+        // Use LSH band matching to find banned candidates efficiently
+        let mut qb = sqlx::QueryBuilder::new(
+            "select u.id, up.band0, up.band1, up.band2, up.band3 from uploads u \
+             join upload_phash up on up.file = u.id \
+             where u.banned = 1 \
+             and (up.band0 = ",
+        );
+        qb.push_bind(bands[0]);
+        qb.push(" or up.band1 = ");
+        qb.push_bind(bands[1]);
+        qb.push(" or up.band2 = ");
+        qb.push_bind(bands[2]);
+        qb.push(" or up.band3 = ");
+        qb.push_bind(bands[3]);
+        qb.push(")");
+
+        let rows: Vec<BannedPHashCandidate> = qb.build_query_as().fetch_all(&self.pool).await?;
+
+        // Verify exact Hamming distance on candidates
+        Ok(rows.into_iter().any(|row| row.hamming_distance(&bands) <= max_distance))
     }
 }
 
