@@ -255,36 +255,25 @@ impl GenericLlmLabeler {
 
     fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>> {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
-        use ffmpeg_rs_raw::{Encoder, StreamType, Transcoder};
+        use ffmpeg_rs_raw::{Encoder, StreamType};
 
         if !path.exists() {
             return Err(Error::msg(format!("File not found: {:?}", path)));
         }
 
-        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-
-        log::debug!(
-            "Attempting to compress image {:?} (size: {} bytes)",
-            path,
-            file_size
-        );
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
 
         let temp_path =
             std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
+        let temp_str = temp_path
+            .to_str()
+            .ok_or_else(|| Error::msg("Non-UTF-8 temp path"))?;
 
         unsafe {
-            let path_str = path
-                .to_str()
-                .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
-            let temp_str = temp_path
-                .to_str()
-                .ok_or_else(|| Error::msg("Non-UTF-8 temp path"))?;
-            let mut transcoder = Transcoder::new(path_str, temp_str)
-                .map_err(|e| Error::msg(format!("Failed to create transcoder: {}", e)))?;
-
-            let probe = transcoder
-                .prepare()
-                .map_err(|e| Error::msg(format!("Failed to prepare transcoder: {}", e)))?;
+            let mut demux = Demuxer::new(path_str)?;
+            let probe = demux.probe_input()?;
 
             let stream = probe
                 .streams
@@ -302,28 +291,42 @@ impl GenericLlmLabeler {
                 (stream.width as i32, stream.height as i32)
             };
 
-            let encoder = Encoder::new(AV_CODEC_ID_MJPEG)?
+            let enc = Encoder::new(AV_CODEC_ID_MJPEG)?
                 .with_width(out_width)
                 .with_height(out_height)
                 .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
                 .open(None)?;
 
-            transcoder
-                .transcode_stream(stream, encoder)
-                .map_err(|e| Error::msg(format!("Failed to setup transcoding: {}", e)))?;
+            let mut sws = Scaler::new();
+            let mut decoder = Decoder::new();
+            decoder.setup_decoder(stream, None)?;
+            let stream_index = stream.index as i32;
 
-            let mut mux_options = HashMap::new();
-            mux_options.insert("update".to_string(), "1".to_string());
-            transcoder
-                .run(Some(mux_options))
-                .map_err(|e| Error::msg(format!("Failed to run transcoder: {}", e)))?;
+            while let Ok((pkt, _)) = demux.get_packet() {
+                if let Some(ref pkt) = pkt
+                    && pkt.stream_index != stream_index
+                {
+                    continue;
+                }
+                if let Ok(results) = decoder.decode_pkt(pkt.as_ref())
+                    && let Some((frame, _)) = results.into_iter().next()
+                {
+                    let scaled = sws.process_frame(
+                        &frame,
+                        out_width as u16,
+                        out_height as u16,
+                        AVPixelFormat::AV_PIX_FMT_YUVJ420P,
+                    )?;
+                    enc.save_picture(&scaled, temp_str)?;
 
-            let buffer = std::fs::read(&temp_path)
-                .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
+                    let buffer = std::fs::read(&temp_path)
+                        .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
+                    let _ = std::fs::remove_file(&temp_path);
+                    return Ok(buffer);
+                }
+            }
 
-            let _ = std::fs::remove_file(&temp_path);
-
-            Ok(buffer)
+            Err(Error::msg("No image data found"))
         }
     }
 
