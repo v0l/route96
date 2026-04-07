@@ -37,6 +37,12 @@ struct Args {
 async fn main() -> Result<(), Error> {
     pretty_env_logger::init();
 
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        eprintln!("PANIC: {info}");
+        eprintln!("{backtrace}");
+    }));
+
     let args: Args = Args::parse();
 
     let config_path = args.config.as_deref().unwrap_or("config.yaml").to_string();

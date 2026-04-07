@@ -214,6 +214,13 @@ impl LabelFiles {
                 continue;
             }
 
+            info!(
+                "Labeling file={} model={} mime={} path={}",
+                hex::encode(&file.id),
+                model_name,
+                file.mime_type,
+                path.display(),
+            );
             let start = std::time::Instant::now();
             let labeler_clone = labeler.clone();
             let new_labels = match tokio::task::spawn_blocking(move || {

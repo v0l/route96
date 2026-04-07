@@ -70,6 +70,9 @@ RUN apt-get update && \
 COPY --from=rust-build /app/bin          ./bin
 COPY --from=rust-build /app/src/ffmpeg/lib/  /lib
 COPY --from=ui-build   /app/src/dist     ./ui
+COPY entrypoint.sh                       ./entrypoint.sh
+
+ENV RUST_BACKTRACE=1
 
 RUN ./bin/route96 --version
-ENTRYPOINT ["./bin/route96"]
+ENTRYPOINT ["./entrypoint.sh"]
