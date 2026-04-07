@@ -56,6 +56,18 @@ export interface LabelModel {
   config: string;
 }
 
+export interface AddLabelModelRequest {
+  name: string;
+  model_type: string;
+  hf_repo?: string;
+  api_url?: string;
+  llm_model?: string;
+  api_key?: string;
+  prompt?: string;
+  label_exclude?: string;
+  min_confidence?: string;
+}
+
 export interface LabelFlagTermsResponse {
   terms: string[];
 }
@@ -301,7 +313,7 @@ export class Route96 {
     return data.data;
   }
 
-  async addLabelModel(model: LabelModel) {
+  async addLabelModel(model: AddLabelModelRequest) {
     const rsp = await this.#req(
       "admin/label-models",
       "POST",
