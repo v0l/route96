@@ -8,6 +8,7 @@ import CreateAccountDialog from "./create-account";
 
 interface ServerProps {
   max_upload_size: number;
+  whitelist_enabled: boolean;
   retention: {
     delete_unaccessed_days: number | null;
     delete_after_days: number | null;
@@ -147,6 +148,13 @@ export default function LoginDialog({
                 <span className="text-neutral-400">Max upload size</span>
                 <span className="text-white">
                   {(props.max_upload_size / (1024 * 1024)).toFixed(0)} MB
+                </span>
+              </div>
+              
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Whitelist</span>
+                <span className={props.whitelist_enabled ? "text-yellow-400" : "text-green-400"}>
+                  {props.whitelist_enabled ? "Enabled" : "Open"}
                 </span>
               </div>
               

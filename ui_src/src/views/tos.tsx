@@ -51,6 +51,19 @@ const retentionTooltips: Record<string, string> = {
     "Files that have NEVER been downloaded (egress_bytes = 0) are deleted after this many days, regardless of age.",
 };
 
+const mediaTooltips: Record<string, string> = {
+  webp_conversion:
+    "Images and videos are converted to WebP format for smaller file sizes and faster loading.",
+  thumbnails:
+    "Small WebP thumbnails are generated for images and videos.",
+  identical_media_dedup:
+    "Visually identical images are detected using perceptual hashing (pHash) to save storage.",
+  reject_sensitive_exif:
+    "Uploads containing GPS location, device info, or other EXIF metadata are rejected.",
+  reject_steganography:
+    "Uploads suspected of containing hidden data (high entropy, XMP manipulation, malformed MPF) are rejected.",
+};
+
 export default function Tos() {
   const location = useLocation();
   const [props, setProps] = useState<ServerProps | null>(null);
@@ -268,36 +281,145 @@ export default function Tos() {
           <section className="bg-neutral-900 rounded-lg p-6">
             <h2 className="text-lg font-semibold mb-4">Media Processing</h2>
             <div className="grid gap-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-neutral-400">WebP conversion</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">WebP conversion</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("webp_conversion")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span className={props.media_processing.webp_conversion ? "text-green-400" : "text-neutral-500"}>
                   {props.media_processing.webp_conversion ? "Enabled" : "Disabled"}
                 </span>
+                {hoveredTooltip === "webp_conversion" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {mediaTooltips.webp_conversion}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Thumbnails</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Thumbnails</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("thumbnails")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span className={props.media_processing.thumbnails ? "text-green-400" : "text-neutral-500"}>
                   {props.media_processing.thumbnails ? "Enabled" : "Disabled"}
                 </span>
+                {hoveredTooltip === "thumbnails" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {mediaTooltips.thumbnails}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Identical media deduplication</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Identical media dedup</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("identical_media_dedup")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span className={props.media_processing.identical_media_dedup ? "text-green-400" : "text-neutral-500"}>
                   {props.media_processing.identical_media_dedup ? `Enabled (distance: ${props.media_processing.identical_media_dedup_distance})` : "Disabled"}
                 </span>
+                {hoveredTooltip === "identical_media_dedup" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {mediaTooltips.identical_media_dedup}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Reject sensitive EXIF</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Reject sensitive EXIF</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("reject_sensitive_exif")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span className={props.media_processing.reject_sensitive_exif ? "text-green-400" : "text-neutral-500"}>
                   {props.media_processing.reject_sensitive_exif ? "Enabled" : "Disabled"}
                 </span>
+                {hoveredTooltip === "reject_sensitive_exif" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {mediaTooltips.reject_sensitive_exif}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Reject steganography</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Reject steganography</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("reject_steganography")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span className={props.media_processing.reject_steganography ? "text-green-400" : "text-neutral-500"}>
                   {props.media_processing.reject_steganography ? "Enabled" : "Disabled"}
                 </span>
+                {hoveredTooltip === "reject_steganography" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {mediaTooltips.reject_steganography}
+                    </p>
+                  </div>
+                )}
               </div>
+            </div>
+          </section>
+        )}
+
+{props.labeling && (
+          <section className="bg-neutral-900 rounded-lg p-6">
+            <h2 className="text-lg font-semibold mb-4">AI Labeling</h2>
+            <div className="grid gap-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Labeling enabled</span>
+                <span className={props.labeling.enabled ? "text-green-400" : "text-neutral-500"}>
+                  {props.labeling.enabled ? "Yes" : "No"}
+                </span>
+              </div>
+              {props.labeling.models.length > 0 && (
+                <div>
+                  <span className="text-neutral-400">Models</span>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {props.labeling.models.map((model) => (
+                      <span
+                        key={model.name}
+                        className="bg-neutral-800 px-2 py-1 rounded text-xs"
+                      >
+                        {getModelDisplayName(model)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -318,25 +440,10 @@ export default function Tos() {
                   <div className="mt-1 flex flex-wrap gap-2">
                     {props.labeling.models.map((model) => (
                       <span
-                        key={typeof model === "string" ? model : model.name}
+                        key={model.name}
                         className="bg-neutral-800 px-2 py-1 rounded text-xs"
                       >
                         {getModelDisplayName(model)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {props.labeling.flag_terms.length > 0 && (
-                <div>
-                  <span className="text-neutral-400">Flag terms</span>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {props.labeling.flag_terms.map((term) => (
-                      <span
-                        key={term}
-                        className="bg-red-950 text-red-300 px-2 py-1 rounded text-xs"
-                      >
-                        {term}
                       </span>
                     ))}
                   </div>

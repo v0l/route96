@@ -12,7 +12,7 @@ pub use crate::routes::nip96::nip96_routes;
 pub mod payment;
 #[cfg(feature = "payments")]
 use crate::payments::{Currency, PaymentInterval};
-use crate::settings::Settings;
+use crate::settings::{LabelerType, Settings};
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
 use axum::{
@@ -204,6 +204,7 @@ pub async fn skill_md() -> impl IntoResponse {
 pub struct ServerProps {
     pub max_upload_size: u64,
     pub public_url: String,
+    pub whitelist_enabled: bool,
     pub retention: RetentionPolicy,
     #[cfg(feature = "media-compression")]
     pub media_processing: MediaProcessingPolicy,
@@ -259,10 +260,11 @@ pub async fn get_props(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> Result<Json<ServerProps>, StatusCode> {
     let settings = state.settings.read().await.clone();
-    
+
     let props = ServerProps {
         max_upload_size: settings.max_upload_bytes,
         public_url: settings.public_url.clone(),
+        whitelist_enabled: settings.whitelist.is_some(),
         retention: RetentionPolicy {
             delete_unaccessed_days: settings.delete_unaccessed_days,
             delete_after_days: settings.delete_after_days,
@@ -284,9 +286,15 @@ pub async fn get_props(
                 enabled: !models.is_empty(),
                 models: models
                     .into_iter()
-                    .map(|m| LabelModelInfo {
-                        name: m.name,
-                        model_type: None,
+                    .map(|m| match m.labeler_type {
+                        LabelerType::Vit { hf_repo } => LabelModelInfo {
+                            name: hf_repo,
+                            model_type: Some("vit224".to_string()),
+                        },
+                        LabelerType::GenericLlm { model, .. } => LabelModelInfo {
+                            name: model,
+                            model_type: Some("llm".to_string()),
+                        },
                     })
                     .collect(),
                 flag_terms: settings.label_flag_terms.unwrap_or_default(),
@@ -307,7 +315,7 @@ pub async fn get_props(
                 .collect(),
         }),
     };
-    
+
     Ok(Json(props))
 }
 
