@@ -235,8 +235,16 @@ pub struct MediaProcessingPolicy {
 #[derive(Serialize)]
 pub struct LabelingPolicy {
     pub enabled: bool,
-    pub models: Vec<String>,
+    pub models: Vec<LabelModelInfo>,
     pub flag_terms: Vec<String>,
+}
+
+#[cfg(feature = "labels")]
+#[derive(Serialize)]
+pub struct LabelModelInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>,
 }
 
 #[cfg(feature = "payments")]
@@ -274,7 +282,13 @@ pub async fn get_props(
             let models = settings.label_models.unwrap_or_default();
             LabelingPolicy {
                 enabled: !models.is_empty(),
-                models: models.into_iter().map(|m| m.name).collect(),
+                models: models
+                    .into_iter()
+                    .map(|m| LabelModelInfo {
+                        name: m.name,
+                        model_type: None,
+                    })
+                    .collect(),
                 flag_terms: settings.label_flag_terms.unwrap_or_default(),
             }
         },
@@ -449,11 +463,13 @@ pub async fn get_blob(
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return Err(StatusCode::NOT_FOUND);
+        // Invalid hex - serve SPA index.html
+        return Ok(root().await.into_response());
     };
 
     if id.len() != 32 {
-        return Err(StatusCode::NOT_FOUND);
+        // Wrong length - serve SPA index.html for routing
+        return Ok(root().await.into_response());
     }
 
     let info = match state.db.get_file(&id).await {
@@ -527,11 +543,13 @@ pub async fn head_blob(
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        return Err(StatusCode::NOT_FOUND);
+        // Invalid hex - serve SPA index.html
+        return Ok(root().await.into_response());
     };
 
     if id.len() != 32 {
-        return Err(StatusCode::NOT_FOUND);
+        // Wrong length - serve SPA index.html for routing
+        return Ok(root().await.into_response());
     }
 
     let info = match state.db.get_file(&id).await {

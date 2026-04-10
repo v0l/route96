@@ -16,9 +16,14 @@ interface MediaProcessingPolicy {
   reject_steganography: boolean;
 }
 
+interface LabelModel {
+  name: string;
+  model_type?: string;
+}
+
 interface LabelingPolicy {
   enabled: boolean;
-  models: string[];
+  models: LabelModel[];
   flag_terms: string[];
 }
 
@@ -37,10 +42,20 @@ interface ServerProps {
   payments?: PaymentPolicy | null;
 }
 
+const retentionTooltips: Record<string, string> = {
+  delete_unaccessed_days:
+    "Files are deleted if they have no downloads for this many days. Files uploaded within the window get grace period.",
+  delete_after_days:
+    "Hard limit: all files older than this are deleted regardless of download activity.",
+  delete_zero_egress_days:
+    "Files that have NEVER been downloaded (egress_bytes = 0) are deleted after this many days, regardless of age.",
+};
+
 export default function Tos() {
   const location = useLocation();
   const [props, setProps] = useState<ServerProps | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
 
   useEffect(() => {
     const url =
@@ -63,6 +78,10 @@ export default function Tos() {
     if (gb >= 1) return `${gb.toFixed(2)} GB`;
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(2)} MB`;
+  };
+
+  const getModelDisplayName = (model: LabelModel): string => {
+    return model.name || model.model_type || "Unknown";
   };
 
   if (loading) {
@@ -100,50 +119,146 @@ export default function Tos() {
           <h2 className="text-lg font-semibold mb-4">File Retention Policy</h2>
           <div className="grid gap-3 text-sm">
             {props.retention.delete_unaccessed_days ? (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">
-                  Delete inactive files
-                </span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">
+                    Delete inactive files
+                  </span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_unaccessed_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>
                   After {props.retention.delete_unaccessed_days} days without downloads
                 </span>
+                {hoveredTooltip === "delete_unaccessed_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_unaccessed_days}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Inactive file deletion</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Inactive file deletion</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_unaccessed_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>Disabled</span>
+                {hoveredTooltip === "delete_unaccessed_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_unaccessed_days}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {props.retention.delete_after_days ? (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Maximum file age</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Maximum file age</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_after_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>
                   {props.retention.delete_after_days} days (hard limit)
                 </span>
+                {hoveredTooltip === "delete_after_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_after_days}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Maximum file age</span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">Maximum file age</span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_after_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>No limit</span>
+                {hoveredTooltip === "delete_after_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_after_days}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {props.retention.delete_zero_egress_days ? (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">
-                  Delete never-downloaded files
-                </span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">
+                    Delete never-downloaded files
+                  </span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_zero_egress_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>
                   After {props.retention.delete_zero_egress_days} days
                 </span>
+                {hoveredTooltip === "delete_zero_egress_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_zero_egress_days}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex justify-between">
-                <span className="text-neutral-400">
-                  Zero-egress file deletion
-                </span>
+              <div className="flex justify-between items-center group relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-neutral-400">
+                    Zero-egress file deletion
+                  </span>
+                  <div
+                    className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs cursor-help"
+                    onMouseEnter={() => setHoveredTooltip("delete_zero_egress_days")}
+                    onMouseLeave={() => setHoveredTooltip(null)}
+                  >
+                    ?
+                  </div>
+                </div>
                 <span>Disabled</span>
+                {hoveredTooltip === "delete_zero_egress_days" && (
+                  <div className="absolute left-0 top-full mt-2 z-10 w-72 bg-neutral-800 border border-neutral-700 rounded-lg p-3 shadow-lg">
+                    <p className="text-xs text-neutral-300">
+                      {retentionTooltips.delete_zero_egress_days}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -203,10 +318,10 @@ export default function Tos() {
                   <div className="mt-1 flex flex-wrap gap-2">
                     {props.labeling.models.map((model) => (
                       <span
-                        key={model}
+                        key={typeof model === "string" ? model : model.name}
                         className="bg-neutral-800 px-2 py-1 rounded text-xs"
                       >
-                        {model}
+                        {getModelDisplayName(model)}
                       </span>
                     ))}
                   </div>
