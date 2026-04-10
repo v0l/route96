@@ -55,12 +55,13 @@ impl FileDeleter {
                 tokio::select! {
                     batch_result = Self::run_batch(&self.db, &self.fs, &self.settings) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
-                        if let BatchResult::Processed { found } = batch_result
+                        if let BatchResult::Processed { found, failed } = batch_result
                             && stall_rounds > 0
                         {
                             warn!(
-                                "FileDeleter: stalled on {} files, backing off {:.0?}",
+                                "FileDeleter: stalled on {} files ({} failed), backing off {:.0?}",
                                 found,
+                                failed,
                                 sleep_dur,
                             );
                         }
@@ -147,16 +148,19 @@ impl FileDeleter {
         }
 
         let found = ids.len();
+        let mut failed = 0;
         info!("FileDeleter: deleting {} file(s)", found);
 
         for (id, reason) in &ids {
-            Self::delete_one(db, fs, id, reason).await;
+            if Self::delete_one(db, fs, id, reason).await {
+                failed += 1;
+            }
         }
 
-        BatchResult::Processed { found }
+        BatchResult::Processed { found, failed }
     }
 
-    async fn delete_one(db: &Database, fs: &FileStore, id: &Vec<u8>, reason: &str) {
+    async fn delete_one(db: &Database, fs: &FileStore, id: &Vec<u8>, reason: &str) -> bool {
         // Remove ownership records first, then the upload row.
         // file_stats cascades automatically via FK on delete.
         if let Err(e) = db.delete_all_file_owner(id).await {
@@ -165,7 +169,7 @@ impl FileDeleter {
                 hex::encode(id),
                 e
             );
-            return;
+            return true;
         }
         if let Err(e) = db.delete_file(id).await {
             error!(
@@ -173,18 +177,22 @@ impl FileDeleter {
                 hex::encode(id),
                 e
             );
-            return;
+            return true;
         }
 
         let path = fs.get(id);
         match tokio::fs::remove_file(&path).await {
-            Ok(()) => info!("FileDeleter: removed {} ({})", hex::encode(id), reason),
+            Ok(()) => {
+                info!("FileDeleter: removed {} ({})", hex::encode(id), reason);
+                false
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
                     "FileDeleter: physical file already missing for {} ({})",
                     hex::encode(id),
                     reason
                 );
+                false
             }
             Err(e) => {
                 error!(
@@ -193,6 +201,7 @@ impl FileDeleter {
                     reason,
                     e
                 );
+                true
             }
         }
     }

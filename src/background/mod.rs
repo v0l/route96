@@ -22,8 +22,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(300);
 enum BatchResult {
     /// The query returned zero files — nothing to do.
     Idle,
-    /// The batch found (and attempted to process) `found` files.
-    Processed { found: usize },
+    /// The batch found (and attempted to process) `found` files,
+    /// of which `failed` could not be processed.
+    Processed { found: usize, failed: usize },
 }
 
 /// Decide how long to sleep after a batch, updating stall-tracking state.
@@ -37,9 +38,11 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
             *prev_count = 0;
             IDLE_SLEEP
         }
-        BatchResult::Processed { found } => {
+        BatchResult::Processed { found, failed } => {
             let found = *found;
-            let dur = if found > 0 && found == *prev_count {
+            let failed = *failed;
+            // Stall only when all files fail AND count is same as previous batch.
+            let dur = if found > 0 && failed == found && found == *prev_count {
                 *stall_rounds = stall_rounds.saturating_add(1);
                 BATCH_SLEEP
                     .saturating_mul(1u32 << (*stall_rounds).min(10))
@@ -190,22 +193,33 @@ mod tests {
     fn test_processed_new_count_returns_batch_sleep() {
         let mut prev = 0;
         let mut stall = 0;
-        let dur = next_sleep(&BatchResult::Processed { found: 5 }, &mut prev, &mut stall);
+        let dur = next_sleep(&BatchResult::Processed { found: 5, failed: 0 }, &mut prev, &mut stall);
         assert_eq!(dur, BATCH_SLEEP);
         assert_eq!(prev, 5);
         assert_eq!(stall, 0);
     }
 
     #[test]
-    fn test_stall_detection_triggers_backoff() {
+    fn test_stall_detection_triggers_backoff_when_all_fail() {
         let mut prev = 1;
         let mut stall = 0;
 
-        // First stall: same count as last time -> stall_rounds becomes 1.
-        let dur = next_sleep(&BatchResult::Processed { found: 1 }, &mut prev, &mut stall);
+        // All files fail -> stall_rounds becomes 1.
+        let dur = next_sleep(&BatchResult::Processed { found: 1, failed: 1 }, &mut prev, &mut stall);
         assert_eq!(stall, 1);
         assert!(dur > BATCH_SLEEP, "should back off beyond BATCH_SLEEP");
         assert_eq!(dur, BATCH_SLEEP.saturating_mul(2)); // 2^1 * BATCH_SLEEP
+    }
+
+    #[test]
+    fn test_no_stall_when_some_succeed() {
+        let mut prev = 10;
+        let mut stall = 0;
+
+        // Some succeed (failed < found) -> no stall.
+        let dur = next_sleep(&BatchResult::Processed { found: 10, failed: 3 }, &mut prev, &mut stall);
+        assert_eq!(stall, 0);
+        assert_eq!(dur, BATCH_SLEEP);
     }
 
     #[test]
@@ -215,7 +229,7 @@ mod tests {
 
         let mut durations = Vec::new();
         for _ in 0..5 {
-            let dur = next_sleep(&BatchResult::Processed { found: 1 }, &mut prev, &mut stall);
+            let dur = next_sleep(&BatchResult::Processed { found: 1, failed: 1 }, &mut prev, &mut stall);
             durations.push(dur);
         }
 
@@ -233,7 +247,7 @@ mod tests {
         // Run many rounds to hit the cap.
         let mut dur = Duration::ZERO;
         for _ in 0..50 {
-            dur = next_sleep(&BatchResult::Processed { found: 1 }, &mut prev, &mut stall);
+            dur = next_sleep(&BatchResult::Processed { found: 1, failed: 1 }, &mut prev, &mut stall);
         }
         assert_eq!(dur, MAX_BACKOFF);
     }
@@ -245,12 +259,12 @@ mod tests {
 
         // Stall a few rounds.
         for _ in 0..3 {
-            next_sleep(&BatchResult::Processed { found: 1 }, &mut prev, &mut stall);
+            next_sleep(&BatchResult::Processed { found: 1, failed: 1 }, &mut prev, &mut stall);
         }
         assert!(stall > 0);
 
         // Count changes -> stall resets.
-        let dur = next_sleep(&BatchResult::Processed { found: 2 }, &mut prev, &mut stall);
+        let dur = next_sleep(&BatchResult::Processed { found: 2, failed: 2 }, &mut prev, &mut stall);
         assert_eq!(stall, 0);
         assert_eq!(dur, BATCH_SLEEP);
         assert_eq!(prev, 2);
@@ -263,7 +277,7 @@ mod tests {
 
         // Stall a few rounds.
         for _ in 0..3 {
-            next_sleep(&BatchResult::Processed { found: 1 }, &mut prev, &mut stall);
+            next_sleep(&BatchResult::Processed { found: 1, failed: 1 }, &mut prev, &mut stall);
         }
         assert!(stall > 0);
 
@@ -280,7 +294,7 @@ mod tests {
         // because `found > 0` is required for the stall check.
         let mut prev = 0;
         let mut stall = 0;
-        let dur = next_sleep(&BatchResult::Processed { found: 0 }, &mut prev, &mut stall);
+        let dur = next_sleep(&BatchResult::Processed { found: 0, failed: 0 }, &mut prev, &mut stall);
         assert_eq!(dur, BATCH_SLEEP);
         assert_eq!(stall, 0);
     }

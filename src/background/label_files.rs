@@ -79,13 +79,14 @@ impl LabelFiles {
                     tokio::select! {
                         batch_result = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms, &token) => {
                             sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
-                            if let BatchResult::Processed { found } = batch_result
+                            if let BatchResult::Processed { found, failed } = batch_result
                                 && stall_rounds > 0
                             {
                                 warn!(
-                                    "Label worker '{}': stalled on {} files, backing off {:.0?}",
+                                    "Label worker '{}': stalled on {} files ({} failed), backing off {:.0?}",
                                     labeler.name(),
                                     found,
+                                    failed,
                                     sleep_dur,
                                 );
                             }
@@ -193,11 +194,12 @@ impl LabelFiles {
         }
 
         let found = to_label.len();
+        let mut failed = 0;
         info!("{} files missing labels for model '{}'", found, model_name);
 
         for file in to_label {
             if shutdown.is_cancelled() {
-                return BatchResult::Processed { found };
+                return BatchResult::Processed { found, failed };
             }
             let path = fs.get(&file.id);
             if !path.exists() {
@@ -211,6 +213,7 @@ impl LabelFiles {
                             e
                         );
                     });
+                failed += 1;
                 continue;
             }
 
@@ -273,6 +276,7 @@ impl LabelFiles {
                                 );
                             });
                     }
+                    failed += 1;
                     continue;
                 }
                 Err(e) => {
@@ -289,6 +293,7 @@ impl LabelFiles {
                                 );
                             });
                     }
+                    failed += 1;
                     continue;
                 }
             };
@@ -334,6 +339,6 @@ impl LabelFiles {
             }
         }
 
-        BatchResult::Processed { found }
+BatchResult::Processed { found, failed }
     }
 }

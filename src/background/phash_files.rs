@@ -35,12 +35,13 @@ impl PhashFiles {
                 tokio::select! {
                     batch_result = Self::run_batch(&self.db, &self.fs, &shutdown) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
-                        if let BatchResult::Processed { found } = batch_result
+                        if let BatchResult::Processed { found, failed } = batch_result
                             && stall_rounds > 0
                         {
                             warn!(
-                                "PhashFiles: stalled on {} files, backing off {:.0?}",
+                                "PhashFiles: stalled on {} files ({} failed), backing off {:.0?}",
                                 found,
+                                failed,
                                 sleep_dur,
                             );
                         }
@@ -80,11 +81,12 @@ impl PhashFiles {
         }
 
         let found = to_process.len();
+        let mut failed = 0;
         info!("{} images missing phash", found);
 
         for file in to_process {
             if shutdown.is_cancelled() {
-                return BatchResult::Processed { found };
+                return BatchResult::Processed { found, failed };
             }
             let path = fs.get(&file.id);
             if !path.exists() {
@@ -99,6 +101,7 @@ impl PhashFiles {
                         e
                     );
                 }
+                failed += 1;
                 continue;
             }
 
@@ -156,6 +159,6 @@ impl PhashFiles {
             }
         }
 
-        BatchResult::Processed { found }
+        BatchResult::Processed { found, failed }
     }
 }
