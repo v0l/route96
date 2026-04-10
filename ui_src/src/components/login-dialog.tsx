@@ -102,6 +102,16 @@ export default function LoginDialog({
         </p>
       </div>
 
+      <a
+        href="/tos"
+        className="block bg-neutral-800 border border-neutral-700 rounded-sm p-3 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
+      >
+        <div className="font-medium mb-1">Terms of Service</div>
+        <div className="text-xs text-neutral-500">
+          View upload limits, retention policy, and server settings
+        </div>
+      </a>
+
       {method === null && (
         <div className="space-y-2">
           <button

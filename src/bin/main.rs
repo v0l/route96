@@ -125,11 +125,6 @@ async fn main() -> Result<(), Error> {
         app = app.route("/thumb/{sha256}", get(routes::get_blob_thumb));
     }
 
-    #[cfg(feature = "media-compression")]
-    {
-        app = app.route("/thumb/{sha256}", get(routes::get_blob_thumb));
-    }
-
     // Add admin routes
     app = app.merge(routes::admin_routes());
 
