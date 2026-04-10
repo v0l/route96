@@ -117,6 +117,7 @@ async fn main() -> Result<(), Error> {
         .route("/docs.md", get(routes::docs_md))
         .route("/SKILL.md", get(routes::skill_md))
         .route("/props", get(routes::get_props))
+        .route("/tos", get(routes::root))
         .route("/{sha256}", head(routes::head_blob).get(routes::get_blob))
         .fallback(get(routes::root));
 

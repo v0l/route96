@@ -1,9 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Nip7Signer, PrivateKeySigner } from "@snort/system";
 import { hexToBech32, bech32ToHex } from "@snort/shared";
 import Button from "./button";
 import { Login } from "../login";
 import CreateAccountDialog from "./create-account";
+
+interface ServerProps {
+  max_upload_size: number;
+  retention: {
+    delete_unaccessed_days: number | null;
+    delete_after_days: number | null;
+    delete_zero_egress_days: number | null;
+  };
+  media_processing?: {
+    webp_conversion: boolean;
+    identical_media_dedup: boolean;
+    reject_sensitive_exif: boolean;
+  };
+  labeling?: {
+    enabled: boolean;
+  };
+}
 
 type LoginMethod = "nsec" | "nip46" | "create";
 
@@ -14,6 +32,14 @@ export default function LoginDialog({
   const [nsecInput, setNsecInput] = useState("");
   const [bunkerInput, setBunkerInput] = useState("");
   const [error, setError] = useState<string>();
+  const [props, setProps] = useState<ServerProps | null>(null);
+
+  useEffect(() => {
+    fetch("/props")
+      .then((res) => res.json())
+      .then((data) => setProps(data))
+      .catch(() => {});
+  }, []);
 
   function back() {
     setMethod(null);
@@ -92,25 +118,77 @@ export default function LoginDialog({
   })();
 
   return (
-    <div className="max-w-md mx-auto bg-neutral-900 border border-neutral-800 rounded-sm p-6 space-y-4">
-      <div>
-        <h2 className="text-lg font-medium text-white">
-          Welcome to {window.location.hostname}
-        </h2>
-        <p className="text-neutral-400 text-sm mt-1">
-          Sign in with your Nostr identity to start uploading files.
-        </p>
-      </div>
-
-      <a
-        href="/tos"
-        className="block bg-neutral-800 border border-neutral-700 rounded-sm p-3 text-sm text-neutral-300 hover:border-neutral-500 hover:text-white transition-colors"
-      >
-        <div className="font-medium mb-1">Terms of Service</div>
-        <div className="text-xs text-neutral-500">
-          View upload limits, retention policy, and server settings
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-6">
+        <div>
+          <h2 className="text-lg font-medium text-white">
+            Welcome to {window.location.hostname}
+          </h2>
+          <p className="text-neutral-400 text-sm mt-1">
+            Sign in with your Nostr identity to start uploading files.
+          </p>
         </div>
-      </a>
+
+        {/* TOS Section */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Server Policies</h3>
+            <Link
+              to="/tos"
+              className="text-xs text-neutral-500 hover:text-white transition-colors"
+            >
+              Full TOS →
+            </Link>
+          </div>
+          
+          {props ? (
+            <div className="bg-neutral-800 border border-neutral-700 rounded-sm p-4 space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-400">Max upload size</span>
+                <span className="text-white">
+                  {(props.max_upload_size / (1024 * 1024)).toFixed(0)} MB
+                </span>
+              </div>
+              
+              {props.retention.delete_after_days && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Max file age</span>
+                  <span className="text-white">{props.retention.delete_after_days} days</span>
+                </div>
+              )}
+              
+              {props.retention.delete_unaccessed_days && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Inactive deletion</span>
+                  <span className="text-white">{props.retention.delete_unaccessed_days} days</span>
+                </div>
+              )}
+              
+              {props.media_processing?.webp_conversion && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Media processing</span>
+                  <span className="text-green-400">Enabled</span>
+                </div>
+              )}
+              
+              {props.labeling?.enabled && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">AI labeling</span>
+                  <span className="text-green-400">Enabled</span>
+                </div>
+              )}
+              
+              <p className="text-xs text-neutral-500 pt-2 border-t border-neutral-700">
+                Files may be automatically deleted based on retention policy. Do not use as your only backup.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-neutral-800 border border-neutral-700 rounded-sm p-4 text-sm text-neutral-500">
+              Loading server info...
+            </div>
+          )}
+        </div>
+      </div>
 
       {method === null && (
         <div className="space-y-2">
