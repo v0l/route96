@@ -35,6 +35,7 @@ interface PaymentPolicy {
 
 interface ServerProps {
   max_upload_size: number;
+  whitelist_enabled: boolean;
   public_url: string;
   retention: RetentionPolicy;
   media_processing?: MediaProcessingPolicy;
@@ -124,6 +125,12 @@ export default function Tos() {
             <div className="flex justify-between">
               <span className="text-neutral-400">Maximum file size</span>
               <span>{formatSize(props.max_upload_size)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-neutral-400">Whitelist</span>
+              <span className={props.whitelist_enabled ? "text-yellow-400" : "text-green-400"}>
+                {props.whitelist_enabled ? "Enabled" : "Open"}
+              </span>
             </div>
           </div>
         </section>
