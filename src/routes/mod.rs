@@ -236,8 +236,7 @@ pub struct MediaProcessingPolicy {
 #[derive(Serialize)]
 pub struct LabelingPolicy {
     pub enabled: bool,
-    pub models: Vec<LabelModelInfo>,
-    pub flag_terms: Vec<String>,
+    pub models: Vec<LabelModelInfo>
 }
 
 #[cfg(feature = "labels")]
@@ -296,8 +295,7 @@ pub async fn get_props(
                             model_type: Some("llm".to_string()),
                         },
                     })
-                    .collect(),
-                flag_terms: settings.label_flag_terms.unwrap_or_default(),
+                    .collect()
             }
         },
         #[cfg(feature = "payments")]

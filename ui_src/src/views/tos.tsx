@@ -53,7 +53,7 @@ const retentionTooltips: Record<string, string> = {
 
 const mediaTooltips: Record<string, string> = {
   webp_conversion:
-    "Images and videos are converted to WebP format for smaller file sizes and faster loading.",
+    "Images uploaded via NIP-96 or Blossom /media endpoint are converted to WebP format for smaller file sizes.",
   thumbnails:
     "Small WebP thumbnails are generated for images and videos.",
   identical_media_dedup:
@@ -424,35 +424,6 @@ export default function Tos() {
           </section>
         )}
 
-        {props.labeling && (
-          <section className="bg-neutral-900 rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">AI Labeling</h2>
-            <div className="grid gap-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-neutral-400">Labeling enabled</span>
-                <span className={props.labeling.enabled ? "text-green-400" : "text-neutral-500"}>
-                  {props.labeling.enabled ? "Yes" : "No"}
-                </span>
-              </div>
-              {props.labeling.models.length > 0 && (
-                <div>
-                  <span className="text-neutral-400">Models</span>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {props.labeling.models.map((model) => (
-                      <span
-                        key={model.name}
-                        className="bg-neutral-800 px-2 py-1 rounded text-xs"
-                      >
-                        {getModelDisplayName(model)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
         {props.payments && (
           <section className="bg-neutral-900 rounded-lg p-6">
             <h2 className="text-lg font-semibold mb-4">Payment Plans</h2>
@@ -479,7 +450,7 @@ export default function Tos() {
         )}
 
         <section className="bg-neutral-900 rounded-lg p-6">
-          <h2 className="text-lg font-semibold mb-4">Important Notes</h2>
+          <h2 className="text-lg font-semibold mb-4">Legal</h2>
           <ul className="list-disc list-inside space-y-2 text-sm text-neutral-300">
             <li>
               Files may be automatically deleted based on the retention policy above.
@@ -495,6 +466,10 @@ export default function Tos() {
             </li>
             <li>
               No warranty is provided for data availability or durability.
+            </li>
+            <li>
+              These terms may change at any time without prior notification. Continued
+              use of the service constitutes acceptance of the updated terms.
             </li>
           </ul>
         </section>
