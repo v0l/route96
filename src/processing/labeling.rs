@@ -9,7 +9,8 @@ use async_openai::{
     types::chat::{
         ChatCompletionRequestMessage, ChatCompletionRequestMessageContentPartImageArgs,
         ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContent,
-        ChatCompletionRequestUserMessageContentPart, CreateChatCompletionRequest, ImageUrlArgs,
+        ChatCompletionRequestUserMessageContentPart, CreateChatCompletionRequest, ImageDetail,
+        ImageUrlArgs,
     },
 };
 use base64::Engine;
@@ -352,6 +353,7 @@ impl GenericLlmLabeler {
 
         let image_url = ImageUrlArgs::default()
             .url(format!("data:image/jpeg;base64,{}", image_base64))
+            .detail(ImageDetail::Auto)
             .build()
             .map_err(|e| Error::msg(format!("Failed to build image URL: {}", e)))?;
 
