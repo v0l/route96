@@ -1437,9 +1437,8 @@ impl Database {
     /// Return IDs of files with zero egress bytes (never downloaded) older than `cutoff`.
     ///
     /// A file qualifies when it has `egress_bytes = 0` in the `file_stats` table
-    /// AND its `created` timestamp is older than `cutoff`. Files without a stats
-    /// row are excluded since they may have been uploaded very recently and should
-    /// be given a grace period via the inactivity policy instead.
+    /// OR has no stats row (never accessed), AND its `created` timestamp is older
+    /// than `cutoff`.
     ///
     /// Banned files are excluded. At most `limit` IDs are returned per call.
     pub async fn get_files_with_zero_egress(
@@ -1449,10 +1448,10 @@ impl Database {
     ) -> Result<Vec<Vec<u8>>, Error> {
         let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
             "select u.id from uploads u \
-             join file_stats fs on fs.file = u.id \
+             left join file_stats fs on fs.file = u.id \
              where u.banned = false \
              and u.created < ? \
-             and fs.egress_bytes = 0 \
+             and (fs.egress_bytes is null or fs.egress_bytes = 0) \
              limit ?",
         )
         .bind(cutoff)
