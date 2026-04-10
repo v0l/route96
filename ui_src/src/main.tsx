@@ -9,6 +9,7 @@ import Upload from "./views/upload.tsx";
 import Admin from "./views/admin.tsx";
 import UserScope from "./views/user-scope.tsx";
 import Setup from "./views/setup.tsx";
+import Tos from "./views/tos.tsx";
 import { v4 as uuid } from "uuid";
 
 // Polyfill to fix 
@@ -47,6 +48,10 @@ const routes = createBrowserRouter([
       {
         path: "/admin/user/:pubkey",
         element: <UserScope />,
+      },
+      {
+        path: "/tos",
+        element: <Tos />,
       },
     ],
   },

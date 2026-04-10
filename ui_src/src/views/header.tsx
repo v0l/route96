@@ -86,6 +86,12 @@ export default function Header() {
 
         <div className="flex items-center gap-3">
           <a
+            href="/tos"
+            className="text-sm text-neutral-500 hover:text-white transition-colors"
+          >
+            TOS
+          </a>
+          <a
             href="/docs.md"
             target="_blank"
             className="text-sm text-neutral-500 hover:text-white transition-colors flex items-center gap-1"

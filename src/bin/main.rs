@@ -116,7 +116,14 @@ async fn main() -> Result<(), Error> {
         .route("/", get(routes::root))
         .route("/docs.md", get(routes::docs_md))
         .route("/SKILL.md", get(routes::skill_md))
-        .route("/{sha256}", head(routes::head_blob).get(routes::get_blob));
+        .route("/props", get(routes::get_props))
+        .route("/{sha256}", head(routes::head_blob).get(routes::get_blob))
+        .fallback(get(routes::root));
+
+    #[cfg(feature = "media-compression")]
+    {
+        app = app.route("/thumb/{sha256}", get(routes::get_blob_thumb));
+    }
 
     #[cfg(feature = "media-compression")]
     {

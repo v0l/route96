@@ -8,6 +8,10 @@ pub use crate::routes::admin::admin_routes;
 pub use crate::routes::blossom::blossom_routes;
 #[cfg(feature = "nip96")]
 pub use crate::routes::nip96::nip96_routes;
+#[cfg(feature = "payments")]
+pub mod payment;
+#[cfg(feature = "payments")]
+use crate::payments::{Currency, PaymentInterval};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
@@ -15,7 +19,7 @@ use axum::{
     body::Body,
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Json, Response},
 };
 use axum_extra::response::file_stream::FileStream;
 use chrono::Utc;
@@ -193,6 +197,104 @@ pub async fn skill_md() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
         SKILL_MD,
     )
+}
+
+/// Server properties / TOS endpoint
+#[derive(Serialize)]
+pub struct ServerProps {
+    pub max_upload_size: u64,
+    pub public_url: String,
+    pub retention: RetentionPolicy,
+    #[cfg(feature = "media-compression")]
+    pub media_processing: MediaProcessingPolicy,
+    #[cfg(feature = "labels")]
+    pub labeling: LabelingPolicy,
+    #[cfg(feature = "payments")]
+    pub payments: Option<PaymentPolicy>,
+}
+
+#[derive(Serialize)]
+pub struct RetentionPolicy {
+    pub delete_unaccessed_days: Option<u64>,
+    pub delete_after_days: Option<u64>,
+    pub delete_zero_egress_days: Option<u64>,
+}
+
+#[cfg(feature = "media-compression")]
+#[derive(Serialize)]
+pub struct MediaProcessingPolicy {
+    pub webp_conversion: bool,
+    pub thumbnails: bool,
+    pub identical_media_dedup: bool,
+    pub identical_media_dedup_distance: u32,
+    pub reject_sensitive_exif: bool,
+    pub reject_steganography: bool,
+}
+
+#[cfg(feature = "labels")]
+#[derive(Serialize)]
+pub struct LabelingPolicy {
+    pub enabled: bool,
+    pub models: Vec<String>,
+    pub flag_terms: Vec<String>,
+}
+
+#[cfg(feature = "payments")]
+#[derive(Serialize)]
+pub struct PaymentPolicy {
+    pub enabled: bool,
+    pub currency: String,
+    pub intervals: Vec<String>,
+}
+
+pub async fn get_props(
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> Result<Json<ServerProps>, StatusCode> {
+    let settings = state.settings.read().await.clone();
+    
+    let props = ServerProps {
+        max_upload_size: settings.max_upload_bytes,
+        public_url: settings.public_url.clone(),
+        retention: RetentionPolicy {
+            delete_unaccessed_days: settings.delete_unaccessed_days,
+            delete_after_days: settings.delete_after_days,
+            delete_zero_egress_days: settings.delete_zero_egress_days,
+        },
+        #[cfg(feature = "media-compression")]
+        media_processing: MediaProcessingPolicy {
+            webp_conversion: true,
+            thumbnails: true,
+            identical_media_dedup: settings.identical_media_dedup.unwrap_or(false),
+            identical_media_dedup_distance: settings.identical_media_dedup_distance.unwrap_or(0),
+            reject_sensitive_exif: settings.reject_sensitive_exif.unwrap_or(false),
+            reject_steganography: settings.reject_steganography.unwrap_or(false),
+        },
+        #[cfg(feature = "labels")]
+        labeling: {
+            let models = settings.label_models.unwrap_or_default();
+            LabelingPolicy {
+                enabled: !models.is_empty(),
+                models: models.into_iter().map(|m| m.name).collect(),
+                flag_terms: settings.label_flag_terms.unwrap_or_default(),
+            }
+        },
+        #[cfg(feature = "payments")]
+        payments: settings.payments.as_ref().map(|p| PaymentPolicy {
+            enabled: true,
+            currency: p.currency.to_string(),
+            intervals: p
+                .intervals
+                .iter()
+                .map(|i| match i {
+                    PaymentInterval::Monthly => "monthly".to_string(),
+                    PaymentInterval::Yearly => "yearly".to_string(),
+                    PaymentInterval::Lifetime => "lifetime".to_string(),
+                })
+                .collect(),
+        }),
+    };
+    
+    Ok(Json(props))
 }
 
 const MAX_UNBOUNDED_RANGE: u64 = 8 * 1024 * 1024;
