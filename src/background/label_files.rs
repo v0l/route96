@@ -226,12 +226,15 @@ impl LabelFiles {
             );
             let start = std::time::Instant::now();
             let labeler_clone = labeler.clone();
-            let new_labels = match tokio::task::spawn_blocking(move || {
-                labeler_clone.label_file(&path, &file.mime_type)
-            })
+            let new_labels = match tokio::time::timeout(
+                std::time::Duration::from_secs(300),
+                tokio::task::spawn_blocking(move || {
+                    labeler_clone.label_file(&path, &file.mime_type)
+                }),
+            )
             .await
             {
-                Ok(Ok(results)) => {
+                Ok(Ok(Ok(results))) => {
                     let elapsed = start.elapsed();
                     results
                         .into_iter()
@@ -255,7 +258,7 @@ impl LabelFiles {
                         })
                         .collect::<Vec<_>>()
                 }
-                Ok(Err(e)) => {
+                Ok(Ok(Err(e))) => {
                     let elapsed = start.elapsed();
                     let file_id = file.id.clone();
                     error!(
@@ -279,7 +282,7 @@ impl LabelFiles {
                     failed += 1;
                     continue;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     let file_id = file.id.clone();
                     error!("Label task for {} panicked: {}", hex::encode(&file_id), e);
                     if !labeler.is_remote() {
@@ -293,6 +296,17 @@ impl LabelFiles {
                                 );
                             });
                     }
+                    failed += 1;
+                    continue;
+                }
+                Err(_) => {
+                    let file_id = file.id.clone();
+                    error!(
+                        "Label model '{}' timed out on {} after {:.2?}",
+                        model_name,
+                        hex::encode(&file_id),
+                        start.elapsed()
+                    );
                     failed += 1;
                     continue;
                 }
