@@ -303,7 +303,15 @@ impl GenericLlmLabeler {
             decoder.setup_decoder(stream, None)?;
             let stream_index = stream.index as i32;
 
+            let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(30);
+
             while let Ok((pkt, _)) = demux.get_packet() {
+                // Check timeout to prevent infinite loops on corrupt files
+                if start.elapsed() > timeout {
+                    return Err(Error::msg("Image compression timed out after 30s"));
+                }
+
                 if let Some(ref pkt) = pkt
                     && pkt.stream_index != stream_index
                 {
