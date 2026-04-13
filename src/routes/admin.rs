@@ -37,6 +37,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
     let mut router = Router::new()
         .route("/admin/stats", get(admin_stats))
+        .route("/admin/background-progress", get(admin_background_progress))
         .route("/setup", post(post_setup))
         .route("/admin/self", get(admin_get_self))
         .route("/user/files", get(user_list_files))
@@ -254,6 +255,30 @@ fn default_days() -> u32 {
 }
 
 /// Daily stat entry for time series data.
+/// Progress entry for a single background processing task.
+#[derive(Serialize)]
+struct BackgroundTaskProgress {
+    /// Human-readable task name (e.g. "media_metadata", "phash", "labels:vit224").
+    task: String,
+    /// Number of files still pending processing.
+    pending: i64,
+    /// Total number of files this task applies to.
+    total: i64,
+    /// Completion percentage (0.0 – 100.0).
+    percent: f64,
+}
+
+/// Response for `GET /admin/background-progress`.
+#[derive(Serialize)]
+struct BackgroundProgressResponse {
+    /// Per-task progress breakdown.
+    tasks: Vec<BackgroundTaskProgress>,
+    /// Total pending across all tasks (files may appear in multiple tasks).
+    total_pending: i64,
+    /// Overall completion percentage across all tasks.
+    total_percent: f64,
+}
+
 #[derive(Serialize)]
 struct DailyStat {
     date: String,
@@ -320,6 +345,120 @@ async fn admin_stats(
     }
 
     AdminResponse::success(AdminStatsResponse { days, stats })
+}
+
+/// `GET /admin/background-progress` — return progress of background processing
+/// tasks (media metadata, phash, labeling).
+async fn admin_background_progress(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<BackgroundProgressResponse> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let mut tasks: Vec<BackgroundTaskProgress> = Vec::new();
+
+    // Media metadata progress
+    match (
+        state.db.count_missing_media_metadata().await,
+        state.db.count_media_files().await,
+    ) {
+        (Ok(pending), Ok(total)) => {
+            let percent = if total > 0 {
+                ((total - pending) as f64 / total as f64) * 100.0
+            } else {
+                100.0
+            };
+            tasks.push(BackgroundTaskProgress {
+                task: "media_metadata".to_string(),
+                pending,
+                total,
+                percent,
+            });
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            log::warn!("Failed to query media metadata progress: {}", e);
+        }
+    }
+
+    #[cfg(feature = "media-compression")]
+    {
+        // PHash progress
+        match (
+            state.db.count_images_missing_phash().await,
+            state.db.count_images().await,
+        ) {
+            (Ok(pending), Ok(total)) => {
+                let percent = if total > 0 {
+                    ((total - pending) as f64 / total as f64) * 100.0
+                } else {
+                    100.0
+                };
+                tasks.push(BackgroundTaskProgress {
+                    task: "phash".to_string(),
+                    pending,
+                    total,
+                    percent,
+                });
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                log::warn!("Failed to query phash progress: {}", e);
+            }
+        }
+    }
+
+    #[cfg(feature = "labels")]
+    {
+        // Per-model labeling progress
+        match state.db.get_label_models().await {
+            Ok(models) => {
+                let media_total = state.db.count_media_files().await.unwrap_or(0);
+                for model in &models {
+                    match state.db.count_files_missing_labels(&model.name).await {
+                        Ok(pending) => {
+                            let total = media_total;
+                            let percent = if total > 0 {
+                                ((total - pending) as f64 / total as f64) * 100.0
+                            } else {
+                                100.0
+                            };
+                            tasks.push(BackgroundTaskProgress {
+                                task: format!("labels:{}", model.name),
+                                pending,
+                                total,
+                                percent,
+                            });
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to query label progress for model '{}': {}",
+                                model.name,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to query label models: {}", e);
+            }
+        }
+    }
+
+    let total_pending: i64 = tasks.iter().map(|t| t.pending).sum();
+    let total_applicable: i64 = tasks.iter().map(|t| t.total).sum();
+    let total_percent = if total_applicable > 0 {
+        ((total_applicable - total_pending) as f64 / total_applicable as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    AdminResponse::success(BackgroundProgressResponse {
+        tasks,
+        total_pending,
+        total_percent,
+    })
 }
 
 async fn admin_get_self(

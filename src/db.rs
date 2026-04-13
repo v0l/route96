@@ -1124,6 +1124,68 @@ impl Database {
         .await
     }
 
+    /// Count image uploads that do not yet have a perceptual hash computed.
+    #[cfg(feature = "media-compression")]
+    pub async fn count_images_missing_phash(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(u.id) from uploads u \
+             where u.mime_type like 'image/%' \
+             and u.banned = false \
+             and not exists (select 1 from upload_phash p where p.file = u.id)",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Count total (non-banned) image uploads.
+    #[cfg(feature = "media-compression")]
+    pub async fn count_images(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(id) from uploads where mime_type like 'image/%' and banned = false",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Count uploads missing media metadata (width/height for images,
+    /// width/height/duration/bitrate for videos).
+    pub async fn count_missing_media_metadata(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(id) from uploads where \
+             (mime_type like 'image/%' and (width is null or height is null)) or \
+             (mime_type like 'video/%' and (width is null or height is null or bitrate is null or duration is null))",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Count total media uploads (images + videos).
+    pub async fn count_media_files(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(id) from uploads where mime_type like 'image/%' or mime_type like 'video/%'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Count labelable uploads not yet processed by `model_name`.
+    #[cfg(feature = "labels")]
+    pub async fn count_files_missing_labels(&self, model_name: &str) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(u.id) from uploads u \
+             where (u.mime_type like 'image/%' or u.mime_type like 'video/%') \
+             and not exists (select 1 from upload_labeled_by lb where lb.file = u.id and lb.model = ?)",
+        )
+        .bind(model_name)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
     /// Find files whose pHash is within `max_distance` Hamming bits of `query`,
     /// using LSH band matching as a pre-filter then exact Hamming verification.
     pub async fn find_similar_images(

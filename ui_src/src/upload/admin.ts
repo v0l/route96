@@ -87,6 +87,19 @@ export interface AdminStatsResponse {
   stats: DailyStat[];
 }
 
+export interface BackgroundTaskProgress {
+  task: string;
+  pending: number;
+  total: number;
+  percent: number;
+}
+
+export interface BackgroundProgressResponse {
+  tasks: BackgroundTaskProgress[];
+  total_pending: number;
+  total_percent: number;
+}
+
 
 export interface Report {
   id: number;
@@ -366,6 +379,13 @@ export class Route96 {
     const rsp = await this.#req(`admin/stats?days=${days}`, "GET");
     const data = await this.#handleResponse<AdminResponse<AdminStatsResponse>>(rsp);
     if (!data.data) throw new Error(data.message || "Get stats failed");
+    return data.data;
+  }
+
+  async getBackgroundProgress() {
+    const rsp = await this.#req("admin/background-progress", "GET");
+    const data = await this.#handleResponse<AdminResponse<BackgroundProgressResponse>>(rsp);
+    if (!data.data) throw new Error(data.message || "Get background progress failed");
     return data.data;
   }
 
