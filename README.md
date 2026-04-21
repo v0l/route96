@@ -2,6 +2,8 @@
 
 Decentralized blob storage server with Nostr integration, supporting multiple protocols and advanced media processing capabilities.
 
+[![badge-light](https://apps.umbrel.com/badge-light.svg)](https://apps.umbrel.com/app/route96)
+
 ## Core Features
 
 ### Protocol Support
