@@ -283,7 +283,7 @@ async fn delete_blob(
             if e.to_string().contains("not found") {
                 BlossomResponse::not_found(format!("File not found: {}", e))
             } else {
-                BlossomResponse::error(format!("Failed to delete file: {}", e))
+                BlossomResponse::service_unavailable(format!("Failed to delete file: {}", e))
             }
         }
     }
@@ -619,7 +619,7 @@ where
                             cleanup_err
                         );
                     }
-                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
                 }
             }
 
@@ -634,7 +634,7 @@ where
                             cleanup_err
                         );
                     }
-                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
                 }
             }
 
