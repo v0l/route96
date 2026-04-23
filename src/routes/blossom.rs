@@ -1,7 +1,7 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{AppState, Nip94Event, delete_file};
+use crate::routes::{AppState, Nip94Event, delete_file, get_blob, head_blob};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use axum::{
@@ -10,7 +10,7 @@ use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, head, put},
+    routing::{get, head, put},
 };
 use futures_util::TryStreamExt;
 use futures_util::stream::StreamExt;
@@ -63,7 +63,7 @@ struct MirrorRequest {
 
 pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = Router::new()
-        .route("/{sha256}", delete(delete_blob))
+        .route("/{sha256}", get(get_blob).head(head_blob).delete(delete_blob))
         .route("/list/{pubkey}", get(list_files))
         .route("/upload", head(upload_head).put(upload))
         .route("/mirror", put(mirror))
@@ -95,7 +95,8 @@ impl IntoResponse for BlossomGenericResponse {
 
 enum BlossomResponse {
     Generic(BlossomGenericResponse),
-    BlobDescriptor(Json<BlobDescriptor>),
+    BlobDescriptorCreated(Json<BlobDescriptor>),
+    BlobDescriptorOk(Json<BlobDescriptor>),
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
     /// BUD-12: identical media detected; 409 with X-Identical-Media header
     IdenticalMedia(String),
@@ -105,7 +106,8 @@ impl IntoResponse for BlossomResponse {
     fn into_response(self) -> Response {
         match self {
             BlossomResponse::Generic(g) => g.into_response(),
-            BlossomResponse::BlobDescriptor(j) => (StatusCode::OK, j).into_response(),
+            BlossomResponse::BlobDescriptorCreated(j) => (StatusCode::CREATED, j).into_response(),
+            BlossomResponse::BlobDescriptorOk(j) => (StatusCode::OK, j).into_response(),
             BlossomResponse::BlobDescriptorList(j) => (StatusCode::OK, j).into_response(),
             BlossomResponse::IdenticalMedia(sha256) => {
                 let mut headers = HeaderMap::new();
@@ -131,10 +133,102 @@ impl BlossomResponse {
             status: StatusCode::INTERNAL_SERVER_ERROR,
         })
     }
+
+    pub fn bad_request(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::BAD_REQUEST,
+        })
+    }
+
+    pub fn unauthorized(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::UNAUTHORIZED,
+        })
+    }
+
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::FORBIDDEN,
+        })
+    }
+
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::NOT_FOUND,
+        })
+    }
+
+    pub fn payment_required(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::PAYMENT_REQUIRED,
+        })
+    }
+
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::CONFLICT,
+        })
+    }
+
+    pub fn length_required(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::LENGTH_REQUIRED,
+        })
+    }
+
+    pub fn content_too_large(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+        })
+    }
+
+    pub fn unsupported_media_type(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        })
+    }
+
+    pub fn too_many_requests(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::TOO_MANY_REQUESTS,
+        })
+    }
+
+    pub fn unprocessable_content(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+        })
+    }
+
+    pub fn bad_gateway(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::BAD_GATEWAY,
+        })
+    }
+
+    pub fn service_unavailable(msg: impl Into<String>) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        })
+    }
 }
 
 struct BlossomHead {
     pub msg: Option<&'static str>,
+    pub status: StatusCode,
 }
 
 impl IntoResponse for BlossomHead {
@@ -142,10 +236,12 @@ impl IntoResponse for BlossomHead {
         match self.msg {
             Some(m) => {
                 let mut headers = HeaderMap::new();
-                headers.insert("x-upload-message", m.parse().unwrap());
-                (StatusCode::INTERNAL_SERVER_ERROR, headers).into_response()
+                if let Ok(v) = m.parse() {
+                    headers.insert("x-reason", v);
+                }
+                (self.status, headers).into_response()
             }
-            None => StatusCode::OK.into_response(),
+            None => self.status.into_response(),
         }
     }
 }
@@ -180,10 +276,16 @@ async fn delete_blob(
 ) -> BlossomResponse {
     match delete_file(&sha256, &auth.event, &state.fs, &state.db).await {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
-            status: StatusCode::OK,
+            status: StatusCode::NO_CONTENT,
             message: None,
         }),
-        Err(e) => BlossomResponse::error(format!("Failed to delete file: {}", e)),
+        Err(e) => {
+            if e.to_string().contains("not found") {
+                BlossomResponse::not_found(format!("File not found: {}", e))
+            } else {
+                BlossomResponse::service_unavailable(format!("Failed to delete file: {}", e))
+            }
+        }
     }
 }
 
@@ -194,7 +296,7 @@ async fn list_files(
     let id = if let Ok(i) = hex::decode(&pubkey) {
         i
     } else {
-        return BlossomResponse::error("invalid pubkey");
+        return BlossomResponse::bad_request("invalid pubkey");
     };
     let settings = state.settings().await;
     match state.db.list_files(&id, 0, 10_000).await {
@@ -204,7 +306,7 @@ async fn list_files(
                 .map(|f| BlobDescriptor::from_upload(&settings, f))
                 .collect(),
         )),
-        Err(e) => BlossomResponse::error(format!("Could not list files: {}", e)),
+        Err(e) => BlossomResponse::service_unavailable(format!("Could not list files: {}", e)),
     }
 }
 
@@ -227,7 +329,7 @@ async fn mirror(
     Json(req): Json<MirrorRequest>,
 ) -> BlossomResponse {
     if !check_method(&auth.event, "upload") {
-        return BlossomResponse::error("Invalid request method tag");
+        return BlossomResponse::bad_request("Invalid request method tag");
     }
     if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
         return e;
@@ -235,7 +337,7 @@ async fn mirror(
 
     let url = match Url::parse(&req.url) {
         Ok(u) => u,
-        Err(e) => return BlossomResponse::error(format!("Invalid URL: {}", e)),
+        Err(e) => return BlossomResponse::bad_request(format!("Invalid URL: {}", e)),
     };
 
     let hash = url
@@ -256,7 +358,7 @@ async fn mirror(
     let rsp = match req_builder.send().await {
         Err(e) => {
             error!("Error downloading file: {}", e);
-            return BlossomResponse::error("Failed to mirror file");
+            return BlossomResponse::bad_gateway("Failed to fetch blob from origin URL");
         }
         Ok(rsp) if !rsp.status().is_success() => {
             let status = rsp.status();
@@ -266,7 +368,7 @@ async fn mirror(
                 status,
                 String::from_utf8_lossy(&body)
             );
-            return BlossomResponse::error("Failed to mirror file");
+            return BlossomResponse::bad_gateway("Failed to fetch blob from origin URL");
         }
         Ok(rsp) => rsp,
     };
@@ -299,7 +401,55 @@ async fn mirror(
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings().await;
-    check_head(auth, &state.wl().await, &settings).await
+    check_head_media(auth, &state.wl().await, &settings).await
+}
+
+#[cfg(feature = "media-compression")]
+async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
+    if !check_method(&auth.event, "media") {
+        return BlossomHead {
+            msg: Some("Invalid auth method tag"),
+            status: StatusCode::BAD_REQUEST,
+        };
+    }
+
+    if let Some(z) = auth.x_content_length {
+        if z > settings.max_upload_bytes {
+            return BlossomHead {
+                msg: Some("File too large"),
+                status: StatusCode::PAYLOAD_TOO_LARGE,
+            };
+        }
+    } else {
+        return BlossomHead {
+            msg: Some("Missing x-content-length header"),
+            status: StatusCode::LENGTH_REQUIRED,
+        };
+    }
+
+    if auth.x_sha_256.is_none() {
+        return BlossomHead {
+            msg: Some("Missing x-sha-256 header"),
+            status: StatusCode::BAD_REQUEST,
+        };
+    }
+
+    if auth.x_content_type.is_none() {
+        return BlossomHead {
+            msg: Some("Missing x-content-type header"),
+            status: StatusCode::BAD_REQUEST,
+        };
+    }
+
+    // check whitelist
+    if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
+        return BlossomHead {
+            msg: Some("Not on whitelist"),
+            status: StatusCode::FORBIDDEN,
+        };
+    }
+
+    BlossomHead { msg: None, status: StatusCode::NO_CONTENT }
 }
 
 #[cfg(feature = "media-compression")]
@@ -315,6 +465,7 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
+            status: StatusCode::BAD_REQUEST,
         };
     }
 
@@ -322,23 +473,27 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
         if z > settings.max_upload_bytes {
             return BlossomHead {
                 msg: Some("File too large"),
+                status: StatusCode::PAYLOAD_TOO_LARGE,
             };
         }
     } else {
         return BlossomHead {
             msg: Some("Missing x-content-length header"),
+            status: StatusCode::LENGTH_REQUIRED,
         };
     }
 
     if auth.x_sha_256.is_none() {
         return BlossomHead {
             msg: Some("Missing x-sha-256 header"),
+            status: StatusCode::BAD_REQUEST,
         };
     }
 
     if auth.x_content_type.is_none() {
         return BlossomHead {
             msg: Some("Missing x-content-type header"),
+            status: StatusCode::BAD_REQUEST,
         };
     }
 
@@ -346,10 +501,11 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
     if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
         return BlossomHead {
             msg: Some("Not on whitelist"),
+            status: StatusCode::FORBIDDEN,
         };
     }
 
-    BlossomHead { msg: None }
+    BlossomHead { msg: None, status: StatusCode::NO_CONTENT }
 }
 
 async fn process_upload(
@@ -360,7 +516,12 @@ async fn process_upload(
     body: Body,
 ) -> BlossomResponse {
     if !check_method(&auth.event, method) {
-        return BlossomResponse::error("Invalid request method tag");
+        return BlossomResponse::bad_request("Invalid request method tag");
+    }
+
+    // Require X-SHA-256 header per BUD-02 (PR #95)
+    if auth.x_sha_256.is_none() {
+        return BlossomResponse::bad_request("Missing X-SHA-256 header");
     }
 
     let name = auth.event.tags.iter().find_map(|t| {
@@ -381,7 +542,7 @@ async fn process_upload(
     let size = size_tag.or(auth.x_content_length).unwrap_or(0);
     let settings = state.settings().await;
     if size > 0 && size > settings.max_upload_bytes {
-        return BlossomResponse::error("File too large");
+        return BlossomResponse::content_too_large("File too large");
     }
 
     // check whitelist
@@ -429,8 +590,10 @@ where
 {
     let settings = state.settings().await;
 
+    let mut is_new_file = false;
     let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
         Ok(FileSystemResult::NewFile(blob)) => {
+            is_new_file = true;
             let mut ret: FileUpload = (&blob).into();
 
             // check expected hash (mirroring)
@@ -440,7 +603,7 @@ where
                 if let Err(e) = state.fs.delete(&ret.id).await {
                     log::warn!("Failed to cleanup file: {}", e);
                 }
-                return BlossomResponse::error(
+                return BlossomResponse::conflict(
                     "Mirror request failed, server responses with invalid file content (hash mismatch)",
                 );
             }
@@ -456,7 +619,7 @@ where
                             cleanup_err
                         );
                     }
-                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
                 }
             }
 
@@ -471,7 +634,7 @@ where
                             cleanup_err
                         );
                     }
-                    return BlossomResponse::error(format!("Upload rejected: {}", e));
+                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
                 }
             }
 
@@ -520,18 +683,18 @@ where
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) => f,
-            _ => return BlossomResponse::error("File not found"),
+            _ => return BlossomResponse::not_found("File not found"),
         },
         Err(e) => {
             error!("{}", e);
-            return BlossomResponse::error(format!("Error saving file (disk): {}", e));
+            return BlossomResponse::service_unavailable(format!("Error saving file (disk): {}", e));
         }
     };
 
     let user_id = match state.db.upsert_user(pubkey).await {
         Ok(u) => u,
         Err(e) => {
-            return BlossomResponse::error(format!("Failed to save file (db): {}", e));
+            return BlossomResponse::service_unavailable(format!("Failed to save file (db): {}", e));
         }
     };
 
@@ -550,13 +713,13 @@ where
                     if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup quota-exceeding file: {}", e);
                     }
-                    return BlossomResponse::error("Upload would exceed quota");
+                    return BlossomResponse::content_too_large("Upload would exceed quota");
                 }
                 Err(_) => {
                     if let Err(e) = state.fs.delete(&upload.id).await {
                         log::warn!("Failed to cleanup file after quota check error: {}", e);
                     }
-                    return BlossomResponse::error("Failed to check quota");
+                    return BlossomResponse::service_unavailable("Failed to check quota");
                 }
                 Ok(true) => {} // Quota check passed
             }
@@ -564,10 +727,15 @@ where
     }
     if let Err(e) = state.db.add_file(&upload, Some(user_id)).await {
         error!("{}", e);
-        return BlossomResponse::error(format!("Error saving file (db): {}", e));
+        return BlossomResponse::service_unavailable(format!("Error saving file (db): {}", e));
     }
 
-    BlossomResponse::BlobDescriptor(Json(BlobDescriptor::from_upload(&settings, &upload)))
+    // Return 201 for new files, 200 for existing
+    if is_new_file {
+        BlossomResponse::BlobDescriptorCreated(Json(BlobDescriptor::from_upload(&settings, &upload)))
+    } else {
+        BlossomResponse::BlobDescriptorOk(Json(BlobDescriptor::from_upload(&settings, &upload)))
+    }
 }
 
 async fn report_file(
@@ -577,7 +745,7 @@ async fn report_file(
 ) -> BlossomResponse {
     // Check if the request has the correct method tag
     if !check_method(&auth.event, "report") {
-        return BlossomResponse::error("Invalid request method tag");
+        return BlossomResponse::bad_request("Invalid request method tag");
     }
 
     // Check whitelist
@@ -595,17 +763,17 @@ async fn report_file(
     }) {
         match hex::decode(x_tag) {
             Ok(hash) => hash,
-            Err(_) => return BlossomResponse::error("Invalid file hash in x tag"),
+            Err(_) => return BlossomResponse::bad_request("Invalid file hash in x tag"),
         }
     } else {
-        return BlossomResponse::error("Missing file hash in x tag");
+        return BlossomResponse::bad_request("Missing file hash in x tag");
     };
 
     // Verify the reported file exists
     match state.db.get_file(&file_sha256).await {
         Ok(Some(_)) => {} // File exists, continue
-        Ok(None) => return BlossomResponse::error("File not found"),
-        Err(e) => return BlossomResponse::error(format!("Failed to check file: {}", e)),
+        Ok(None) => return BlossomResponse::not_found("File not found"),
+        Err(e) => return BlossomResponse::service_unavailable(format!("Failed to check file: {}", e)),
     }
 
     // Get or create the reporter user
@@ -615,7 +783,7 @@ async fn report_file(
         .await
     {
         Ok(user_id) => user_id,
-        Err(e) => return BlossomResponse::error(format!("Failed to get user: {}", e)),
+        Err(e) => return BlossomResponse::service_unavailable(format!("Failed to get user: {}", e)),
     };
 
     // Store the report (the database will handle duplicate prevention via unique index)
@@ -630,9 +798,9 @@ async fn report_file(
         }),
         Err(e) => {
             if e.to_string().contains("Duplicate entry") {
-                BlossomResponse::error("You have already reported this file")
+                BlossomResponse::conflict("You have already reported this file")
             } else {
-                BlossomResponse::error(format!("Failed to submit report: {}", e))
+                BlossomResponse::service_unavailable(format!("Failed to submit report: {}", e))
             }
         }
     }
