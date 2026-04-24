@@ -1,7 +1,7 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{AppState, Nip94Event, delete_file, get_blob, head_blob};
+use crate::routes::{AppState, Nip94Event, delete_file};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use axum::{
@@ -10,7 +10,7 @@ use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, head, put},
+    routing::{delete, get, head, put},
 };
 use futures_util::TryStreamExt;
 use futures_util::stream::StreamExt;
@@ -63,7 +63,7 @@ struct MirrorRequest {
 
 pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = Router::new()
-        .route("/{sha256}", get(get_blob).head(head_blob).delete(delete_blob))
+        .route("/{sha256}", delete(delete_blob))
         .route("/list/{pubkey}", get(list_files))
         .route("/upload", head(upload_head).put(upload))
         .route("/mirror", put(mirror))
