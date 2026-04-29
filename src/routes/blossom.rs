@@ -61,6 +61,25 @@ struct MirrorRequest {
     pub url: String,
 }
 
+/// Extract SHA-256 hash from a URL path (last segment before optional extension)
+fn url_hash_from_url(url: &str) -> Option<String> {
+    use url::Url;
+    
+    let parsed = Url::parse(url).ok()?;
+    let hash = parsed
+        .path_segments()?
+        .rev()
+        .next()?
+        .split('.')
+        .next()?;
+    
+    if hash.len() == 64 {
+        Some(hash.to_lowercase())
+    } else {
+        None
+    }
+}
+
 pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = Router::new()
         .route("/{sha256}", delete(delete_blob))
@@ -79,15 +98,36 @@ pub fn blossom_routes() -> Router<Arc<AppState>> {
 struct BlossomGenericResponse {
     pub message: Option<String>,
     pub status: StatusCode,
+    pub payment_headers: Option<PaymentHeaders>,
+}
+
+#[derive(Debug, Clone)]
+struct PaymentHeaders {
+    pub lightning: Option<String>,
+    pub cashu: Option<String>,
 }
 
 impl IntoResponse for BlossomGenericResponse {
     fn into_response(self) -> Response {
         let mut headers = HeaderMap::new();
+        headers.insert("access-control-allow-origin", "*".parse().unwrap());
         if let Some(message) = self.message
             && let Ok(value) = message.parse()
         {
             headers.insert("x-reason", value);
+        }
+        // Add payment headers if present
+        if let Some(payment) = self.payment_headers {
+            if let Some(lightning) = payment.lightning {
+                if let Ok(v) = lightning.parse() {
+                    headers.insert("x-lightning", v);
+                }
+            }
+            if let Some(cashu) = payment.cashu {
+                if let Ok(v) = cashu.parse() {
+                    headers.insert("x-cashu", v);
+                }
+            }
         }
         (self.status, headers).into_response()
     }
@@ -131,6 +171,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            payment_headers: None,
         })
     }
 
@@ -138,6 +179,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::BAD_REQUEST,
+            payment_headers: None,
         })
     }
 
@@ -145,6 +187,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::UNAUTHORIZED,
+            payment_headers: None,
         })
     }
 
@@ -152,6 +195,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::FORBIDDEN,
+            payment_headers: None,
         })
     }
 
@@ -159,6 +203,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::NOT_FOUND,
+            payment_headers: None,
         })
     }
 
@@ -166,6 +211,19 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::PAYMENT_REQUIRED,
+            payment_headers: None,
+        })
+    }
+
+    pub fn payment_required_with_headers(
+        msg: impl Into<String>,
+        lightning: Option<String>,
+        cashu: Option<String>,
+    ) -> Self {
+        Self::Generic(BlossomGenericResponse {
+            message: Some(msg.into()),
+            status: StatusCode::PAYMENT_REQUIRED,
+            payment_headers: Some(PaymentHeaders { lightning, cashu }),
         })
     }
 
@@ -173,6 +231,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::CONFLICT,
+            payment_headers: None,
         })
     }
 
@@ -180,6 +239,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::LENGTH_REQUIRED,
+            payment_headers: None,
         })
     }
 
@@ -187,6 +247,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::PAYLOAD_TOO_LARGE,
+            payment_headers: None,
         })
     }
 
@@ -194,6 +255,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            payment_headers: None,
         })
     }
 
@@ -201,6 +263,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::TOO_MANY_REQUESTS,
+            payment_headers: None,
         })
     }
 
@@ -208,6 +271,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::UNPROCESSABLE_ENTITY,
+            payment_headers: None,
         })
     }
 
@@ -215,6 +279,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::BAD_GATEWAY,
+            payment_headers: None,
         })
     }
 
@@ -222,6 +287,7 @@ impl BlossomResponse {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::SERVICE_UNAVAILABLE,
+            payment_headers: None,
         })
     }
 }
@@ -264,7 +330,16 @@ async fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<Bl
         return Some(BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::FORBIDDEN,
             message: Some("Not on whitelist".to_string()),
+            payment_headers: None,
         }));
+    }
+    None
+}
+
+/// Validate server tag against the server's domain
+fn check_server_tag(auth: &BlossomAuth, server_domain: &str) -> Option<BlossomResponse> {
+    if let Err(_) = auth.validate_server_tag(server_domain) {
+        return Some(BlossomResponse::unauthorized("Server not in authorization token scope"));
     }
     None
 }
@@ -274,10 +349,23 @@ async fn delete_blob(
     auth: BlossomAuth,
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> BlossomResponse {
+    let settings = state.settings().await;
+    
+    // BUD-11: validate x tag for DELETE endpoint
+    if let Err(_) = auth.validate_x_tag(&sha256) {
+        return BlossomResponse::unauthorized("Missing or mismatched x tag");
+    }
+    
+    // BUD-11: validate server tag
+    if let Some(e) = check_server_tag(&auth, &settings.public_url) {
+        return e;
+    }
+    
     match delete_file(&sha256, &auth.event, &state.fs, &state.db).await {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::NO_CONTENT,
             message: None,
+            payment_headers: None,
         }),
         Err(e) => {
             if e.to_string().contains("not found") {
@@ -291,16 +379,28 @@ async fn delete_blob(
 
 async fn list_files(
     axum::extract::Path(pubkey): axum::extract::Path<String>,
+    auth: BlossomAuth,
     AxumState(state): AxumState<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<ListFilesParams>,
 ) -> BlossomResponse {
+    let settings = state.settings().await;
+    
+    // BUD-11: validate server tag for list endpoint
+    if let Some(e) = check_server_tag(&auth, &settings.public_url) {
+        return e;
+    }
+    
     let id = if let Ok(i) = hex::decode(&pubkey) {
         i
     } else {
         return BlossomResponse::bad_request("invalid pubkey");
     };
-    let settings = state.settings().await;
-    match state.db.list_files(&id, 0, 10_000).await {
-        Ok((files, _count)) => BlossomResponse::BlobDescriptorList(Json(
+    
+    let limit = params.limit.unwrap_or(50).min(5000); // Max 5000 per BUD-12
+    let cursor = params.cursor.as_deref();
+    
+    match state.db.list_files_cursor(&id, cursor, limit).await {
+        Ok(files) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
                 .map(|f| BlobDescriptor::from_upload(&settings, f))
@@ -310,9 +410,15 @@ async fn list_files(
     }
 }
 
+#[derive(serde::Deserialize, Debug)]
+struct ListFilesParams {
+    cursor: Option<String>,
+    limit: Option<u32>,
+}
+
 async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings().await;
-    check_head(auth, &state.wl().await, &settings).await
+    check_head(auth, &state.wl().await, &settings, &settings.public_url).await
 }
 
 async fn upload(
@@ -328,9 +434,25 @@ async fn mirror(
     AxumState(state): AxumState<Arc<AppState>>,
     Json(req): Json<MirrorRequest>,
 ) -> BlossomResponse {
+    let settings = state.settings().await;
+    
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::bad_request("Invalid request method tag");
     }
+    
+    // BUD-11: validate x tag for mirror endpoint
+    // Extract expected hash from URL and validate against x tags
+    if let Some(url_hash) = url_hash_from_url(&req.url) {
+        if let Err(_) = auth.validate_x_tag(&url_hash) {
+            return BlossomResponse::unauthorized("Missing or mismatched x tag");
+        }
+    }
+    
+    // BUD-11: validate server tag
+    if let Some(e) = check_server_tag(&auth, &settings.public_url) {
+        return e;
+    }
+    
     if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
         return e;
     }
@@ -401,11 +523,11 @@ async fn mirror(
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings().await;
-    check_head_media(auth, &state.wl().await, &settings).await
+    check_head_media(auth, &state.wl().await, &settings, &settings.public_url).await
 }
 
 #[cfg(feature = "media-compression")]
-async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
+async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings, server_domain: &str) -> BlossomHead {
     if !check_method(&auth.event, "media") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -413,6 +535,7 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
         };
     }
 
+    // Check size limit if provided (optional header)
     if let Some(z) = auth.x_content_length {
         if z > settings.max_upload_bytes {
             return BlossomHead {
@@ -420,25 +543,6 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
                 status: StatusCode::PAYLOAD_TOO_LARGE,
             };
         }
-    } else {
-        return BlossomHead {
-            msg: Some("Missing x-content-length header"),
-            status: StatusCode::LENGTH_REQUIRED,
-        };
-    }
-
-    if auth.x_sha_256.is_none() {
-        return BlossomHead {
-            msg: Some("Missing x-sha-256 header"),
-            status: StatusCode::BAD_REQUEST,
-        };
-    }
-
-    if auth.x_content_type.is_none() {
-        return BlossomHead {
-            msg: Some("Missing x-content-type header"),
-            status: StatusCode::BAD_REQUEST,
-        };
     }
 
     // check whitelist
@@ -446,6 +550,14 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
         return BlossomHead {
             msg: Some("Not on whitelist"),
             status: StatusCode::FORBIDDEN,
+        };
+    }
+
+    // BUD-11: validate server tag
+    if let Err(_) = auth.validate_server_tag(server_domain) {
+        return BlossomHead {
+            msg: Some("Server not in authorization token scope"),
+            status: StatusCode::UNAUTHORIZED,
         };
     }
 
@@ -461,7 +573,7 @@ async fn upload_media(
     process_upload("media", true, auth, state, body).await
 }
 
-async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings) -> BlossomHead {
+async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings, server_domain: &str) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -469,6 +581,7 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
         };
     }
 
+    // Check size limit if provided (optional header)
     if let Some(z) = auth.x_content_length {
         if z > settings.max_upload_bytes {
             return BlossomHead {
@@ -476,25 +589,6 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
                 status: StatusCode::PAYLOAD_TOO_LARGE,
             };
         }
-    } else {
-        return BlossomHead {
-            msg: Some("Missing x-content-length header"),
-            status: StatusCode::LENGTH_REQUIRED,
-        };
-    }
-
-    if auth.x_sha_256.is_none() {
-        return BlossomHead {
-            msg: Some("Missing x-sha-256 header"),
-            status: StatusCode::BAD_REQUEST,
-        };
-    }
-
-    if auth.x_content_type.is_none() {
-        return BlossomHead {
-            msg: Some("Missing x-content-type header"),
-            status: StatusCode::BAD_REQUEST,
-        };
     }
 
     // check whitelist
@@ -502,6 +596,14 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
         return BlossomHead {
             msg: Some("Not on whitelist"),
             status: StatusCode::FORBIDDEN,
+        };
+    }
+
+    // BUD-11: validate server tag
+    if let Err(_) = auth.validate_server_tag(server_domain) {
+        return BlossomHead {
+            msg: Some("Server not in authorization token scope"),
+            status: StatusCode::UNAUTHORIZED,
         };
     }
 
@@ -519,9 +621,11 @@ async fn process_upload(
         return BlossomResponse::bad_request("Invalid request method tag");
     }
 
-    // Require X-SHA-256 header per BUD-02 (PR #95)
-    if auth.x_sha_256.is_none() {
-        return BlossomResponse::bad_request("Missing X-SHA-256 header");
+    // BUD-11: validate x tag if X-SHA-256 header is provided
+    if let Some(ref x_sha) = auth.x_sha_256 {
+        if let Err(_) = auth.validate_x_tag(x_sha) {
+            return BlossomResponse::unauthorized("Missing or mismatched x tag");
+        }
     }
 
     let name = auth.event.tags.iter().find_map(|t| {
@@ -547,6 +651,11 @@ async fn process_upload(
 
     // check whitelist
     if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
+        return e;
+    }
+
+    // BUD-11: validate server tag
+    if let Some(e) = check_server_tag(&auth, &settings.public_url) {
         return e;
     }
 
@@ -679,6 +788,7 @@ where
             return BlossomResponse::Generic(BlossomGenericResponse {
                 message: Some("File is not allowed on this server".to_string()),
                 status: StatusCode::FORBIDDEN,
+                payment_headers: None,
             });
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
@@ -795,6 +905,7 @@ async fn report_file(
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::OK,
             message: Some("Report submitted successfully".to_string()),
+            payment_headers: None,
         }),
         Err(e) => {
             if e.to_string().contains("Duplicate entry") {

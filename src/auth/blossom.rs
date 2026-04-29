@@ -5,7 +5,7 @@ use axum::{
 };
 use base64::prelude::*;
 use log::info;
-use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
+use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
 
 pub struct BlossomAuth {
     pub content_type: Option<String>,
@@ -36,6 +36,70 @@ impl IntoResponse for BlossomRejection {
             headers.insert("x-reason", v);
         }
         (self.status, headers).into_response()
+    }
+}
+
+impl BlossomAuth {
+    /// Get all x tags from the authorization event
+    pub fn x_tags(&self) -> Vec<String> {
+        self.event.tags.iter().filter_map(|t| {
+            if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
+                t.content().map(|s| s.to_lowercase())
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    /// Get all server tags from the authorization event
+    pub fn server_tags(&self) -> Vec<String> {
+        self.event.tags.iter().filter_map(|t| {
+            if t.kind() == TagKind::Server {
+                t.content().map(|s| s.to_lowercase())
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    /// Validate x tag requirement for endpoints that require it.
+    /// Returns Ok(()) if at least one x tag matches the expected hash.
+    pub fn validate_x_tag(&self, expected_hash: &str) -> Result<(), BlossomRejection> {
+        let expected_lower = expected_hash.to_lowercase();
+        let has_match = self.x_tags().iter().any(|h| h == &expected_lower);
+        
+        if has_match {
+            Ok(())
+        } else {
+            Err(BlossomRejection { 
+                status: StatusCode::UNAUTHORIZED, 
+                reason: "Missing or mismatched x tag" 
+            })
+        }
+    }
+
+    /// Validate server tag requirement.
+    /// If server tags are present, the server's domain must be in the list.
+    /// Returns Ok(()) if no server tags are present (unscoped token) or if the server is in the list.
+    pub fn validate_server_tag(&self, server_domain: &str) -> Result<(), BlossomRejection> {
+        let server_tags = self.server_tags();
+        
+        // If no server tags, token is valid on any server (unscoped)
+        if server_tags.is_empty() {
+            return Ok(());
+        }
+        
+        let server_lower = server_domain.to_lowercase();
+        let has_match = server_tags.iter().any(|s| s == &server_lower);
+        
+        if has_match {
+            Ok(())
+        } else {
+            Err(BlossomRejection { 
+                status: StatusCode::UNAUTHORIZED, 
+                reason: "Server not in authorization token scope" 
+            })
+        }
     }
 }
 

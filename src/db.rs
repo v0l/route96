@@ -569,6 +569,62 @@ impl Database {
         Ok((results, count))
     }
 
+    /// List files with cursor-based pagination (BUD-12).
+    /// 
+    /// Returns files sorted by created date descending, starting after the cursor.
+    /// The cursor should be the sha256 hash of the last file from the previous page.
+    pub async fn list_files_cursor(
+        &self,
+        pubkey: &Vec<u8>,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<FileUpload>, Error> {
+        let query = match cursor {
+            Some(cursor_hash) => {
+                // Decode cursor hash for comparison
+                if let Ok(cursor_bytes) = hex::decode(cursor_hash) {
+                    sqlx::query_as(
+                        "select uploads.* from uploads, users, user_uploads \
+                        where users.pubkey = ? \
+                        and users.id = user_uploads.user_id \
+                        and user_uploads.file = uploads.id \
+                        and uploads.banned = false \
+                        and (uploads.created, uploads.id) < (?, ?) \
+                        order by uploads.created desc, uploads.id desc \
+                        limit ?",
+                    )
+                    .bind(pubkey)
+                    .bind(cursor_bytes.clone())
+                    .bind(cursor_bytes)
+                    .bind(limit)
+                } else {
+                    // Invalid cursor, return empty result
+                    return Ok(vec![]);
+                }
+            }
+            None => {
+                sqlx::query_as(
+                    "select uploads.* from uploads, users, user_uploads \
+                    where users.pubkey = ? \
+                    and users.id = user_uploads.user_id \
+                    and user_uploads.file = uploads.id \
+                    and uploads.banned = false \
+                    order by uploads.created desc \
+                    limit ?",
+                )
+                .bind(pubkey)
+                .bind(limit)
+            }
+        };
+
+        let mut results: Vec<FileUpload> = query.fetch_all(&self.pool).await?;
+
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut results).await?;
+
+        Ok(results)
+    }
+
     /// List a user's own files joined with their access statistics.
     ///
     /// Returns a page of `(FileUpload, FileStats)` tuples ordered by the
