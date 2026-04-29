@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::slice;
 
@@ -31,6 +32,82 @@ pub const MIN_CONFIDENCE: f32 = 0.4;
 /// Maximum number of frames to sample from a video (max 10 frames, spread over entire file)
 const MAX_VIDEO_FRAMES: usize = 10;
 
+// ── Labeling error type ────────────────────────────────────────────────────
+
+/// Error type for labeling operations.
+///
+/// Errors are classified as either **permanent** (the file itself is the
+/// problem and will never succeed) or **transient** (external factors like
+/// network failures that may resolve on retry).
+#[derive(Debug)]
+pub enum LabelError {
+    // ── Permanent: file-level problems ──────────────────────────────────
+    /// The file does not exist on disk.
+    FileNotFound(PathBuf),
+    /// The file path contains non-UTF-8 characters.
+    InvalidPath,
+    /// ffmpeg could not find a video/image stream in the file.
+    NoMediaStream,
+    /// ffmpeg decoded packets but produced no usable image data.
+    NoImageData,
+    /// The file appears corrupt: ffmpeg exceeded the packet limit without
+    /// producing a decodable frame.
+    CorruptMedia { detail: String },
+    /// An I/O error occurred reading or writing a temporary file during
+    /// media processing.
+    TempFileIo(String),
+    /// A local ffmpeg/candle operation (demux, decode, scale, encode, tensor)
+    /// failed. These are permanent because they indicate the file is unreadable.
+    Ffmpeg(Error),
+
+    // ── Transient: external service problems ────────────────────────────
+    /// The remote API request timed out.
+    ApiTimeout,
+    /// The remote API returned an error (network, rate-limit, server, etc.).
+    ApiFailed(String),
+    /// The remote API returned a response with no usable content.
+    /// Treated as transient because the model may produce content on retry.
+    ApiEmptyResponse,
+
+    // ── Permanent: programming / configuration errors ───────────────────
+    /// Failed to construct the API request (bad URL, missing fields, etc.).
+    RequestBuild(String),
+}
+
+impl LabelError {
+    /// Returns `true` if this error is transient and the file should be
+    /// retried later rather than permanently marked as done.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::ApiTimeout | Self::ApiFailed(_) | Self::ApiEmptyResponse)
+    }
+}
+
+impl fmt::Display for LabelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FileNotFound(p) => write!(f, "File not found: {}", p.display()),
+            Self::InvalidPath => write!(f, "Non-UTF-8 file path"),
+            Self::NoMediaStream => write!(f, "No video/image stream found"),
+            Self::NoImageData => write!(f, "No image data found"),
+            Self::CorruptMedia { detail } => write!(f, "Corrupt media: {}", detail),
+            Self::TempFileIo(e) => write!(f, "Temp file I/O error: {}", e),
+            Self::Ffmpeg(e) => write!(f, "FFmpeg error: {}", e),
+            Self::ApiTimeout => write!(f, "API request timed out"),
+            Self::ApiFailed(e) => write!(f, "API request failed: {}", e),
+            Self::ApiEmptyResponse => write!(f, "No content in API response"),
+            Self::RequestBuild(e) => write!(f, "Failed to build request: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for LabelError {}
+
+impl From<candle_core::Error> for LabelError {
+    fn from(e: candle_core::Error) -> Self {
+        LabelError::Ffmpeg(Error::new(e))
+    }
+}
+
 /// Trait for any media labeling backend (local ViT, external API, etc.).
 ///
 /// Implementations must be `Send` so they can be moved to dedicated worker
@@ -45,20 +122,8 @@ pub trait MediaLabeler: Send + Sync {
     /// Minimum confidence threshold for this labeler.
     fn min_confidence(&self) -> f32;
 
-    /// Whether this labeler depends on a remote service.
-    ///
-    /// Remote labelers may fail due to transient network issues, so failed
-    /// files should NOT be permanently marked as labeled — they will be
-    /// retried on the next batch (with exponential backoff).
-    ///
-    /// Local labelers (e.g. ViT) should mark failed files as labeled to
-    /// prevent infinite retry loops on corrupt/unsupported files.
-    fn is_remote(&self) -> bool {
-        false
-    }
-
     /// Classify a file on disk and return `(label, confidence)` pairs.
-    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>>;
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError>;
 }
 
 #[derive(Deserialize)]
@@ -157,19 +222,15 @@ impl VitModel {
         path: &Path,
         mime_type: &str,
         min_confidence: f32,
-    ) -> Result<HashMap<String, f32>> {
+    ) -> Result<HashMap<String, f32>, LabelError> {
         if mime_type.starts_with("video/") {
-            match unsafe { extract_video_frames(path, &self.device) } {
-                Ok(frames) => classify_frames(self, &frames, min_confidence),
-                Err(_) => Ok(HashMap::new()),
-            }
+            let frames = unsafe { extract_video_frames(path, &self.device) }?;
+            classify_frames(self, &frames, min_confidence).map_err(LabelError::Ffmpeg)
         } else if mime_type.starts_with("image/svg") {
             return Ok(HashMap::new());
         } else {
-            match unsafe { load_frame_224(path, &self.device) } {
-                Ok(image) => self.classify(&image, min_confidence),
-                Err(_) => Ok(HashMap::new()),
-            }
+            let image = unsafe { load_frame_224(path, &self.device) }?;
+            self.classify(&image, min_confidence).map_err(LabelError::Ffmpeg)
         }
     }
 }
@@ -215,7 +276,7 @@ impl MediaLabeler for VitLabeler {
         self.min_confidence
     }
 
-    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
         self.vit.run(path, mime_type, self.min_confidence)
     }
 }
@@ -254,33 +315,33 @@ impl GenericLlmLabeler {
         })
     }
 
-    fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>> {
+    fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>, LabelError> {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
         use ffmpeg_rs_raw::{Encoder, StreamType};
 
         if !path.exists() {
-            return Err(Error::msg(format!("File not found: {:?}", path)));
+            return Err(LabelError::FileNotFound(path.to_path_buf()));
         }
 
         let path_str = path
             .to_str()
-            .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
+            .ok_or(LabelError::InvalidPath)?;
 
         let temp_path =
             std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
         let temp_str = temp_path
             .to_str()
-            .ok_or_else(|| Error::msg("Non-UTF-8 temp path"))?;
+            .ok_or(LabelError::InvalidPath)?;
 
         unsafe {
-            let mut demux = Demuxer::new(path_str)?;
-            let probe = demux.probe_input()?;
+            let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+            let probe = demux.probe_input().map_err(LabelError::Ffmpeg)?;
 
             let stream = probe
                 .streams
                 .iter()
                 .find(|s| s.stream_type == StreamType::Video)
-                .ok_or(Error::msg("No video/image stream found"))?;
+                .ok_or(LabelError::NoMediaStream)?;
 
             let target_height = 1024i32;
             let (out_width, out_height) = if stream.height as i32 > target_height {
@@ -292,15 +353,17 @@ impl GenericLlmLabeler {
                 (stream.width as i32, stream.height as i32)
             };
 
-            let enc = Encoder::new(AV_CODEC_ID_MJPEG)?
+            let enc = Encoder::new(AV_CODEC_ID_MJPEG)
+                .map_err(LabelError::Ffmpeg)?
                 .with_width(out_width)
                 .with_height(out_height)
                 .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
-                .open(None)?;
+                .open(None)
+                .map_err(LabelError::Ffmpeg)?;
 
             let mut sws = Scaler::new();
             let mut decoder = Decoder::new();
-            decoder.setup_decoder(stream, None)?;
+            decoder.setup_decoder(stream, None).map_err(LabelError::Ffmpeg)?;
             let stream_index = stream.index as i32;
 
             let mut packet_count = 0;
@@ -309,10 +372,12 @@ impl GenericLlmLabeler {
             while let Ok((pkt, _)) = demux.get_packet() {
                 packet_count += 1;
                 if packet_count > max_packets {
-                    return Err(Error::msg(format!(
-                        "Image compression exceeded {} packet attempts, file may be corrupt",
-                        max_packets
-                    )));
+                    return Err(LabelError::CorruptMedia {
+                        detail: format!(
+                            "exceeded {} packet attempts without producing a frame",
+                            max_packets
+                        ),
+                    });
                 }
 
                 if let Some(ref pkt) = pkt
@@ -323,26 +388,29 @@ impl GenericLlmLabeler {
                 if let Ok(results) = decoder.decode_pkt(pkt.as_ref())
                     && let Some((frame, _)) = results.into_iter().next()
                 {
-                    let scaled = sws.process_frame(
-                        &frame,
-                        out_width as u16,
-                        out_height as u16,
-                        AVPixelFormat::AV_PIX_FMT_YUVJ420P,
-                    )?;
-                    enc.save_picture(&scaled, temp_str)?;
+                    let scaled = sws
+                        .process_frame(
+                            &frame,
+                            out_width as u16,
+                            out_height as u16,
+                            AVPixelFormat::AV_PIX_FMT_YUVJ420P,
+                        )
+                        .map_err(LabelError::Ffmpeg)?;
+                    enc.save_picture(&scaled, temp_str)
+                        .map_err(LabelError::Ffmpeg)?;
 
                     let buffer = std::fs::read(&temp_path)
-                        .map_err(|e| Error::msg(format!("Failed to read encoded JPEG: {}", e)))?;
+                        .map_err(|e| LabelError::TempFileIo(format!("Failed to read encoded JPEG: {}", e)))?;
                     let _ = std::fs::remove_file(&temp_path);
                     return Ok(buffer);
                 }
             }
 
-            Err(Error::msg("No image data found"))
+            Err(LabelError::NoImageData)
         }
     }
 
-    fn encode_image_to_base64(&self, path: &Path) -> Result<String> {
+    fn encode_image_to_base64(&self, path: &Path) -> Result<String, LabelError> {
         let bytes = Self::compress_image_to_jpeg(path)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
@@ -351,7 +419,7 @@ impl GenericLlmLabeler {
         &self,
         mime_type: &str,
         image_base64: &str,
-    ) -> Result<Vec<ChatCompletionRequestMessage>> {
+    ) -> Result<Vec<ChatCompletionRequestMessage>, LabelError> {
         let default_prompt = format!(
             "Analyze this {} image and return labels in format: label_name=confidence_score (one per line, e.g. cat=0.95). Return up to 5 labels, highest confidence first. Only return the labels, no other text.",
             mime_type
@@ -366,12 +434,12 @@ impl GenericLlmLabeler {
             .url(format!("data:image/jpeg;base64,{}", image_base64))
             .detail(ImageDetail::Auto)
             .build()
-            .map_err(|e| Error::msg(format!("Failed to build image URL: {}", e)))?;
+            .map_err(|e| LabelError::RequestBuild(format!("Failed to build image URL: {}", e)))?;
 
         let image_part = ChatCompletionRequestMessageContentPartImageArgs::default()
             .image_url(image_url)
             .build()
-            .map_err(|e| Error::msg(format!("Failed to build image part: {}", e)))?;
+            .map_err(|e| LabelError::RequestBuild(format!("Failed to build image part: {}", e)))?;
 
         let text_part =
             async_openai::types::chat::ChatCompletionRequestMessageContentPartText { text: prompt };
@@ -384,13 +452,13 @@ impl GenericLlmLabeler {
         let message = ChatCompletionRequestUserMessageArgs::default()
             .content(content)
             .build()
-            .map_err(|e| Error::msg(format!("Failed to build chat message: {}", e)))?
+            .map_err(|e| LabelError::RequestBuild(format!("Failed to build chat message: {}", e)))?
             .into();
 
         Ok(vec![message])
     }
 
-    async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>> {
+    async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
         let messages = self.build_messages(mime_type, image_base64)?;
 
         let request = CreateChatCompletionRequest {
@@ -405,14 +473,14 @@ impl GenericLlmLabeler {
                 self.client.chat().create(request),
             )
             .await
-            .map_err(|_| Error::msg("API request timed out after 120s"))?
-            .map_err(|e| Error::msg(format!("API request failed: {}", e)))?;
+            .map_err(|_| LabelError::ApiTimeout)?
+            .map_err(|e| LabelError::ApiFailed(e.to_string()))?;
 
         let content = response
             .choices
             .first()
             .and_then(|c| c.message.content.as_ref())
-            .ok_or_else(|| Error::msg("No content in API response"))?;
+            .ok_or(LabelError::ApiEmptyResponse)?;
 
         info!("Prompt response: {:?}", content);
 
@@ -448,11 +516,7 @@ impl MediaLabeler for GenericLlmLabeler {
         self.min_confidence
     }
 
-    fn is_remote(&self) -> bool {
-        true
-    }
-
-    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>> {
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
         let image_base64 = self.encode_image_to_base64(path)?;
 
         let rt = tokio::runtime::Handle::current();
@@ -489,9 +553,11 @@ pub fn label_file(
     mime_type: &str,
     models_dir: &Path,
     hf_repo: &str,
-) -> Result<HashMap<String, f32>> {
+) -> Result<HashMap<String, f32>, LabelError> {
     let device = Device::cuda_if_available(0)?;
-    VitModel::load_from_dir(models_dir, hf_repo, device)?.run(path, mime_type, MIN_CONFIDENCE)
+    VitModel::load_from_dir(models_dir, hf_repo, device)
+        .map_err(LabelError::Ffmpeg)?
+        .run(path, mime_type, MIN_CONFIDENCE)
 }
 
 /// Classify a sequence of pre-decoded frame tensors, averaging scores per label.
@@ -531,29 +597,29 @@ fn classify_frames(
 }
 
 /// Extract up to MAX_VIDEO_FRAMES frames from a video, spread evenly across the entire duration.
-unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>> {
+unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>, LabelError> {
     let path_str = path
         .to_str()
-        .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
-    let mut demux = Demuxer::new(path_str)?;
-    let info = unsafe { demux.probe_input()? };
+        .ok_or(LabelError::InvalidPath)?;
+    let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let video_stream = info
         .best_video()
-        .ok_or(Error::msg("No video stream found"))?;
+        .ok_or(LabelError::NoMediaStream)?;
 
     let _time_base_num = video_stream.timebase.0 as f64;
     let _time_base_den = video_stream.timebase.1 as f64;
 
     let mut total_frames: usize = 0;
-    let mut demux2 = Demuxer::new(path_str)?;
-    let info2 = unsafe { demux2.probe_input()? };
+    let mut demux2 = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let info2 = unsafe { demux2.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let video_stream2 = info2
         .best_video()
-        .ok_or(Error::msg("No video stream found"))?;
+        .ok_or(LabelError::NoMediaStream)?;
     let stream_index2 = video_stream2.index as i32;
 
     let mut decoder2 = Decoder::new();
-    decoder2.setup_decoder(video_stream2, None)?;
+    decoder2.setup_decoder(video_stream2, None).map_err(LabelError::Ffmpeg)?;
 
     while let Ok((pkt, _)) = unsafe { demux2.get_packet() } {
         let pkt = match pkt {
@@ -565,7 +631,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             continue;
         }
 
-        let decoded = decoder2.decode_pkt(Some(&pkt))?;
+        let decoded = decoder2.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
         for (_frame, _) in decoded {
             total_frames += 1;
         }
@@ -588,15 +654,15 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     };
 
     // Second pass: extract the target frames
-    let mut demux3 = Demuxer::new(path_str)?;
-    let info3 = unsafe { demux3.probe_input()? };
+    let mut demux3 = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let info3 = unsafe { demux3.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let video_stream3 = info3
         .best_video()
-        .ok_or(Error::msg("No video stream found"))?;
+        .ok_or(LabelError::NoMediaStream)?;
     let stream_index3 = video_stream3.index as i32;
 
     let mut decoder3 = Decoder::new();
-    decoder3.setup_decoder(video_stream3, None)?;
+    decoder3.setup_decoder(video_stream3, None).map_err(LabelError::Ffmpeg)?;
 
     let mut scaler = Scaler::new();
     let mut frames = Vec::new();
@@ -614,7 +680,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             continue;
         }
 
-        let decoded = decoder3.decode_pkt(Some(&pkt))?;
+        let decoded = decoder3.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
         for (frame, _) in decoded {
             if frame_index_set.contains(&frame_index) {
                 match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
@@ -633,7 +699,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     }
 
     // Flush decoder
-    let flushed = decoder3.decode_pkt(None)?;
+    let flushed = decoder3.decode_pkt(None).map_err(LabelError::Ffmpeg)?;
     for (frame, _) in flushed {
         if frame_index_set.contains(&frame_index) {
             match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
@@ -657,8 +723,8 @@ unsafe fn frame_to_tensor(
     frame: &ffmpeg_rs_raw::AvFrameRef,
     scaler: &mut Scaler,
     device: &Device,
-) -> Result<Tensor> {
-    let scaled = scaler.process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24)?;
+) -> Result<Tensor, LabelError> {
+    let scaled = scaler.process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24).map_err(LabelError::Ffmpeg)?;
     let width = 224usize;
     let height = 224usize;
 
@@ -680,18 +746,18 @@ unsafe fn frame_to_tensor(
 }
 
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
-unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>> {
+unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>, LabelError> {
     let path_str = path_buf
         .to_str()
-        .ok_or_else(|| Error::msg("Non-UTF-8 file path"))?;
-    let mut demux = Demuxer::new(path_str)?;
-    let info = unsafe { demux.probe_input()? };
+        .ok_or(LabelError::InvalidPath)?;
+    let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let image_stream = info
         .best_video()
-        .ok_or(Error::msg("No image stream found"))?;
+        .ok_or(LabelError::NoMediaStream)?;
 
     let mut decoder = Decoder::new();
-    decoder.setup_decoder(image_stream, None)?;
+    decoder.setup_decoder(image_stream, None).map_err(LabelError::Ffmpeg)?;
 
     let mut scaler = Scaler::new();
 
@@ -703,7 +769,7 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
                     width as u16,
                     height as u16,
                     AVPixelFormat::AV_PIX_FMT_RGB24,
-                )?;
+                ).map_err(LabelError::Ffmpeg)?;
                 let mut dst_vec = Vec::with_capacity(3 * width * height);
                 for row in 0..height {
                     let line_size = new_frame.linesize[0] as usize;
@@ -723,19 +789,19 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
             Some(p) => p,
             None => break,
         };
-        let decoded = decoder.decode_pkt(Some(&pkt))?;
+        let decoded = decoder.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
         try_frame!(decoded);
     }
 
     // Flush any frame the decoder was buffering
-    let flushed = decoder.decode_pkt(None)?;
+    let flushed = decoder.decode_pkt(None).map_err(LabelError::Ffmpeg)?;
     try_frame!(flushed);
 
-    Err(Error::msg("No image data found"))
+    Err(LabelError::NoImageData)
 }
 
 // https://github.com/huggingface/candle/blob/main/candle-examples/src/imagenet.rs
-unsafe fn load_frame_224(path: &Path, device: &Device) -> Result<Tensor> {
+unsafe fn load_frame_224(path: &Path, device: &Device) -> Result<Tensor, LabelError> {
     let pic = unsafe { load_image(path, 224, 224)? };
 
     let data = Tensor::from_vec(pic, (224, 224, 3), device)?.permute((2, 0, 1))?;

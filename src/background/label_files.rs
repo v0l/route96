@@ -261,14 +261,16 @@ impl LabelFiles {
                 Ok(Ok(Err(e))) => {
                     let elapsed = start.elapsed();
                     let file_id = file.id.clone();
+                    let is_transient = e.is_transient();
                     error!(
-                        "Label model '{}' failed on {} after {:.2?}: {}",
+                        "Label model '{}' failed on {} after {:.2?}: {} [{}]",
                         model_name,
                         hex::encode(&file_id),
                         elapsed,
-                        e
+                        e,
+                        if is_transient { "transient" } else { "permanent" },
                     );
-                    if !labeler.is_remote() {
+                    if !is_transient {
                         db.add_labeled_by(&file_id, &model_name)
                             .await
                             .unwrap_or_else(|e| {
@@ -285,17 +287,17 @@ impl LabelFiles {
                 Ok(Err(e)) => {
                     let file_id = file.id.clone();
                     error!("Label task for {} panicked: {}", hex::encode(&file_id), e);
-                    if !labeler.is_remote() {
-                        db.add_labeled_by(&file_id, &model_name)
-                            .await
-                            .unwrap_or_else(|e| {
-                                error!(
-                                    "Failed to mark panicked file {} as labeled: {}",
-                                    hex::encode(&file_id),
-                                    e
-                                );
-                            });
-                    }
+                    // Panics are likely caused by corrupt media (e.g. ffmpeg
+                    // segfault), so always mark as done to prevent retry loops.
+                    db.add_labeled_by(&file_id, &model_name)
+                        .await
+                        .unwrap_or_else(|e| {
+                            error!(
+                                "Failed to mark panicked file {} as labeled: {}",
+                                hex::encode(&file_id),
+                                e
+                            );
+                        });
                     failed += 1;
                     continue;
                 }
@@ -307,6 +309,8 @@ impl LabelFiles {
                         hex::encode(&file_id),
                         start.elapsed()
                     );
+                    // Timeouts are treated as transient — the file may succeed
+                    // on a less busy system. It will be retried with backoff.
                     failed += 1;
                     continue;
                 }
