@@ -17,6 +17,7 @@ pub mod payments;
 pub mod phash;
 #[cfg(feature = "media-compression")]
 pub mod processing;
+pub mod response_log;
 pub mod routes;
 pub mod settings;
 pub mod whitelist;

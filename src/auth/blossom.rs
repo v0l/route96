@@ -1,6 +1,7 @@
 use axum::{
     extract::FromRequestParts,
-    http::{StatusCode, request::Parts},
+    http::{HeaderMap, StatusCode, request::Parts},
+    response::{IntoResponse, Response},
 };
 use base64::prelude::*;
 use log::info;
@@ -19,39 +20,58 @@ pub struct BlossomAuth {
     pub event: Event,
 }
 
+/// Rejection response for Blossom auth failures.
+///
+/// Sets the `x-reason` header so both the client and server-side logging
+/// middleware can see why auth was rejected.
+pub struct BlossomRejection {
+    status: StatusCode,
+    reason: &'static str,
+}
+
+impl IntoResponse for BlossomRejection {
+    fn into_response(self) -> Response {
+        let mut headers = HeaderMap::new();
+        if let Ok(v) = self.reason.parse() {
+            headers.insert("x-reason", v);
+        }
+        (self.status, headers).into_response()
+    }
+}
+
 impl<S> FromRequestParts<S> for BlossomAuth
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = BlossomRejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth = parts
             .headers
             .get("authorization")
-            .ok_or((StatusCode::UNAUTHORIZED, "Auth header not found"))?
+            .ok_or(BlossomRejection { status: StatusCode::UNAUTHORIZED, reason: "Auth header not found" })?
             .to_str()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid auth header"))?;
+            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid auth header" })?;
 
         if !auth.starts_with("Nostr ") {
-            return Err((StatusCode::BAD_REQUEST, "Auth scheme must be Nostr"));
+            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Auth scheme must be Nostr" });
         }
 
         let event = BASE64_STANDARD
             .decode(&auth[6..])
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid auth string"))?;
+            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid auth string" })?;
 
         let event = Event::from_json(event)
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid nostr event"))?;
+            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid nostr event" })?;
 
         if event.kind != Kind::Custom(24242) {
-            return Err((StatusCode::BAD_REQUEST, "Wrong event kind"));
+            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Wrong event kind" });
         }
 
         if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
             >= 60 * 3
         {
-            return Err((StatusCode::BAD_REQUEST, "Created timestamp is out of range"));
+            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Created timestamp is out of range" });
         }
 
         // check expiration tag
@@ -64,15 +84,15 @@ where
         }) {
             let u_exp: Timestamp = expiration.parse().unwrap();
             if u_exp <= Timestamp::now() {
-                return Err((StatusCode::BAD_REQUEST, "Expiration invalid"));
+                return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Expiration invalid" });
             }
         } else {
-            return Err((StatusCode::BAD_REQUEST, "Missing expiration tag"));
+            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Missing expiration tag" });
         }
 
         event
             .verify()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Event signature invalid"))?;
+            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Event signature invalid" })?;
 
         info!("{}", event.as_json());
 

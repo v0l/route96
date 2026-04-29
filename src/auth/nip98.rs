@@ -1,6 +1,7 @@
 use axum::{
     extract::FromRequestParts,
-    http::{StatusCode, request::Parts},
+    http::{HeaderMap, StatusCode, request::Parts},
+    response::{IntoResponse, Response},
 };
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
@@ -16,33 +17,52 @@ pub struct Nip98Auth {
     pub event: Event,
 }
 
+/// Rejection response for NIP-98 auth failures.
+///
+/// Sets the `x-reason` header so both the client and server-side logging
+/// middleware can see why auth was rejected.
+pub struct Nip98Rejection {
+    status: StatusCode,
+    reason: &'static str,
+}
+
+impl IntoResponse for Nip98Rejection {
+    fn into_response(self) -> Response {
+        let mut headers = HeaderMap::new();
+        if let Ok(v) = self.reason.parse() {
+            headers.insert("x-reason", v);
+        }
+        (self.status, headers).into_response()
+    }
+}
+
 impl<S> FromRequestParts<S> for Nip98Auth
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, &'static str);
+    type Rejection = Nip98Rejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth = parts
             .headers
             .get("authorization")
-            .ok_or((StatusCode::FORBIDDEN, "Auth header not found"))?
+            .ok_or(Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Auth header not found" })?
             .to_str()
-            .map_err(|_| (StatusCode::FORBIDDEN, "Invalid auth header"))?;
+            .map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid auth header" })?;
 
         if !auth.starts_with("Nostr ") {
-            return Err((StatusCode::FORBIDDEN, "Auth scheme must be Nostr"));
+            return Err(Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Auth scheme must be Nostr" });
         }
 
         let event = BASE64_STANDARD
             .decode(&auth[6..])
-            .map_err(|_| (StatusCode::FORBIDDEN, "Invalid auth string"))?;
+            .map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid auth string" })?;
 
         let event =
-            Event::from_json(event).map_err(|_| (StatusCode::FORBIDDEN, "Invalid nostr event"))?;
+            Event::from_json(event).map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid nostr event" })?;
 
         if event.kind != Kind::HttpAuth {
-            return Err((StatusCode::UNAUTHORIZED, "Wrong event kind"));
+            return Err(Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Wrong event kind" });
         }
 
         // Get expiration from tag, or use default (10 minutes from created_at)
@@ -57,15 +77,18 @@ where
 
         // Check "not before" - created_at should be in the past or very near future (allow 60s clock skew)
         if event.created_at.as_secs() > now + 60 {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                "Event created_at is in the future",
-            ));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Event created_at is in the future",
+            });
         }
 
         // Check "not after" - expiration should be in the future
         if now > expiration {
-            return Err((StatusCode::UNAUTHORIZED, "Event has expired"));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Event has expired",
+            });
         }
 
         // Check url tag - match any 'u' tag against the full URL (excluding query args)
@@ -73,7 +96,10 @@ where
         let url_tags: Vec<_> = event.tags.filter(TagKind::u()).collect();
 
         if url_tags.is_empty() {
-            return Err((StatusCode::UNAUTHORIZED, "Missing url tag"));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Missing url tag",
+            });
         }
 
         let url_matched = url_tags.iter().any(|tag| {
@@ -84,14 +110,20 @@ where
         });
 
         if !url_matched {
-            return Err((StatusCode::UNAUTHORIZED, "U tag does not match request URL"));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "U tag does not match request URL",
+            });
         }
 
         // check method tag - match any 'method' tag against the request method
         let method_tags: Vec<_> = event.tags.filter(TagKind::Method).collect();
 
         if method_tags.is_empty() {
-            return Err((StatusCode::UNAUTHORIZED, "Missing method tag"));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Missing method tag",
+            });
         }
 
         let method_matched = method_tags.iter().any(|tag| {
@@ -101,15 +133,15 @@ where
         });
 
         if !method_matched {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                "Method tag does not match request method",
-            ));
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Method tag does not match request method",
+            });
         }
 
         event
             .verify()
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Event signature invalid"))?;
+            .map_err(|_| Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Event signature invalid" })?;
 
         debug!("{}", event.as_json());
 

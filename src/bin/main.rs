@@ -19,6 +19,7 @@ use route96::db::Database;
 use route96::db_config::seed_from_settings;
 use route96::file_stats::FileStatsTracker;
 use route96::filesystem::FileStore;
+use route96::response_log::ResponseLogLayer;
 use route96::routes;
 use route96::settings::{Settings, WhitelistMode};
 use route96::whitelist::Whitelist;
@@ -160,6 +161,7 @@ async fn main() -> Result<(), Error> {
     }));
 
     // Add middleware layers
+    app = app.layer(ResponseLogLayer);
     app = app.layer(cors_layer());
     // Disable axum's default 2 MiB body limit so upload handlers can enforce
     // max_upload_bytes themselves. usize::MAX is effectively unlimited.

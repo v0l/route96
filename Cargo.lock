@@ -3960,6 +3960,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hf-hub",
+ "http-body-util",
  "http-range-header",
  "image",
  "image_hasher",

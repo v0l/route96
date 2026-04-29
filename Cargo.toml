@@ -29,6 +29,7 @@ axum = { version = "0.8", features = ["multipart", "macros"] }
 axum-extra = { version = "0.12", features = ["file-stream"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "limit"] }
+http-body-util = "0.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "signal"] }
 base64 = "0.22"
 hex = { version = "0.4", features = ["serde"] }
