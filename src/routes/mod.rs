@@ -416,7 +416,7 @@ pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
 
     match tokio::fs::read(index).await {
         Ok(contents) => Ok(Html(contents)),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => Ok(Html("<html><body>route96</body></html>".to_string().into_bytes())),
     }
 }
 
@@ -469,13 +469,27 @@ pub async fn get_blob(
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        // Invalid hex - serve SPA index.html
-        return Ok(root().await.into_response());
+        // If the client accepts HTML, serve the SPA for client-side routing.
+        // Otherwise return 404 — the path is not a valid blob hash.
+        let accepts_html = headers
+            .get("accept")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+        if accepts_html {
+            return Ok(root().await.into_response());
+        }
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if id.len() != 32 {
-        // Wrong length - serve SPA index.html for routing
-        return Ok(root().await.into_response());
+        let accepts_html = headers
+            .get("accept")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+        if accepts_html {
+            return Ok(root().await.into_response());
+        }
+        return Err(StatusCode::NOT_FOUND);
     }
 
     let info = match state.db.get_file(&id).await {
@@ -549,13 +563,12 @@ pub async fn head_blob(
     let id = if let Ok(i) = hex::decode(sha256) {
         i
     } else {
-        // Invalid hex - serve SPA index.html
-        return Ok(root().await.into_response());
+        // HEAD requests for invalid hash paths — return 404
+        return Err(StatusCode::NOT_FOUND);
     };
 
     if id.len() != 32 {
-        // Wrong length - serve SPA index.html for routing
-        return Ok(root().await.into_response());
+        return Err(StatusCode::NOT_FOUND);
     }
 
     let info = match state.db.get_file(&id).await {

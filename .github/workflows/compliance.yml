@@ -41,8 +41,15 @@ jobs:
           key: ${{ runner.os }}-cargo-blossom-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-blossom-
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+            libavfilter-dev libavdevice-dev pkg-config
+
       - name: Build route96
-        run: cargo build --no-default-features --features "blossom,react-ui" --bin route96
+        run: cargo build --no-default-features --features "blossom,nip96,react-ui,media-compression" --bin route96
 
       - name: Write test config
         run: |

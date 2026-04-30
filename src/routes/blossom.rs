@@ -18,7 +18,8 @@ use log::{error, info};
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use sha2::{Digest, Sha256};
+use std::sync::{Arc, Mutex};
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 use url::Url;
@@ -432,8 +433,12 @@ async fn upload(
 async fn mirror(
     auth: BlossomAuth,
     AxumState(state): AxumState<Arc<AppState>>,
-    Json(req): Json<MirrorRequest>,
+    body: String,
 ) -> BlossomResponse {
+    let req: MirrorRequest = match serde_json::from_str(&body) {
+        Ok(r) => r,
+        Err(_) => return BlossomResponse::bad_request("Invalid request body"),
+    };
     let settings = state.settings().await;
     
     if !check_method(&auth.event, "upload") {
@@ -504,10 +509,10 @@ async fn mirror(
     let pubkey = auth.event.pubkey.to_bytes().to_vec();
 
     process_stream(
-        StreamReader::new(
+        Sha256Reader::new(StreamReader::new(
             rsp.bytes_stream()
                 .map(|result| result.map_err(std::io::Error::other)),
-        ),
+        )),
         &mime_type,
         &None,
         &pubkey,
@@ -515,6 +520,7 @@ async fn mirror(
         0, // No size info for mirror
         state,
         hash.and_then(|h| hex::decode(h).ok()),
+        None,
         None,
     )
     .await
@@ -535,14 +541,42 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
         };
     }
 
-    // Check size limit if provided (optional header)
-    if let Some(z) = auth.x_content_length {
-        if z > settings.max_upload_bytes {
+    // BUD-06: X-Content-Length is required for HEAD /media
+    let content_length = match auth.x_content_length {
+        Some(z) => z,
+        None => {
             return BlossomHead {
-                msg: Some("File too large"),
-                status: StatusCode::PAYLOAD_TOO_LARGE,
+                msg: Some("X-Content-Length header required"),
+                status: StatusCode::LENGTH_REQUIRED,
             };
         }
+    };
+
+    // Check size limit
+    if content_length > settings.max_upload_bytes {
+        return BlossomHead {
+            msg: Some("File too large"),
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+        };
+    }
+
+    // BUD-06: X-SHA-256 is required for HEAD /media
+    let sha = match &auth.x_sha_256 {
+        Some(s) => s.clone(),
+        None => {
+            return BlossomHead {
+                msg: Some("X-SHA-256 header required"),
+                status: StatusCode::BAD_REQUEST,
+            };
+        }
+    };
+
+    // Validate X-SHA-256 is valid hex
+    if hex::decode(&sha).is_err() {
+        return BlossomHead {
+            msg: Some("X-SHA-256 must be valid hex"),
+            status: StatusCode::BAD_REQUEST,
+        };
     }
 
     // check whitelist
@@ -561,7 +595,7 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
         };
     }
 
-    BlossomHead { msg: None, status: StatusCode::NO_CONTENT }
+    BlossomHead { msg: None, status: StatusCode::OK }
 }
 
 #[cfg(feature = "media-compression")]
@@ -581,14 +615,42 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
         };
     }
 
-    // Check size limit if provided (optional header)
-    if let Some(z) = auth.x_content_length {
-        if z > settings.max_upload_bytes {
+    // BUD-06: X-Content-Length is required for HEAD /upload
+    let content_length = match auth.x_content_length {
+        Some(z) => z,
+        None => {
             return BlossomHead {
-                msg: Some("File too large"),
-                status: StatusCode::PAYLOAD_TOO_LARGE,
+                msg: Some("X-Content-Length header required"),
+                status: StatusCode::LENGTH_REQUIRED,
             };
         }
+    };
+
+    // Check size limit
+    if content_length > settings.max_upload_bytes {
+        return BlossomHead {
+            msg: Some("File too large"),
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+        };
+    }
+
+    // BUD-06: X-SHA-256 is required for HEAD /upload
+    let sha = match &auth.x_sha_256 {
+        Some(s) => s.clone(),
+        None => {
+            return BlossomHead {
+                msg: Some("X-SHA-256 header required"),
+                status: StatusCode::BAD_REQUEST,
+            };
+        }
+    };
+
+    // Validate X-SHA-256 is valid hex
+    if hex::decode(&sha).is_err() {
+        return BlossomHead {
+            msg: Some("X-SHA-256 must be valid hex"),
+            status: StatusCode::BAD_REQUEST,
+        };
     }
 
     // check whitelist
@@ -607,7 +669,7 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
         };
     }
 
-    BlossomHead { msg: None, status: StatusCode::NO_CONTENT }
+    BlossomHead { msg: None, status: StatusCode::OK }
 }
 
 async fn process_upload(
@@ -663,8 +725,13 @@ async fn process_upload(
     let stream = TryStreamExt::map_err(data_stream, std::io::Error::other);
     let reader = StreamReader::new(stream);
 
+    // Compute SHA-256 of the original upload data for X-SHA-256 validation.
+    // This must be computed before any compression so the client-provided
+    // hash (which refers to the original content) can be validated.
+    let hashing_reader = Sha256Reader::new(reader);
+
     process_stream(
-        reader,
+        hashing_reader,
         &auth
             .content_type
             .unwrap_or("application/octet-stream".to_string()),
@@ -675,13 +742,64 @@ async fn process_upload(
         state,
         None,
         auth.x_identical_media,
+        auth.x_sha_256.as_deref(),
     )
     .await
 }
 
+/// Wraps an `AsyncRead` and computes SHA-256 of all bytes read.
+/// The hasher is shared via `Arc<Mutex>` so the hash can be read after
+/// the reader is consumed.
+struct Sha256Reader<S> {
+    inner: S,
+    hasher: Arc<Mutex<Sha256>>,
+}
+
+impl<S> Sha256Reader<S> {
+    fn new(inner: S) -> Self {
+        Self {
+            inner,
+            hasher: Arc::new(Mutex::new(Sha256::new())),
+        }
+    }
+
+    fn hasher_clone(&self) -> Arc<Mutex<Sha256>> {
+        self.hasher.clone()
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Sha256Reader<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let filled_before = buf.filled().len();
+        let poll = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = &poll {
+            let filled_after = buf.filled().len();
+            if filled_after > filled_before {
+                if let Ok(mut hasher) = self.hasher.lock() {
+                    hasher.update(&buf.filled()[filled_before..filled_after]);
+                }
+            }
+        }
+        poll
+    }
+}
+
+fn finalize_hash(hasher: Arc<Mutex<Sha256>>) -> Vec<u8> {
+    if let Ok(mut h) = hasher.lock() {
+        let hasher = std::mem::replace(&mut *h, Sha256::new());
+        hasher.finalize().to_vec()
+    } else {
+        Vec::new()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn process_stream<'p, S>(
-    stream: S,
+    stream: Sha256Reader<S>,
     mime_type: &str,
     name: &Option<&str>,
     pubkey: &Vec<u8>,
@@ -693,11 +811,14 @@ async fn process_stream<'p, S>(
     // acknowledging a prior 409 and requesting to skip deduplication.
     expect_hash: Option<Vec<u8>>,
     acknowledged_identical: Option<Vec<u8>>,
+    // X-SHA-256 header value — if provided, actual file hash must match
+    x_sha_256: Option<&str>,
 ) -> BlossomResponse
 where
     S: AsyncRead + Unpin + 'p,
 {
     let settings = state.settings().await;
+    let input_hasher = stream.hasher_clone();
 
     let mut is_new_file = false;
     let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
@@ -715,6 +836,22 @@ where
                 return BlossomResponse::conflict(
                     "Mirror request failed, server responses with invalid file content (hash mismatch)",
                 );
+            }
+
+            // BUD-02: validate X-SHA-256 header against the original
+            // upload content hash (before any server-side compression).
+            if let Some(expected_sha) = x_sha_256 {
+                if let Ok(expected_bytes) = hex::decode(expected_sha) {
+                    let original_hash = finalize_hash(input_hasher.clone());
+                    if expected_bytes != original_hash {
+                        if let Err(e) = state.fs.delete(&ret.id).await {
+                            log::warn!("Failed to cleanup file: {}", e);
+                        }
+                        return BlossomResponse::conflict(
+                            "X-SHA-256 hash mismatch",
+                        );
+                    }
+                }
             }
 
             // Check for sensitive EXIF metadata if enabled
