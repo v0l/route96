@@ -1,0 +1,103 @@
+name: Blossom Compliance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: route96
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout route96
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-blossom-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-blossom-
+
+      - name: Build route96
+        run: cargo build --no-default-features --features "blossom,react-ui"
+
+      - name: Write test config
+        run: |
+          cat > /tmp/route96-test.yaml <<'EOF'
+          listen: "127.0.0.1:8000"
+          database: "mysql://root:root@127.0.0.1:3306/route96"
+          storage_dir: "/tmp/route96-data"
+          max_upload_bytes: 104857600
+          public_url: "http://localhost:8000"
+          EOF
+
+      - name: Start route96
+        run: |
+          mkdir -p /tmp/route96-data
+          target/debug/route96 --config /tmp/route96-test.yaml &
+          sleep 5
+          # Wait until the server responds
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            echo "Waiting for server... ($i)"
+            sleep 1
+          done
+
+      - name: Checkout blossom compliance tests
+        uses: actions/checkout@v4
+        with:
+          repository: hzrd149/blossom
+          path: compliance-test-repo
+          sparse-checkout: compliance-test
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install compliance test deps
+        run: bun install
+        working-directory: compliance-test-repo/compliance-test
+
+      - name: Run compliance tests
+        working-directory: compliance-test-repo/compliance-test
+        env:
+          BLOSSOM_SERVER_URL: http://localhost:8000
+        run: bun test
+
+      - name: Generate compliance report
+        if: always()
+        working-directory: compliance-test-repo/compliance-test
+        env:
+          BLOSSOM_SERVER_URL: http://localhost:8000
+        run: bun run report.ts
+
+      - name: Upload compliance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report
+          path: compliance-test-repo/compliance-test/report/

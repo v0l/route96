@@ -849,70 +849,104 @@ where
 }
 
 async fn report_file(
-    auth: BlossomAuth,
     AxumState(state): AxumState<Arc<AppState>>,
     Json(data): Json<nostr::Event>,
 ) -> BlossomResponse {
-    // Check if the request has the correct method tag
-    if !check_method(&auth.event, "report") {
-        return BlossomResponse::bad_request("Invalid request method tag");
+    // BUD-09: the body MUST be a signed NIP-56 report event (kind 1984)
+    if data.kind != nostr::Kind::Custom(1984) {
+        return BlossomResponse::bad_request("Event kind must be 1984 (NIP-56 report)");
     }
 
-    // Check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
-        return e;
+    // Verify the event signature
+    if data.verify().is_err() {
+        return BlossomResponse::bad_request("Invalid event signature");
     }
 
-    // Extract file SHA256 from the "x" tag in the report event
-    let file_sha256 = if let Some(x_tag) = data.tags.iter().find_map(|t| {
-        if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
-            t.content()
-        } else {
-            None
-        }
-    }) {
-        match hex::decode(x_tag) {
-            Ok(hash) => hash,
-            Err(_) => return BlossomResponse::bad_request("Invalid file hash in x tag"),
-        }
-    } else {
+    // Extract all file SHA256 hashes from "x" tags
+    let file_hashes: Vec<Vec<u8>> = data
+        .tags
+        .iter()
+        .filter_map(|t| {
+            if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
+                t.content().and_then(|h| hex::decode(h).ok())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if file_hashes.is_empty() {
         return BlossomResponse::bad_request("Missing file hash in x tag");
-    };
-
-    // Verify the reported file exists
-    match state.db.get_file(&file_sha256).await {
-        Ok(Some(_)) => {} // File exists, continue
-        Ok(None) => return BlossomResponse::not_found("File not found"),
-        Err(e) => return BlossomResponse::service_unavailable(format!("Failed to check file: {}", e)),
     }
 
-    // Get or create the reporter user
+    // Get or create the reporter user from the report event pubkey
     let reporter_id = match state
         .db
-        .upsert_user(&auth.event.pubkey.to_bytes().to_vec())
+        .upsert_user(&data.pubkey.to_bytes().to_vec())
         .await
     {
         Ok(user_id) => user_id,
         Err(e) => return BlossomResponse::service_unavailable(format!("Failed to get user: {}", e)),
     };
 
-    // Store the report (the database will handle duplicate prevention via unique index)
-    match state
-        .db
-        .add_report(&file_sha256, reporter_id, &data.as_json())
-        .await
-    {
-        Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
+    let event_json = data.as_json();
+    let mut errors = Vec::new();
+
+    for file_sha256 in &file_hashes {
+        // Verify the reported file exists
+        match state.db.get_file(file_sha256).await {
+            Ok(Some(_)) => {} // File exists, continue
+            Ok(None) => {
+                errors.push(format!(
+                    "File {} not found",
+                    hex::encode(file_sha256)
+                ));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!(
+                    "Failed to check file {}: {}",
+                    hex::encode(file_sha256),
+                    e
+                ));
+                continue;
+            }
+        }
+
+        // Store the report
+        if let Err(e) = state
+            .db
+            .add_report(file_sha256, reporter_id, &event_json)
+            .await
+            && !e.to_string().contains("Duplicate entry")
+        {
+            errors.push(format!(
+                "Failed to submit report for {}: {}",
+                hex::encode(file_sha256),
+                e
+            ));
+            // Duplicate reports are silently skipped
+        }
+    }
+
+    if errors.is_empty() {
+        BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::OK,
             message: Some("Report submitted successfully".to_string()),
             payment_headers: None,
-        }),
-        Err(e) => {
-            if e.to_string().contains("Duplicate entry") {
-                BlossomResponse::conflict("You have already reported this file")
-            } else {
-                BlossomResponse::service_unavailable(format!("Failed to submit report: {}", e))
-            }
-        }
+        })
+    } else if errors.len() == file_hashes.len() {
+        // All files failed
+        BlossomResponse::bad_request(errors.join("; "))
+    } else {
+        // Some files succeeded, some failed
+        BlossomResponse::Generic(BlossomGenericResponse {
+            status: StatusCode::OK,
+            message: Some(format!(
+                "Report submitted with some errors: {}",
+                errors.join("; ")
+            )),
+            payment_headers: None,
+        })
     }
 }
