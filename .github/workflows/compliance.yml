@@ -12,14 +12,14 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8
+        image: mariadb
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: route96
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: route96
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
