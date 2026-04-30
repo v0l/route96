@@ -42,7 +42,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-blossom-
 
       - name: Build route96
-        run: cargo build --no-default-features --features "blossom,react-ui"
+        run: cargo build --no-default-features --features "blossom,react-ui" --bin route96
 
       - name: Write test config
         run: |

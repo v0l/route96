@@ -1089,6 +1089,29 @@ impl Database {
         qb.build().execute(&self.pool).await?;
         Ok(())
     }
+
+    /// Count uploads missing media metadata (width/height for images,
+    /// width/height/duration/bitrate for videos).
+    pub async fn count_missing_media_metadata(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(id) from uploads where \
+             (mime_type like 'image/%' and (width is null or height is null)) or \
+             (mime_type like 'video/%' and (width is null or height is null or bitrate is null or duration is null))",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    /// Count total media uploads (images + videos).
+    pub async fn count_media_files(&self) -> Result<i64, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "select count(id) from uploads where mime_type like 'image/%' or mime_type like 'video/%'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
 }
 
 // ── Perceptual hash (pHash / LSH) ──────────────────────────────────────────
@@ -1199,29 +1222,6 @@ impl Database {
     pub async fn count_images(&self) -> Result<i64, Error> {
         let row: (i64,) = sqlx::query_as(
             "select count(id) from uploads where mime_type like 'image/%' and banned = false",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
-    }
-
-    /// Count uploads missing media metadata (width/height for images,
-    /// width/height/duration/bitrate for videos).
-    pub async fn count_missing_media_metadata(&self) -> Result<i64, Error> {
-        let row: (i64,) = sqlx::query_as(
-            "select count(id) from uploads where \
-             (mime_type like 'image/%' and (width is null or height is null)) or \
-             (mime_type like 'video/%' and (width is null or height is null or bitrate is null or duration is null))",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
-    }
-
-    /// Count total media uploads (images + videos).
-    pub async fn count_media_files(&self) -> Result<i64, Error> {
-        let row: (i64,) = sqlx::query_as(
-            "select count(id) from uploads where mime_type like 'image/%' or mime_type like 'video/%'",
         )
         .fetch_one(&self.pool)
         .await?;

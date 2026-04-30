@@ -12,7 +12,7 @@ pub use crate::routes::nip96::nip96_routes;
 pub mod payment;
 #[cfg(feature = "payments")]
 use crate::payments::{Currency, PaymentInterval};
-use crate::settings::{LabelerType, Settings};
+use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
 use axum::{
@@ -286,11 +286,11 @@ pub async fn get_props(
                 models: models
                     .into_iter()
                     .map(|m| match m.labeler_type {
-                        LabelerType::Vit { hf_repo } => LabelModelInfo {
+                        crate::settings::LabelerType::Vit { hf_repo } => LabelModelInfo {
                             name: hf_repo,
                             model_type: Some("vit224".to_string()),
                         },
-                        LabelerType::GenericLlm { model, .. } => LabelModelInfo {
+                        crate::settings::LabelerType::GenericLlm { model, .. } => LabelModelInfo {
                             name: model,
                             model_type: Some("llm".to_string()),
                         },
