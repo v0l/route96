@@ -72,7 +72,8 @@ jobs:
       - name: Checkout blossom compliance tests
         uses: actions/checkout@v4
         with:
-          repository: hzrd149/blossom
+          repository: v0l/blossom
+          ref: compliance-test
           path: compliance-test-repo
           sparse-checkout: compliance-test
 
