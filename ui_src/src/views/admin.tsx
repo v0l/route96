@@ -9,7 +9,6 @@ import {
   AdminSelf,
   Route96File,
   Route96,
-  Report,
   SimilarFile,
   ConfigEntry,
   FileStatSort,
@@ -204,22 +203,6 @@ export default function Admin() {
     }
   }
 
-  async function deleteReport(reportId: number) {
-    if (!pub) return;
-    try {
-      setError(undefined);
-      const route96 = new Route96(url, pub);
-      await route96.deleteReports([reportId]);
-      await listReports(reportPage);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message || "Delete report failed"
-          : "Delete report failed",
-      );
-    }
-  }
-
   async function bulkAcknowledgeReports() {
     if (!pub || selectedReports.size === 0) return;
     try {
@@ -397,21 +380,9 @@ export default function Admin() {
     }
   }
 
-  function toggleFileSelection(fileId: string) {
-    setSelectedFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(fileId)) {
-        next.delete(fileId);
-      } else {
-        next.add(fileId);
-      }
-      return next;
-    });
-  }
-
   function selectAllFiles(select: boolean) {
     if (select && adminListedFiles) {
-      setSelectedFiles(new Set(adminListedFiles.files.map((f) => f.inner.id)));
+      setSelectedFiles(new Set(adminListedFiles.files.map((f) => f.tags.find((t) => t[0] === "x")?.[1]).filter((id): id is string => !!id)));
     } else {
       setSelectedFiles(new Set());
     }
@@ -561,12 +532,12 @@ export default function Admin() {
               {/* Bulk action toolbar for files */}
               <div className="flex items-center justify-between bg-neutral-900 p-2 rounded-sm border border-neutral-800">
                 <div className="flex items-center gap-2">
-                  <input
+                      <input
                     type="checkbox"
                     checked={
                       adminListedFiles.files.length > 0 &&
                       adminListedFiles.files.every((f) =>
-                        selectedFiles.has(f.inner.id)
+                        selectedFiles.has(f.tags.find((t) => t[0] === "x")?.[1] ?? "")
                       )
                     }
                     onChange={(e) =>
