@@ -110,6 +110,15 @@ export interface Report {
   reviewed: boolean;
 }
 
+export interface GroupedReport {
+  file_id: string;
+  report_count: number;
+  latest_report_id: number;
+  reporter_pubkey: string;
+  reason: string;
+  created: string;
+}
+
 export interface WhitelistEntry {
   pubkey: string;
   created: string;
@@ -210,6 +219,40 @@ export class Route96 {
       "admin/reports",
       "DELETE",
       JSON.stringify({ ids: reportIds }),
+    );
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async deleteReports(reportIds: number[]) {
+    const rsp = await this.#req(
+      "admin/reports/bulk",
+      "DELETE",
+      JSON.stringify({ ids: reportIds }),
+    );
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async listReportsGrouped(page = 0, count = 10) {
+    const rsp = await this.#req(
+      `admin/reports/grouped?page=${page}&count=${count}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponseGroupedReportList>(rsp);
+    if (!data.data) throw new Error(data.message || "List reports failed");
+    return {
+      ...data,
+      ...data.data,
+      files: data.data.files,
+    };
+  }
+
+  async deleteFilesBulk(fileIds: string[]) {
+    const rsp = await this.#req(
+      "admin/files/bulk",
+      "DELETE",
+      JSON.stringify({ ids: fileIds }),
     );
     const data = await this.#handleResponse<AdminResponse<void>>(rsp);
     return data;
@@ -538,4 +581,11 @@ export type AdminResponseReportList = AdminResponse<{
   page: number;
   count: number;
   files: Array<Report>;
+}>;
+
+export type AdminResponseGroupedReportList = AdminResponse<{
+  total: number;
+  page: number;
+  count: number;
+  files: Array<GroupedReport>;
 }>;

@@ -14,6 +14,7 @@ import {
   ConfigEntry,
   FileStatSort,
   SortOrder,
+  GroupedReport,
 } from "../upload/admin";
 import { Blossom } from "../upload/blossom";
 import { FormatBytes } from "../const";
@@ -46,11 +47,13 @@ export default function Admin() {
   const [sortBy, setSortBy] = useState<FileStatSort>("created");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [bulkProgress, setBulkProgress] = useState<string>();
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   // Reports tab
-  const [reports, setReports] = useState<Report[]>();
+  const [reports, setReports] = useState<GroupedReport[]>();
   const [reportPages, setReportPages] = useState<number>();
   const [reportPage, setReportPage] = useState(0);
+  const [selectedReports, setSelectedReports] = useState<Set<number>>(new Set());
 
   // Review tab
   const [pendingReview, setPendingReview] = useState<AdminFileList>();
@@ -84,6 +87,11 @@ export default function Admin() {
           sortBy,
           sortOrder,
         );
+        const totalPages = result.total > 0 ? Math.ceil(result.total / result.count) : 0;
+        if (result.files.length === 0 && n > 0 && n >= totalPages) {
+          setAdminListedPage(totalPages - 1);
+          return;
+        }
         setAdminListedFiles(result);
       } catch (e) {
         setError(
@@ -102,9 +110,14 @@ export default function Admin() {
       try {
         setError(undefined);
         const route96 = new Route96(url, pub);
-        const result = await route96.listReports(n, 10);
+        const result = await route96.listReportsGrouped(n, 10);
+        const totalPages = result.total > 0 ? Math.ceil(result.total / result.count) : 0;
+        if (result.files.length === 0 && n > 0 && n >= totalPages) {
+          setReportPage(totalPages - 1);
+          return;
+        }
         setReports(result.files);
-        setReportPages(Math.ceil(result.total / result.count));
+        setReportPages(totalPages);
       } catch (e) {
         setError(
           e instanceof Error
@@ -123,6 +136,11 @@ export default function Admin() {
         setError(undefined);
         const route96 = new Route96(url, pub);
         const result = await route96.listPendingReview(n, 50);
+        const totalPages = result.total > 0 ? Math.ceil(result.total / result.count) : 0;
+        if (result.files.length === 0 && n > 0 && n >= totalPages) {
+          setPendingReviewPage(totalPages - 1);
+          return;
+        }
         setPendingReview(result);
       } catch (e) {
         setError(
@@ -183,6 +201,82 @@ export default function Admin() {
           ? e.message || "Acknowledge report failed"
           : "Acknowledge report failed",
       );
+    }
+  }
+
+  async function deleteReport(reportId: number) {
+    if (!pub) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.deleteReports([reportId]);
+      await listReports(reportPage);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Delete report failed"
+          : "Delete report failed",
+      );
+    }
+  }
+
+  async function bulkAcknowledgeReports() {
+    if (!pub || selectedReports.size === 0) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      setBulkProgress(`Acknowledging ${selectedReports.size} reports...`);
+      await route96.acknowledgeReports(Array.from(selectedReports));
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Bulk acknowledge failed"
+          : "Bulk acknowledge failed",
+      );
+    } finally {
+      setBulkProgress(undefined);
+      setSelectedReports(new Set());
+      await listReports(reportPage);
+    }
+  }
+
+  async function bulkDeleteReports() {
+    if (!pub || selectedReports.size === 0) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      setBulkProgress(`Deleting ${selectedReports.size} reports...`);
+      await route96.deleteReports(Array.from(selectedReports));
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Bulk delete failed"
+          : "Bulk delete failed",
+      );
+    } finally {
+      setBulkProgress(undefined);
+      setSelectedReports(new Set());
+      await listReports(reportPage);
+    }
+  }
+
+  function toggleReportSelection(reportId: number) {
+    setSelectedReports((prev) => {
+      const next = new Set(prev);
+      if (next.has(reportId)) {
+        next.delete(reportId);
+      } else {
+        next.add(reportId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllReports(select: boolean) {
+    if (select && reports) {
+      setSelectedReports(new Set(reports.map((r) => r.latest_report_id)));
+    } else {
+      setSelectedReports(new Set());
     }
   }
 
@@ -281,6 +375,46 @@ export default function Admin() {
     }
     setBulkProgress(undefined);
     await listPendingReview(pendingReviewPage);
+  }
+
+  async function bulkDeleteFiles() {
+    if (!pub || selectedFiles.size === 0) return;
+    try {
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      setBulkProgress(`Deleting ${selectedFiles.size} files...`);
+      await route96.deleteFilesBulk(Array.from(selectedFiles));
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message || "Bulk delete failed"
+          : "Bulk delete failed",
+      );
+    } finally {
+      setBulkProgress(undefined);
+      setSelectedFiles(new Set());
+      await listAllUploads(adminListedPage);
+    }
+  }
+
+  function toggleFileSelection(fileId: string) {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllFiles(select: boolean) {
+    if (select && adminListedFiles) {
+      setSelectedFiles(new Set(adminListedFiles.files.map((f) => f.inner.id)));
+    } else {
+      setSelectedFiles(new Set());
+    }
   }
 
   async function findSimilar(file: FileInfo) {
@@ -423,19 +557,71 @@ export default function Admin() {
             onSortOrder={setSortOrder}
           />
           {adminListedFiles && (
-            <FileList
-              files={adminListedFiles.files}
-              pages={Math.ceil(adminListedFiles.total / adminListedFiles.count)}
-              page={adminListedFiles.page}
-              onPage={(x) => setAdminListedPage(x)}
-              onDelete={async (x) => {
-                await deleteFile(x);
-                await listAllUploads(adminListedPage);
-              }}
-              onLabelClick={(l) => setLabelFilter(l)}
-              onFindSimilar={findSimilar}
-              adminMode={true}
-            />
+            <>
+              {/* Bulk action toolbar for files */}
+              <div className="flex items-center justify-between bg-neutral-900 p-2 rounded-sm border border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={
+                      adminListedFiles.files.length > 0 &&
+                      adminListedFiles.files.every((f) =>
+                        selectedFiles.has(f.inner.id)
+                      )
+                    }
+                    onChange={(e) =>
+                      selectAllFiles(e.target.checked)
+                    }
+                    className="w-4 h-4 rounded bg-neutral-800 border-neutral-700"
+                  />
+                  <span className="text-xs text-neutral-500">
+                    {selectedFiles.size} selected
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  {bulkProgress ? (
+                    <span className="text-xs text-neutral-500">
+                      {bulkProgress}
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => selectAllFiles(true)}
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => selectAllFiles(false)}
+                        className="bg-neutral-800 hover:bg-neutral-700 text-white px-2 py-1 rounded-sm text-xs"
+                      >
+                        Select None
+                      </button>
+                      <button
+                        onClick={bulkDeleteFiles}
+                        disabled={selectedFiles.size === 0}
+                        className="bg-red-900 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed text-white px-2 py-1 rounded-sm text-xs"
+                      >
+                        Delete Selected
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <FileList
+                files={adminListedFiles.files}
+                pages={adminListedFiles.total > 0 ? Math.ceil(adminListedFiles.total / adminListedFiles.count) : 0}
+                page={adminListedFiles.page}
+                onPage={(x) => setAdminListedPage(x)}
+                onDelete={async (x) => {
+                  await deleteFile(x);
+                  await listAllUploads(adminListedPage);
+                }}
+                onLabelClick={(l) => setLabelFilter(l)}
+                onFindSimilar={findSimilar}
+                adminMode={true}
+              />
+            </>
           )}
         </div>
       )}
@@ -453,6 +639,11 @@ export default function Admin() {
                 await deleteFile(fileId);
                 await listReports(reportPage);
               }}
+              selectedReports={selectedReports}
+              onToggleSelect={toggleReportSelection}
+              onSelectAll={selectAllReports}
+              onBulkAcknowledge={bulkAcknowledgeReports}
+              onDeleteReports={bulkDeleteReports}
             />
           )}
         </>
@@ -491,7 +682,7 @@ export default function Admin() {
               </div>
               <FileList
                 files={pendingReview.files}
-                pages={Math.ceil(pendingReview.total / pendingReview.count)}
+                pages={pendingReview.total > 0 ? Math.ceil(pendingReview.total / pendingReview.count) : 0}
                 page={pendingReview.page}
                 onPage={(x) => setPendingReviewPage(x)}
                 onReview={reviewFile}

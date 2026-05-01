@@ -186,6 +186,16 @@ pub struct Report {
     pub reviewed: bool,
 }
 
+/// Data for grouped report view (aggregated by file_id)
+pub struct GroupedReportData {
+    pub file_id: Vec<u8>,
+    pub report_count: u32,
+    pub latest_report_id: u64,
+    pub reporter_pubkey: Vec<u8>,
+    pub reason: String,
+    pub created: String,
+}
+
 /// Database row for a label model configuration.
 #[cfg(feature = "labels")]
 #[derive(Clone, FromRow, Serialize)]
@@ -841,6 +851,100 @@ impl Database {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Delete multiple reports by ID
+    pub async fn delete_reports(&self, report_ids: &[u64]) -> Result<(), Error> {
+        if report_ids.is_empty() {
+            return Ok(());
+        }
+        let mut qb = QueryBuilder::new("delete from reports where id in (");
+        let mut sep = qb.separated(", ");
+        for id in report_ids {
+            sep.push_bind(id);
+        }
+        sep.push_unseparated(")");
+        qb.build().execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// List reports grouped by file_id, returning the latest report for each file
+    pub async fn list_reports_grouped(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<GroupedReportData>, i64), Error> {
+        // Get grouped reports with latest report details
+        let results: Vec<(Vec<u8>, i64, u64, i64, String, String)> = sqlx::query(
+            "SELECT 
+                r.file_id,
+                COUNT(*) as report_count,
+                r.id as latest_report_id,
+                r.reporter_id,
+                r.event_json,
+                r.created
+            FROM reports r
+            INNER JOIN (
+                SELECT file_id, MAX(created) as max_created
+                FROM reports
+                WHERE reviewed = false
+                GROUP BY file_id
+            ) latest ON r.file_id = latest.file_id AND r.created = latest.max_created
+            WHERE r.reviewed = false
+            GROUP BY r.file_id, r.id, r.reporter_id, r.event_json, r.created
+            ORDER BY r.created DESC
+            LIMIT ? OFFSET ?"
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            let file_id: Vec<u8> = row.try_get("file_id")?;
+            let report_count: i64 = row.try_get("report_count")?;
+            let latest_report_id: u64 = row.try_get("latest_report_id")?;
+            let reporter_id: i64 = row.try_get("reporter_id")?;
+            let event_json: String = row.try_get("event_json")?;
+            let created: String = row.try_get("created")?;
+            Ok((file_id, report_count, latest_report_id, reporter_id, event_json, created))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+
+        // Get total count of grouped reports
+        let count: i64 = sqlx::query(
+            "SELECT COUNT(DISTINCT file_id) 
+             FROM reports 
+             WHERE reviewed = false"
+        )
+        .fetch_one(&self.pool)
+        .await?
+        .try_get(0)?;
+
+        // Convert to GroupedReportData
+        let mut grouped = Vec::new();
+        for (file_id, report_count, latest_report_id, reporter_id, event_json, created) in results {
+            // Extract pubkey and reason from event_json
+            let (reporter_pubkey, reason) = match serde_json::from_str::<serde_json::Value>(&event_json) {
+                Ok(event) => {
+                    let pubkey = event.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
+                    let reason = event.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    (hex::decode(pubkey).unwrap_or_default(), reason.to_string())
+                }
+                Err(_) => (vec![], "Invalid event data".to_string()),
+            };
+
+            grouped.push(GroupedReportData {
+                file_id,
+                report_count: report_count as u32,
+                latest_report_id,
+                reporter_pubkey,
+                reason,
+                created,
+            });
+        }
+
+        Ok((grouped, count))
     }
 
     /// Insert a single label for a file (ignores duplicates).

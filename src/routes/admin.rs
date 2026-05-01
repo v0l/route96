@@ -42,6 +42,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/admin/self", get(admin_get_self))
         .route("/user/files", get(user_list_files))
         .route("/admin/files", get(admin_list_files))
+        .route("/admin/files/bulk", delete(admin_delete_files_bulk))
         .route(
             "/admin/files/review",
             get(admin_list_pending_review)
@@ -50,7 +51,9 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         )
         .route("/admin/files/{file_id}/stats", get(admin_file_stats))
         .route("/admin/reports", get(admin_list_reports))
+        .route("/admin/reports/grouped", get(admin_list_reports_grouped))
         .route("/admin/reports", delete(admin_acknowledge_reports))
+        .route("/admin/reports/bulk", delete(admin_delete_reports_bulk))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
         .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
         .route(
@@ -750,6 +753,71 @@ async fn admin_acknowledge_reports(
     AdminResponse::success(())
 }
 
+/// DELETE /admin/reports/bulk — delete multiple reports by ID
+async fn admin_delete_reports_bulk(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AdminReportIdsBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    if let Err(e) = state.db.delete_reports(&body.ids).await {
+        return AdminResponse::error(&format!("Failed to delete reports: {}", e));
+    }
+
+    AdminResponse::success(())
+}
+
+/// GET /admin/reports/grouped — list reports grouped by file_id
+/// Returns aggregated report data with count of reports per file
+#[derive(Serialize)]
+struct GroupedReport {
+    file_id: String,
+    report_count: u32,
+    latest_report_id: u64,
+    reporter_pubkey: String,
+    reason: String,
+    created: String,
+}
+
+async fn admin_list_reports_grouped(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListReportsQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<PagedResult<GroupedReport>> {
+    let server_count = params.count.clamp(1, 5_000);
+
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state
+        .db
+        .list_reports_grouped(params.page * server_count, server_count)
+        .await
+    {
+        Ok((reports, total_count)) => AdminResponse::success(PagedResult {
+            count: reports.len() as u32,
+            page: params.page,
+            total: total_count as u32,
+            files: reports
+                .into_iter()
+                .map(|r| GroupedReport {
+                    file_id: hex::encode(&r.file_id),
+                    report_count: r.report_count,
+                    latest_report_id: r.latest_report_id,
+                    reporter_pubkey: hex::encode(&r.reporter_pubkey),
+                    reason: r.reason,
+                    created: r.created,
+                })
+                .collect(),
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list reports: {}", e)),
+    }
+}
+
 #[derive(Deserialize)]
 struct AdminGetUserInfoQuery {
     page: Option<u32>,
@@ -988,6 +1056,36 @@ async fn admin_review_files(
 
 /// DELETE /admin/files/review — ban files and remove from disk
 async fn admin_delete_files(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<AdminFileIdsBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let ids = match body.decode() {
+        Ok(ids) => ids,
+        Err(e) => return AdminResponse::error(&e),
+    };
+
+    // Ban all files in one transaction (ownership + tombstone).
+    if let Err(e) = state.db.ban_files(&ids).await {
+        return AdminResponse::error(&format!("Failed to ban files: {}", e));
+    }
+
+    // Remove physical files (best-effort, DB is already updated).
+    for id in &ids {
+        if let Err(e) = tokio::fs::remove_file(state.fs.get(id)).await {
+            log::warn!("Could not remove file from disk {}: {}", hex::encode(id), e);
+        }
+    }
+
+    AdminResponse::success(())
+}
+
+/// DELETE /admin/files/bulk — ban multiple files by ID (bulk action for main file list)
+async fn admin_delete_files_bulk(
     auth: Nip98Auth,
     AxumState(state): AxumState<Arc<AppState>>,
     Json(body): Json<AdminFileIdsBody>,
