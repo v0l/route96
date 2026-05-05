@@ -819,7 +819,7 @@ impl Database {
     /// List reports with pagination for admin view
     pub async fn list_reports(&self, offset: u32, limit: u32) -> Result<(Vec<Report>, i64), Error> {
         let reports: Vec<Report> = sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created, reviewed from reports where reviewed = false order by created desc limit ? offset ?"
+            "select id, file_id, CAST(reporter_id AS UNSIGNED) as reporter_id, event_json, created, reviewed from reports where reviewed = false order by created desc limit ? offset ?"
         )
             .bind(limit)
             .bind(offset)
@@ -837,7 +837,7 @@ impl Database {
     /// Get reports for a specific file
     pub async fn get_file_reports(&self, file_id: &[u8]) -> Result<Vec<Report>, Error> {
         sqlx::query_as(
-            "select id, file_id, reporter_id, event_json, created, reviewed from reports where file_id = ? order by created desc"
+            "select id, file_id, CAST(reporter_id AS UNSIGNED) as reporter_id, event_json, created, reviewed from reports where file_id = ? order by created desc"
         )
             .bind(file_id)
             .fetch_all(&self.pool)
@@ -875,12 +875,12 @@ impl Database {
         limit: u32,
     ) -> Result<(Vec<GroupedReportData>, i64), Error> {
         // Get grouped reports with latest report details
-        let results: Vec<(Vec<u8>, i64, u64, i64, String, String)> = sqlx::query(
+        let results: Vec<(Vec<u8>, i64, u64, u64, String, String)> = sqlx::query(
             "SELECT 
                 r.file_id,
                 COUNT(*) as report_count,
                 r.id as latest_report_id,
-                r.reporter_id,
+                CAST(r.reporter_id AS UNSIGNED) as reporter_id,
                 r.event_json,
                 r.created
             FROM reports r
@@ -904,7 +904,7 @@ impl Database {
             let file_id: Vec<u8> = row.try_get("file_id")?;
             let report_count: i64 = row.try_get("report_count")?;
             let latest_report_id: u64 = row.try_get("latest_report_id")?;
-            let reporter_id: i64 = row.try_get("reporter_id")?;
+            let reporter_id: u64 = row.try_get("reporter_id")?;
             let event_json: String = row.try_get("event_json")?;
             let created: String = row.try_get("created")?;
             Ok((file_id, report_count, latest_report_id, reporter_id, event_json, created))
