@@ -193,7 +193,7 @@ pub struct GroupedReportData {
     pub latest_report_id: u64,
     pub reporter_pubkey: Vec<u8>,
     pub reason: String,
-    pub created: String,
+    pub created: DateTime<Utc>,
 }
 
 /// Database row for a label model configuration.
@@ -875,7 +875,7 @@ impl Database {
         limit: u32,
     ) -> Result<(Vec<GroupedReportData>, i64), Error> {
         // Get grouped reports with latest report details
-        let results: Vec<(Vec<u8>, i64, u64, u64, String, String)> = sqlx::query(
+        let results: Vec<(Vec<u8>, i64, u64, u64, String, DateTime<Utc>)> = sqlx::query(
             "SELECT 
                 r.file_id,
                 COUNT(*) as report_count,
@@ -906,7 +906,7 @@ impl Database {
             let latest_report_id: u64 = row.try_get("latest_report_id")?;
             let reporter_id: u64 = row.try_get("reporter_id")?;
             let event_json: String = row.try_get("event_json")?;
-            let created: String = row.try_get("created")?;
+            let created: DateTime<Utc> = row.try_get("created")?;
             Ok((file_id, report_count, latest_report_id, reporter_id, event_json, created))
         })
         .collect::<Result<Vec<_>, Error>>()?;

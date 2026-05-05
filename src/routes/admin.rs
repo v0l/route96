@@ -810,7 +810,7 @@ async fn admin_list_reports_grouped(
                     latest_report_id: r.latest_report_id,
                     reporter_pubkey: hex::encode(&r.reporter_pubkey),
                     reason: r.reason,
-                    created: r.created,
+                    created: r.created.to_rfc3339(),
                 })
                 .collect(),
         }),
