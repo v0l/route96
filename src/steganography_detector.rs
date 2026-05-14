@@ -11,7 +11,7 @@ pub fn check_for_steganography(file_path: &Path) -> Result<()> {
     };
 
     let mut buffer = Vec::new();
-    if let Err(_) = file.read_to_end(&mut buffer) {
+    if file.read_to_end(&mut buffer).is_err() {
         return Ok(());
     }
 
@@ -108,7 +108,7 @@ fn has_suspicious_comments(data: &[u8]) -> bool {
             }
         }
 
-        if marker >= 0xD0 && marker <= 0xD9 {
+        if (0xD0..=0xD9).contains(&marker) {
             pos = marker_pos + 1;
         } else if marker_pos + 2 >= data.len() {
             break;
@@ -146,7 +146,7 @@ fn has_excessive_app_segments(data: &[u8]) -> bool {
         let marker = data[marker_pos];
 
         // APP markers (0xE0-0xEF)
-        if marker >= 0xE0 && marker <= 0xEF {
+        if (0xE0..=0xEF).contains(&marker) {
             app_count += 1;
 
             if marker_pos + 2 >= data.len() {
@@ -160,7 +160,7 @@ fn has_excessive_app_segments(data: &[u8]) -> bool {
                 break;
             }
             pos = marker_pos + segment_len;
-        } else if marker >= 0xD0 && marker <= 0xD9 {
+        } else if (0xD0..=0xD9).contains(&marker) {
             pos = marker_pos + 1;
         } else if marker_pos + 2 >= data.len() {
             break;

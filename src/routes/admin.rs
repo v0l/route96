@@ -311,16 +311,14 @@ async fn admin_stats(
 
     let days = params.days.min(365);
 
-    let query = format!(
-        "SELECT 
+    let query = "SELECT 
             DATE(created) as date,
             COUNT(*) as uploads,
             CAST(COALESCE(SUM(size), 0) AS SIGNED) as bytes
         FROM uploads
         WHERE created >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
         GROUP BY DATE(created)
-        ORDER BY date ASC"
-    );
+        ORDER BY date ASC".to_string();
 
     let rows = sqlx::query(&query)
         .bind(days as i32)

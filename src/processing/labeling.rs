@@ -227,7 +227,7 @@ impl VitModel {
             let frames = unsafe { extract_video_frames(path, &self.device) }?;
             classify_frames(self, &frames, min_confidence).map_err(LabelError::Ffmpeg)
         } else if mime_type.starts_with("image/svg") {
-            return Ok(HashMap::new());
+            Ok(HashMap::new())
         } else {
             let image = unsafe { load_frame_224(path, &self.device) }?;
             self.classify(&image, min_confidence).map_err(LabelError::Ffmpeg)

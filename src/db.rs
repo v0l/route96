@@ -923,7 +923,7 @@ impl Database {
 
         // Convert to GroupedReportData
         let mut grouped = Vec::new();
-        for (file_id, report_count, latest_report_id, reporter_id, event_json, created) in results {
+        for (file_id, report_count, latest_report_id, _reporter_id, event_json, created) in results {
             // Extract pubkey and reason from event_json
             let (reporter_pubkey, reason) = match serde_json::from_str::<serde_json::Value>(&event_json) {
                 Ok(event) => {

@@ -442,7 +442,11 @@ fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64
 
     let end = match single_range.end {
         EndPosition::Index(i) => i,
-        EndPosition::LastByte => (file_size - 1).min(start + MAX_UNBOUNDED_RANGE),
+        EndPosition::LastByte => {
+            file_size
+                .saturating_sub(1)
+                .min(start + MAX_UNBOUNDED_RANGE)
+        }
     };
 
     // Validate the range
@@ -451,7 +455,7 @@ fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64
     }
 
     // Clamp end to file size
-    let end = end.min(file_size - 1);
+    let end = end.min(file_size.saturating_sub(1));
 
     Some((start, end))
 }
@@ -502,9 +506,7 @@ pub async fn get_blob(
     // Check for Range header and handle range requests
     let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
 
-    // Only use range response for files > 1MiB
-    if info.size >= MAX_UNBOUNDED_RANGE
-        && let Some(range_str) = range_header
+    if let Some(range_str) = range_header
         && let Some((start, end)) = get_range_from_header(range_str, info.size)
     {
         // Record range-request stats (bytes = range length).
@@ -645,5 +647,80 @@ pub async fn get_blob_thumb(
         })
     } else {
         Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_range_header_prefix() {
+        // bytes=0-1023 — typical range request
+        let result = get_range_from_header("bytes=0-1023", 100_000);
+        assert_eq!(result, Some((0, 1023)));
+    }
+
+    #[test]
+    fn test_range_header_suffix() {
+        // bytes=-500 — last 500 bytes
+        let result = get_range_from_header("bytes=-500", 10_000);
+        assert_eq!(result, Some((9_500, 9_999)));
+    }
+
+    #[test]
+    fn test_range_header_open_ended() {
+        // bytes=44- — from byte 44 to end (capped by MAX_UNBOUNDED_RANGE for small files)
+        let result = get_range_from_header("bytes=44-", 1_000_000);
+        assert_eq!(result, Some((44, 999_999)));
+    }
+
+    #[test]
+    fn test_range_header_small_file() {
+        // Small file (under 1 KiB) — range should still work
+        let result = get_range_from_header("bytes=0-511", 1024);
+        assert_eq!(result, Some((0, 511)));
+    }
+
+    #[test]
+    fn test_range_header_past_eof() {
+        // Range starts past end of file
+        let result = get_range_from_header("bytes=5000-6000", 1000);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_range_header_end_clamped() {
+        // End is beyond file size — should be clamped
+        let result = get_range_from_header("bytes=500-99999", 1000);
+        assert_eq!(result, Some((500, 999)));
+    }
+
+    #[test]
+    fn test_range_header_invalid() {
+        // Completely invalid header
+        let result = get_range_from_header("garbage", 1000);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_range_header_start_equals_end() {
+        // Single byte range
+        let result = get_range_from_header("bytes=100-100", 1000);
+        assert_eq!(result, Some((100, 100)));
+    }
+
+    #[test]
+    fn test_range_header_start_greater_than_end() {
+        // Invalid: start > end
+        let result = get_range_from_header("bytes=500-100", 1000);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_range_header_zero_length_file() {
+        // Empty file — any range request should return None
+        let result = get_range_from_header("bytes=0-", 0);
+        assert_eq!(result, None);
     }
 }

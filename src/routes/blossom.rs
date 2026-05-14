@@ -68,9 +68,7 @@ fn url_hash_from_url(url: &str) -> Option<String> {
     
     let parsed = Url::parse(url).ok()?;
     let hash = parsed
-        .path_segments()?
-        .rev()
-        .next()?
+        .path_segments()?.next_back()?
         .split('.')
         .next()?;
     
@@ -119,16 +117,14 @@ impl IntoResponse for BlossomGenericResponse {
         }
         // Add payment headers if present
         if let Some(payment) = self.payment_headers {
-            if let Some(lightning) = payment.lightning {
-                if let Ok(v) = lightning.parse() {
+            if let Some(lightning) = payment.lightning
+                && let Ok(v) = lightning.parse() {
                     headers.insert("x-lightning", v);
                 }
-            }
-            if let Some(cashu) = payment.cashu {
-                if let Ok(v) = cashu.parse() {
+            if let Some(cashu) = payment.cashu
+                && let Ok(v) = cashu.parse() {
                     headers.insert("x-cashu", v);
                 }
-            }
         }
         (self.status, headers).into_response()
     }
@@ -339,7 +335,7 @@ async fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<Bl
 
 /// Validate server tag against the server's domain
 fn check_server_tag(auth: &BlossomAuth, server_domain: &str) -> Option<BlossomResponse> {
-    if let Err(_) = auth.validate_server_tag(server_domain) {
+    if auth.validate_server_tag(server_domain).is_err() {
         return Some(BlossomResponse::unauthorized("Server not in authorization token scope"));
     }
     None
@@ -353,7 +349,7 @@ async fn delete_blob(
     let settings = state.settings().await;
     
     // BUD-11: validate x tag for DELETE endpoint
-    if let Err(_) = auth.validate_x_tag(&sha256) {
+    if auth.validate_x_tag(&sha256).is_err() {
         return BlossomResponse::unauthorized("Missing or mismatched x tag");
     }
     
@@ -447,11 +443,10 @@ async fn mirror(
     
     // BUD-11: validate x tag for mirror endpoint
     // Extract expected hash from URL and validate against x tags
-    if let Some(url_hash) = url_hash_from_url(&req.url) {
-        if let Err(_) = auth.validate_x_tag(&url_hash) {
+    if let Some(url_hash) = url_hash_from_url(&req.url)
+        && auth.validate_x_tag(&url_hash).is_err() {
             return BlossomResponse::unauthorized("Missing or mismatched x tag");
         }
-    }
     
     // BUD-11: validate server tag
     if let Some(e) = check_server_tag(&auth, &settings.public_url) {
@@ -588,7 +583,7 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
     }
 
     // BUD-11: validate server tag
-    if let Err(_) = auth.validate_server_tag(server_domain) {
+    if auth.validate_server_tag(server_domain).is_err() {
         return BlossomHead {
             msg: Some("Server not in authorization token scope"),
             status: StatusCode::UNAUTHORIZED,
@@ -662,7 +657,7 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
     }
 
     // BUD-11: validate server tag
-    if let Err(_) = auth.validate_server_tag(server_domain) {
+    if auth.validate_server_tag(server_domain).is_err() {
         return BlossomHead {
             msg: Some("Server not in authorization token scope"),
             status: StatusCode::UNAUTHORIZED,
@@ -684,11 +679,10 @@ async fn process_upload(
     }
 
     // BUD-11: validate x tag if X-SHA-256 header is provided
-    if let Some(ref x_sha) = auth.x_sha_256 {
-        if let Err(_) = auth.validate_x_tag(x_sha) {
+    if let Some(ref x_sha) = auth.x_sha_256
+        && auth.validate_x_tag(x_sha).is_err() {
             return BlossomResponse::unauthorized("Missing or mismatched x tag");
         }
-    }
 
     let name = auth.event.tags.iter().find_map(|t| {
         if t.kind() == TagKind::Name {
@@ -778,11 +772,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for Sha256Reader<S> {
         let poll = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
         if let std::task::Poll::Ready(Ok(())) = &poll {
             let filled_after = buf.filled().len();
-            if filled_after > filled_before {
-                if let Ok(mut hasher) = self.hasher.lock() {
+            if filled_after > filled_before
+                && let Ok(mut hasher) = self.hasher.lock() {
                     hasher.update(&buf.filled()[filled_before..filled_after]);
                 }
-            }
         }
         poll
     }
@@ -840,8 +833,8 @@ where
 
             // BUD-02: validate X-SHA-256 header against the original
             // upload content hash (before any server-side compression).
-            if let Some(expected_sha) = x_sha_256 {
-                if let Ok(expected_bytes) = hex::decode(expected_sha) {
+            if let Some(expected_sha) = x_sha_256
+                && let Ok(expected_bytes) = hex::decode(expected_sha) {
                     let original_hash = finalize_hash(input_hasher.clone());
                     if expected_bytes != original_hash {
                         if let Err(e) = state.fs.delete(&ret.id).await {
@@ -852,7 +845,6 @@ where
                         );
                     }
                 }
-            }
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
