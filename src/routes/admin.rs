@@ -1246,9 +1246,13 @@ impl Database {
         // For created/size (default) use LEFT JOIN so all files are returned.
         let (join_sql, sort_col) = match sort {
             FileStatSort::Created | FileStatSort::Size => ("left join file_stats fs on fs.file = u.id", if matches!(sort, FileStatSort::Size) { "u.size" } else { "u.created" }),
-            FileStatSort::EgressBytes | FileStatSort::DownloadCount => (
+            FileStatSort::EgressBytes => (
                 "inner join file_stats fs on fs.file = u.id",
                 "fs.egress_bytes",
+            ),
+            FileStatSort::DownloadCount => (
+                "inner join file_stats fs on fs.file = u.id",
+                "(fs.egress_bytes / u.size)",
             ),
             FileStatSort::LastAccessed => (
                 "inner join file_stats fs on fs.file = u.id",

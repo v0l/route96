@@ -670,9 +670,13 @@ impl Database {
                     "uploads.created"
                 },
             ),
-            FileStatSort::EgressBytes | FileStatSort::DownloadCount => (
+            FileStatSort::EgressBytes => (
                 "inner join file_stats fs on fs.file = uploads.id",
                 "fs.egress_bytes",
+            ),
+            FileStatSort::DownloadCount => (
+                "inner join file_stats fs on fs.file = uploads.id",
+                "(fs.egress_bytes / uploads.size)",
             ),
             FileStatSort::LastAccessed => (
                 "inner join file_stats fs on fs.file = uploads.id",
