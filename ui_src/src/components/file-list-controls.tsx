@@ -49,6 +49,8 @@ export default function FileListControls({
         onChange={(e) => onSortBy(e.target.value as FileStatSort)}
       >
         <option value="created">Created</option>
+        <option value="size">Size</option>
+        <option value="download_count">Downloads</option>
         <option value="egress_bytes">Egress</option>
         <option value="last_accessed">Last Accessed</option>
       </select>

@@ -12,7 +12,12 @@ pub enum FileStatSort {
     /// Sort by upload creation time (default).
     #[default]
     Created,
+    /// Sort by file size in bytes.
+    Size,
+    /// Sort by cumulative egress bytes.
     EgressBytes,
+    /// Sort by egress bytes (user-facing label: downloads).
+    DownloadCount,
     LastAccessed,
 }
 
@@ -657,11 +662,15 @@ impl Database {
         // nulls never appear in the sort key; LEFT JOIN otherwise so that files
         // with no recorded downloads are still included.
         let (stats_join, sort_col) = match sort {
-            FileStatSort::Created => (
+            FileStatSort::Created | FileStatSort::Size => (
                 "left join file_stats fs on fs.file = uploads.id",
-                "uploads.created",
+                if matches!(sort, FileStatSort::Size) {
+                    "uploads.size"
+                } else {
+                    "uploads.created"
+                },
             ),
-            FileStatSort::EgressBytes => (
+            FileStatSort::EgressBytes | FileStatSort::DownloadCount => (
                 "inner join file_stats fs on fs.file = uploads.id",
                 "fs.egress_bytes",
             ),

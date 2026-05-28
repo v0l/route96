@@ -156,7 +156,7 @@ export interface PaymentResponse {
   pr: string;
 }
 
-export type FileStatSort = "created" | "egress_bytes" | "last_accessed";
+export type FileStatSort = "created" | "size" | "egress_bytes" | "download_count" | "last_accessed";
 export type SortOrder = "asc" | "desc";
 
 export class Route96 {
