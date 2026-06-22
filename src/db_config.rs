@@ -73,7 +73,14 @@ fn parse_value(raw: &str) -> Value {
     }
     // JSON array
     if let Ok(vals) = serde_json::from_str::<Vec<String>>(raw) {
-        return Value::new(None, ValueKind::Array(vals.into_iter().map(|s| Value::new(None, ValueKind::String(s))).collect()));
+        return Value::new(
+            None,
+            ValueKind::Array(
+                vals.into_iter()
+                    .map(|s| Value::new(None, ValueKind::String(s)))
+                    .collect(),
+            ),
+        );
     }
     // String fallback
     Value::new(None, ValueKind::String(raw.to_owned()))
@@ -144,6 +151,9 @@ fn should_skip(key: &str) -> bool {
         "whitelist",
         // payments sub-tree contains LND credentials
         "payments",
+        // #93
+        "max_upload_bytes",
+        "public_url",
     ];
     SKIP.iter()
         .any(|s| key == *s || key.starts_with(&format!("{}.", s)))
@@ -245,8 +255,8 @@ mod tests {
         assert!(should_skip("payments"));
         assert!(should_skip("payments.lnd.tls"));
         assert!(should_skip("storage_dir"));
-        assert!(!should_skip("max_upload_bytes"));
-        assert!(!should_skip("public_url"));
+        assert!(should_skip("max_upload_bytes"));
+        assert!(should_skip("public_url"));
         assert!(!should_skip("webhook_url"));
     }
 
