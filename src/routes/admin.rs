@@ -548,13 +548,14 @@ async fn post_setup(
         return AdminResponse::error("public_url must start with http:// or https://");
     }
 
-    // Create the submitting user and promote them to admin.
+    // Create the submitting user and promote them to admin atomically — the
+    // is_admin flag is only set if no admin exists yet, so a concurrent
+    // request can't also win the race.
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
-    if let Err(e) = state.db.upsert_user(&pubkey_vec).await {
-        return AdminResponse::error(&format!("Failed to create user: {}", e));
-    }
-    if let Err(e) = state.db.promote_to_admin(&pubkey_vec).await {
-        return AdminResponse::error(&format!("Failed to promote user to admin: {}", e));
+    match state.db.upsert_first_admin(&pubkey_vec).await {
+        Ok((_, true)) => {}
+        Ok((_, false)) => return AdminResponse::error("Server is already configured"),
+        Err(e) => return AdminResponse::error(&format!("Failed to create user: {}", e)),
     }
 
     if let Err(e) = state.db.config_set("public_url", public_url).await {
@@ -1167,11 +1168,19 @@ async fn admin_similar_files(
         Err(e) => return AdminResponse::error(&format!("DB error: {}", e)),
     };
 
+    // Fetch all candidate uploads in one query instead of N+1 lookups.
+    let candidate_ids: Vec<&[u8]> = candidates.iter().map(|(id, _)| id.as_slice()).collect();
+    let uploads = match state.db.get_files_batch(&candidate_ids).await {
+        Ok(u) => u,
+        Err(e) => return AdminResponse::error(&format!("DB error: {}", e)),
+    };
+
+    let settings = state.settings().await;
     let mut results = Vec::with_capacity(candidates.len());
     for (file_id_bytes, dist) in candidates {
-        if let Ok(Some(upload)) = state.db.get_file(&file_id_bytes).await {
+        if let Some(upload) = uploads.get(&file_id_bytes) {
             results.push(SimilarFile {
-                inner: Nip94Event::from_upload(&state.settings().await, &upload),
+                inner: Nip94Event::from_upload(&settings, upload),
                 distance: dist,
             });
         }

@@ -252,6 +252,26 @@ impl Database {
         Ok(())
     }
 
+    /// Create the first admin user atomically.
+    ///
+    /// The `is_admin` flag is only set if no admin exists yet, so concurrent
+    /// setup requests can't both be promoted. Returns the user id and whether
+    /// the caller was granted admin.
+    pub async fn upsert_first_admin(&self, pubkey: &Vec<u8>) -> Result<(u64, bool), Error> {
+        sqlx::query(
+            "insert into users(pubkey, is_admin) values(?, not exists(select 1 from (select id from users where is_admin = 1 limit 1) a)) \
+             on duplicate key update id = last_insert_id(id)",
+        )
+        .bind(pubkey)
+        .execute(&self.pool)
+        .await?;
+        let row = sqlx::query("select id, is_admin from users where pubkey = ?")
+            .bind(pubkey)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok((row.try_get(0)?, row.try_get(1)?))
+    }
+
     pub async fn get_user(&self, pubkey: &Vec<u8>) -> Result<User, Error> {
         sqlx::query_as("select * from users where pubkey = ?")
             .bind(pubkey)
@@ -387,6 +407,28 @@ impl Database {
         Ok(result)
     }
 
+    /// Fetch multiple files by id in a single query, keyed by file id.
+    pub async fn get_files_batch(
+        &self,
+        file_ids: &[&[u8]],
+    ) -> Result<std::collections::HashMap<Vec<u8>, FileUpload>, Error> {
+        use std::collections::HashMap;
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut qb = QueryBuilder::new("select * from uploads where id in (");
+        let mut sep = qb.separated(", ");
+        for id in file_ids {
+            sep.push_bind(*id);
+        }
+        sep.push_unseparated(")");
+        #[allow(unused_mut)]
+        let mut files: Vec<FileUpload> = qb.build_query_as().fetch_all(&self.pool).await?;
+        #[cfg(feature = "labels")]
+        self.populate_labels_vec(&mut files).await?;
+        Ok(files.into_iter().map(|f| (f.id.clone(), f)).collect())
+    }
+
     pub async fn get_file_owners(&self, file: &Vec<u8>) -> Result<Vec<User>, Error> {
         sqlx::query_as(
             "select users.* from users, user_uploads \
@@ -515,6 +557,16 @@ impl Database {
             .bind(file)
             .execute(&self.pool)
             .await?;
+        // Clean up auxiliary rows that reference the file (FK cascades cover
+        // reports and phash, but be explicit for tables without cascades).
+        for q in [
+            "delete from file_stats where file = ?",
+            "delete from upload_labels where file = ?",
+        ] {
+            if let Err(e) = sqlx::query(q).bind(file).execute(&self.pool).await {
+                log::warn!("Failed to clean up file references: {}", e);
+            }
+        }
         Ok(())
     }
 
@@ -585,7 +637,7 @@ impl Database {
     }
 
     /// List files with cursor-based pagination (BUD-12).
-    /// 
+    ///
     /// Returns files sorted by created date descending, starting after the cursor.
     /// The cursor should be the sha256 hash of the last file from the previous page.
     pub async fn list_files_cursor(
@@ -594,28 +646,43 @@ impl Database {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<Vec<FileUpload>, Error> {
-        let query = match cursor {
+        let mut results: Vec<FileUpload> = match cursor {
             Some(cursor_hash) => {
-                // Decode cursor hash for comparison
-                if let Ok(cursor_bytes) = hex::decode(cursor_hash) {
-                    sqlx::query_as(
-                        "select uploads.* from uploads, users, user_uploads \
-                        where users.pubkey = ? \
-                        and users.id = user_uploads.user_id \
-                        and user_uploads.file = uploads.id \
-                        and uploads.banned = false \
-                        and (uploads.created, uploads.id) < (?, ?) \
-                        order by uploads.created desc, uploads.id desc \
-                        limit ?",
-                    )
-                    .bind(pubkey)
-                    .bind(cursor_bytes.clone())
-                    .bind(cursor_bytes)
-                    .bind(limit)
-                } else {
+                let cursor_bytes = match hex::decode(cursor_hash) {
+                    Ok(b) if b.len() == 32 => b,
                     // Invalid cursor, return empty result
-                    return Ok(vec![]);
-                }
+                    _ => return Ok(vec![]),
+                };
+                // Look up the cursor row so we can keyset-paginate on
+                // (created, id) — comparing created directly against the raw
+                // hash bytes would be meaningless.
+                let cursor_row: Option<(DateTime<Utc>,)> = sqlx::query_as(
+                    "select created from uploads where id = ?",
+                )
+                .bind(&cursor_bytes)
+                .fetch_optional(&self.pool)
+                .await?;
+                let (cursor_created,) = match cursor_row {
+                    Some(r) => r,
+                    None => return Ok(vec![]),
+                };
+                sqlx::query_as(
+                    "select uploads.* from uploads, users, user_uploads \
+                    where users.pubkey = ? \
+                    and users.id = user_uploads.user_id \
+                    and user_uploads.file = uploads.id \
+                    and uploads.banned = false \
+                    and (uploads.created < ? or (uploads.created = ? and uploads.id < ?)) \
+                    order by uploads.created desc, uploads.id desc \
+                    limit ?",
+                )
+                .bind(pubkey)
+                .bind(cursor_created)
+                .bind(cursor_created)
+                .bind(&cursor_bytes)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
             }
             None => {
                 sqlx::query_as(
@@ -624,15 +691,15 @@ impl Database {
                     and users.id = user_uploads.user_id \
                     and user_uploads.file = uploads.id \
                     and uploads.banned = false \
-                    order by uploads.created desc \
+                    order by uploads.created desc, uploads.id desc \
                     limit ?",
                 )
                 .bind(pubkey)
                 .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
             }
         };
-
-        let mut results: Vec<FileUpload> = query.fetch_all(&self.pool).await?;
 
         #[cfg(feature = "labels")]
         self.populate_labels_vec(&mut results).await?;

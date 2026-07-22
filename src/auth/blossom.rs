@@ -40,6 +40,78 @@ impl IntoResponse for BlossomRejection {
 }
 
 impl BlossomAuth {
+    /// Validate that a URL is safe for the server to fetch (mirror requests).
+    ///
+    /// Rejects non-http(s) schemes and any host that resolves to a
+    /// loopback, private, link-local or otherwise non-public address, to
+    /// prevent SSRF against internal services / cloud metadata endpoints.
+    pub async fn validate_mirror_url(url: &url::Url) -> Result<(), BlossomRejection> {
+        use std::net::IpAddr;
+
+        fn ip_is_public(ip: &IpAddr) -> bool {
+            match ip {
+                IpAddr::V4(v4) => {
+                    !(v4.is_private()
+                        || v4.is_loopback()
+                        || v4.is_link_local()
+                        || v4.is_broadcast()
+                        || v4.is_documentation()
+                        || v4.is_unspecified()
+                        // CGNAT / carrier-grade NAT 100.64.0.0/10
+                        || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
+                        // 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15 benchmarking,
+                        // 240.0.0.0/4 reserved
+                        || v4.octets()[0] == 0
+                        || (v4.octets()[0] == 192 && v4.octets()[1] == 0 && v4.octets()[2] == 0)
+                        || (v4.octets()[0] == 198 && (v4.octets()[1] & 0xFE) == 18)
+                        || v4.octets()[0] >= 240)
+                }
+                IpAddr::V6(v6) => {
+                    !(v6.is_loopback()
+                        || v6.is_unspecified()
+                        || v6.is_unique_local()
+                        || v6.is_unicast_link_local()
+                        // IPv4-mapped IPv6 — re-check the embedded v4 address
+                        || v6
+                            .to_ipv4_mapped()
+                            .is_some_and(|v4| !ip_is_public(&IpAddr::V4(v4))))
+                }
+            }
+        }
+
+        let reject = || BlossomRejection {
+            status: StatusCode::BAD_REQUEST,
+            reason: "URL is not fetchable by this server",
+        };
+
+        if url.scheme() != "http" && url.scheme() != "https" {
+            return Err(reject());
+        }
+
+        let host = url.host_str().ok_or_else(reject)?;
+        let port = url.port_or_known_default().unwrap_or(80);
+
+        // Literal IP host — check directly.
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            if !ip_is_public(&ip) {
+                return Err(reject());
+            }
+            return Ok(());
+        }
+
+        // DNS name — resolve and require at least one public address; reject
+        // if ANY resolved address is non-public (DNS rebinding safety).
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| reject())?
+            .collect();
+        if addrs.is_empty() || addrs.iter().any(|a| !ip_is_public(&a.ip())) {
+            return Err(reject());
+        }
+
+        Ok(())
+    }
+
     /// Get all x tags from the authorization event
     pub fn x_tags(&self) -> Vec<String> {
         self.event.tags.iter().filter_map(|t| {
@@ -146,7 +218,15 @@ where
                 None
             }
         }) {
-            let u_exp: Timestamp = expiration.parse().unwrap();
+            let u_exp: Timestamp = match expiration.parse() {
+                Ok(t) => t,
+                Err(_) => {
+                    return Err(BlossomRejection {
+                        status: StatusCode::BAD_REQUEST,
+                        reason: "Invalid expiration tag",
+                    });
+                }
+            };
             if u_exp <= Timestamp::now() {
                 return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Expiration invalid" });
             }

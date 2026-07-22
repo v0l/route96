@@ -31,10 +31,10 @@ use serde::Serialize;
 use std::env::temp_dir;
 use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::io::ReaderStream;
 
 mod admin;
@@ -99,6 +99,12 @@ impl AppState {
         }
     }
 }
+
+/// Serialize thumbnail generation per file so concurrent requests for the
+/// same hash don't race writing the same temp file.
+#[cfg(feature = "media-compression")]
+static THUMB_LOCKS: LazyLock<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub struct FilePayload {
     pub file: File,
@@ -336,12 +342,24 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
-    if let Some(name) = &info.name
-        && let Ok(disposition) = format!("inline; filename=\"{}\"", name).parse()
-    {
-        response
-            .headers_mut()
-            .insert(header::CONTENT_DISPOSITION, disposition);
+    if let Some(name) = &info.name {
+        // Sanitize the filename: strip characters that could break out of the
+        // quoted-string (", \, CR, LF and other control chars).
+        let safe: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii() && !c.is_ascii_control() && c != '"' && c != '\\' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if let Ok(disposition) = format!("inline; filename=\"{}\"", safe).parse() {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_DISPOSITION, disposition);
+        }
     }
 }
 
@@ -365,10 +383,7 @@ async fn delete_file(
     if id.len() != 32 {
         return Err(Error::msg("Invalid file id"));
     }
-    if let Ok(Some(info)) = db.get_file(&id).await {
-        if info.banned {
-            return Err(Error::msg("File is banned and cannot be deleted"));
-        }
+    if let Ok(Some(_info)) = db.get_file(&id).await {
         let pubkey_vec = auth.pubkey.to_bytes().to_vec();
         let auth_user = db.get_user(&pubkey_vec).await?;
         let owners = db.get_file_owners(&id).await?;
@@ -441,21 +456,16 @@ fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64
     };
 
     let end = match single_range.end {
-        EndPosition::Index(i) => i,
-        EndPosition::LastByte => {
-            file_size
-                .saturating_sub(1)
-                .min(start + MAX_UNBOUNDED_RANGE)
-        }
+        EndPosition::Index(i) => i.min(file_size.saturating_sub(1)),
+        EndPosition::LastByte => file_size
+            .saturating_sub(1)
+            .min(start + MAX_UNBOUNDED_RANGE),
     };
 
     // Validate the range
     if start > end || start >= file_size {
         return None;
     }
-
-    // Clamp end to file size
-    let end = end.min(file_size.saturating_sub(1));
 
     Some((start, end))
 }
@@ -501,18 +511,36 @@ pub async fn get_blob(
         _ => return Err(StatusCode::NOT_FOUND),
     };
 
+    // Never serve banned content, even if the physical file still exists.
+    if info.banned {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     let file_path = state.fs.get(&id);
 
     // Check for Range header and handle range requests
     let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
 
-    if let Some(range_str) = range_header
-        && let Some((start, end)) = get_range_from_header(range_str, info.size)
-    {
-        // Record range-request stats (bytes = range length).
-        let bytes_served = end - start + 1;
-        state.file_stats.record(&id, bytes_served, Utc::now());
-        return build_range_response(file_path, info, start, end).await;
+    if let Some(range_str) = range_header {
+        match get_range_from_header(range_str, info.size) {
+            Some((start, end)) => {
+                // Record range-request stats (bytes = range length).
+                let bytes_served = end - start + 1;
+                state.file_stats.record(&id, bytes_served, Utc::now());
+                return build_range_response(file_path, info, start, end).await;
+            }
+            None => {
+                // A Range header was sent but could not be satisfied — return
+                // 416 with the total size per RFC 7233.
+                let mut response = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
+                if let Ok(v) = format!("bytes/*/{}", info.size).parse() {
+                    response
+                        .headers_mut()
+                        .insert(header::CONTENT_RANGE, v);
+                }
+                return Ok(response);
+            }
+        }
     }
 
     // Record full-file access stats.
@@ -578,6 +606,10 @@ pub async fn head_blob(
         _ => return Err(StatusCode::NOT_FOUND),
     };
 
+    if info.banned {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     // Create a response with proper headers but no body (for HEAD request)
     let mut response = Response::new(Body::empty());
 
@@ -619,6 +651,10 @@ pub async fn get_blob_thumb(
         return Err(StatusCode::NOT_FOUND);
     };
 
+    if info.banned {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     if !(info.mime_type.starts_with("image/") || info.mime_type.starts_with("video/")) {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -629,18 +665,63 @@ pub async fn get_blob_thumb(
     thumb_file.set_extension("webp");
 
     if !thumb_file.exists() {
-        let mut p = WebpProcessor::new();
-        if let Err(e) = p.thumbnail(&file_path, &thumb_file) {
-            warn!("Failed to generate thumbnail: {}", e);
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        // Serialize generation per file: concurrent requests for the same
+        // thumbnail must not race writing the same temp file.
+        let lock = {
+            let mut locks = THUMB_LOCKS.lock().await;
+            locks
+                .entry(sha256.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = lock.lock().await;
+
+        // Re-check after acquiring the lock — another request may have just
+        // finished generating this thumbnail.
+        if !thumb_file.exists() {
+            // FFmpeg work is CPU-bound and blocking; run it off the async
+            // executor so we don't stall other requests. Write to a unique
+            // temp path first, then atomically rename into place.
+            let mut tmp_out = temp_dir().join(format!("thumb_{}_{}", sha256, uuid::Uuid::new_v4()));
+            tmp_out.set_extension("webp");
+            let src = file_path.clone();
+            let tmp = tmp_out.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let mut p = WebpProcessor::new();
+                p.thumbnail(&src, &tmp)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {
+                    if let Err(e) = tokio::fs::rename(&tmp_out, &thumb_file).await {
+                        warn!("Failed to move thumbnail into place: {}", e);
+                        tokio::fs::remove_file(&tmp_out).await.ok();
+                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                    }
+                }
+                Ok(Err(e)) => {
+                    warn!("Failed to generate thumbnail: {}", e);
+                    tokio::fs::remove_file(&tmp_out).await.ok();
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+                Err(e) => {
+                    warn!("Thumbnail task failed: {}", e);
+                    tokio::fs::remove_file(&tmp_out).await.ok();
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
         }
     };
 
     if let Ok(f) = File::open(&thumb_file).await {
+        let size = match f.metadata().await {
+            Ok(m) => m.len(),
+            Err(_) => return Err(StatusCode::NOT_FOUND),
+        };
         Ok(FilePayload {
             file: f,
             info: FileUpload {
-                size: thumb_file.metadata().unwrap().len(),
+                size,
                 mime_type: "image/webp".to_string(),
                 ..info
             },

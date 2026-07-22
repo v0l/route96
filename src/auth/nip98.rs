@@ -139,6 +139,11 @@ where
             });
         }
 
+        // NOTE: NIP-98's optional `payload` tag (body hash) cannot be
+        // verified here because `FromRequestParts` has no access to the
+        // request body. Replay resistance relies on the short 10-minute
+        // expiration window enforced above.
+
         event
             .verify()
             .map_err(|_| Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Event signature invalid" })?;

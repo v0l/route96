@@ -125,12 +125,27 @@ impl FileStore {
         let mut res = if compress && crate::can_compress(mime_type) {
             #[cfg(feature = "media-compression")]
             {
-                let res = match self.compress_file(&temp_file, mime_type).await {
+                // FFmpeg transcode is blocking CPU-bound work; run it off the
+                // async executor.
+                let temp_clone = temp_file.clone();
+                let mime_owned = mime_type.to_string();
+                let compress_res = {
+                    let fs_self = self.clone();
+                    tokio::task::spawn_blocking(move || {
+                        fs_self.compress_file_sync(&temp_clone, &mime_owned)
+                    })
+                    .await
+                };
+                let res = match compress_res {
                     Err(e) => {
+                        tokio::fs::remove_file(&temp_file).await?;
+                        return Err(Error::msg(format!("Compression task failed: {}", e)));
+                    }
+                    Ok(Err(e)) => {
                         tokio::fs::remove_file(&temp_file).await?;
                         return Err(e);
                     }
-                    Ok(res) => res,
+                    Ok(Ok(res)) => res,
                 };
                 tokio::fs::remove_file(temp_file).await?;
                 res
@@ -143,7 +158,12 @@ impl FileStore {
             let (width, height, mime_type, duration, bitrate) = {
                 #[cfg(feature = "media-compression")]
                 {
-                    let probe = probe_file(&temp_file).ok();
+                    // Probe is blocking FFmpeg work; run off the executor.
+                    let probe_path = temp_file.clone();
+                    let probe = tokio::task::spawn_blocking(move || probe_file(&probe_path).ok())
+                        .await
+                        .ok()
+                        .flatten();
                     let v_stream = probe.as_ref().and_then(|p| p.best_video());
                     let mime = Self::hack_mime_type(mime_type, &probe, &v_stream, &temp_file);
                     (
@@ -310,16 +330,11 @@ impl FileStore {
     }
 
     #[cfg(feature = "media-compression")]
-    async fn compress_file(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
+    /// Synchronous compression — call inside `spawn_blocking`.
+    fn compress_file_sync(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
-
-        let hash = FileStore::hash_file(&compressed_result.result).await?;
-
-        let n = File::open(&compressed_result.result)
-            .await?
-            .metadata()
-            .await?
-            .len();
+        let hash = Self::hash_file_sync(&compressed_result.result)?;
+        let n = std::fs::metadata(&compressed_result.result)?.len();
         Ok(NewFileResult {
             path: compressed_result.result,
             id: hash,
@@ -334,6 +349,22 @@ impl FileStore {
             #[cfg(feature = "labels")]
             labels: vec![],
         })
+    }
+
+    #[cfg(feature = "media-compression")]
+    fn hash_file_sync(p: &Path) -> Result<Vec<u8>, Error> {
+        use std::io::Read;
+        let mut file = std::fs::File::open(p)?;
+        let mut hasher = Sha256::new();
+        let mut buf = [0; 8192];
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(hasher.finalize().to_vec())
     }
 
     async fn store_hash_temp_file<S>(&self, mut stream: S) -> Result<(PathBuf, u64, Vec<u8>)>
