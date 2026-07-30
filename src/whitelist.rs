@@ -64,8 +64,10 @@ impl Whitelist {
             WhitelistInner::Database(db) => match db.whitelist_contains(pubkey_hex).await {
                 Ok(found) => found,
                 Err(e) => {
-                    warn!("DB whitelist check failed, failing open: {}", e);
-                    true
+                    // Fail closed: a broken whitelist check must not silently
+                    // open the server to everyone.
+                    warn!("DB whitelist check failed, failing closed: {}", e);
+                    false
                 }
             },
         }

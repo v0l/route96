@@ -462,12 +462,28 @@ async fn mirror(
         Err(e) => return BlossomResponse::bad_request(format!("Invalid URL: {}", e)),
     };
 
+    // SSRF protection: only allow fetching public http(s) URLs.
+    if BlossomAuth::validate_mirror_url(&url).await.is_err() {
+        return BlossomResponse::bad_request("URL is not fetchable by this server");
+    }
+
     let hash = url
         .path_segments()
         .and_then(|mut c| c.next_back())
         .and_then(|s| s.split(".").next());
 
-    let client = Client::builder().build().unwrap();
+    let client = match Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to build HTTP client: {}", e);
+            return BlossomResponse::service_unavailable("Mirror fetch failed");
+        }
+    };
 
     let req_builder = client.get(url.clone()).header(
         "user-agent",
@@ -921,7 +937,14 @@ where
             });
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
-            Ok(Some(f)) => f,
+            Ok(Some(f)) if !f.banned => f,
+            Ok(Some(_)) => {
+                return BlossomResponse::Generic(BlossomGenericResponse {
+                    message: Some("File is not allowed on this server".to_string()),
+                    status: StatusCode::FORBIDDEN,
+                    payment_headers: None,
+                });
+            }
             _ => return BlossomResponse::not_found("File not found"),
         },
         Err(e) => {
@@ -937,10 +960,12 @@ where
         }
     };
 
-    // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
+    // Post-upload quota check, using the actual stored size. The declared
+    // size is only a hint and is never trusted for quota enforcement.
     #[cfg(feature = "payments")]
-    if size == 0 {
-        if let Some(payment_config) = &settings.payments {
+    {
+        let _ = size;
+        if is_new_file && let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state
@@ -1006,6 +1031,20 @@ async fn report_file(
 
     if file_hashes.is_empty() {
         return BlossomResponse::bad_request("Missing file hash in x tag");
+    }
+
+    // Cap the number of files per report to bound request cost.
+    if file_hashes.len() > 100 {
+        return BlossomResponse::bad_request("Too many files in one report (max 100)");
+    }
+
+    // Only consider 32-byte hashes (SHA-256); shorter values are invalid.
+    let file_hashes: Vec<Vec<u8>> = file_hashes
+        .into_iter()
+        .filter(|h| h.len() == 32)
+        .collect();
+    if file_hashes.is_empty() {
+        return BlossomResponse::bad_request("No valid file hashes in x tags");
     }
 
     // Get or create the reporter user from the report event pubkey

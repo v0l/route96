@@ -118,7 +118,7 @@ impl Nip96UploadResult {
 
     pub fn success(msg: &str) -> Self {
         Nip96UploadResult {
-            status: "error".to_string(),
+            status: "success".to_string(),
             message: Some(msg.to_string()),
             ..Default::default()
         }
@@ -143,8 +143,23 @@ struct Nip96Form {
     no_transform: Option<bool>,
 }
 
+/// Drop guard that removes a temp upload file when the request ends,
+/// regardless of success or failure.
+struct TempFileGuard(PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let path = self.0.clone();
+        tokio::spawn(async move {
+            tokio::fs::remove_file(path).await.ok();
+        });
+    }
+}
+
 impl Nip96Form {
-    async fn from_multipart(mut multipart: Multipart) -> Result<Self, String> {
+    async fn from_multipart(mut multipart: Multipart, max_bytes: u64) -> Result<Self, String> {
+        use tokio::io::AsyncWriteExt;
+
         let mut file_stream = None;
         let mut expiration = None;
         let mut size = 0;
@@ -153,7 +168,7 @@ impl Nip96Form {
         let mut content_type = None;
         let mut no_transform = None;
 
-        while let Some(field) = multipart
+        while let Some(mut field) = multipart
             .next_field()
             .await
             .map_err(|e| format!("Failed to get field: {}", e))?
@@ -163,18 +178,41 @@ impl Nip96Form {
                 "file" => {
                     let temp_id = Uuid::new_v4();
                     let tmp_path = temp_dir().join(temp_id.to_string());
-                    tokio::fs::write(
-                        &tmp_path,
-                        field.bytes().await.map_err(|e| {
-                            error!("Failed to write file: {}", e);
-                            "Failed to write temp file".to_string()
-                        })?,
-                    )
-                    .await
-                    .map_err(|e| {
+                    // Stream to disk with a hard byte cap so a chunked upload
+                    // with no Content-Length can't exhaust memory or disk.
+                    let mut file = match tokio::fs::File::create(&tmp_path).await {
+                        Ok(f) => f,
+                        Err(e) => {
+                            error!("Failed to create temp file: {}", e);
+                            return Err("Failed to write temp file".to_string());
+                        }
+                    };
+                    let mut written: u64 = 0;
+                    let write_result: Result<(), String> = async {
+                        while let Some(chunk) = field
+                            .chunk()
+                            .await
+                            .map_err(|e| format!("Failed to read field chunk: {}", e))?
+                        {
+                            written += chunk.len() as u64;
+                            if written > max_bytes {
+                                return Err("File too large".to_string());
+                            }
+                            file.write_all(&chunk)
+                                .await
+                                .map_err(|e| format!("Failed to write temp file: {}", e))?;
+                        }
+                        file.flush()
+                            .await
+                            .map_err(|e| format!("Failed to write temp file: {}", e))
+                    }
+                    .await;
+                    drop(file);
+                    if let Err(e) = write_result {
                         error!("Failed to write file: {}", e);
-                        "Failed to write temp file".to_string()
-                    })?;
+                        tokio::fs::remove_file(&tmp_path).await.ok();
+                        return Err(e);
+                    }
                     file_stream = Some(tmp_path);
                 }
                 "expiration" => {
@@ -254,17 +292,20 @@ async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96I
     })
 }
 
+#[cfg_attr(not(feature = "payments"), allow(unused_assignments))]
 async fn upload(
     auth: Nip98Auth,
     AxumState(state): AxumState<Arc<AppState>>,
     multipart: Multipart,
 ) -> Nip96Response {
-    let form = match Nip96Form::from_multipart(multipart).await {
+    let settings = state.settings().await;
+    let form = match Nip96Form::from_multipart(multipart, settings.max_upload_bytes).await {
         Ok(f) => f,
         Err(e) => return Nip96Response::error(&format!("Could not parse form: {}", e)),
     };
+    // Always remove the temp file when we're done with it.
+    let _tmp_guard = TempFileGuard(form.tmp_file.clone());
 
-    let settings = state.settings().await;
     let upload_size = auth.content_length.or(Some(form.size)).unwrap_or(0);
     if upload_size > 0 && upload_size > settings.max_upload_bytes {
         return Nip96Response::error("File too large");
@@ -321,9 +362,11 @@ async fn upload(
         }
     }
 
-    let Ok(temp_file) = tokio::fs::File::open(form.tmp_file).await else {
+    let Ok(temp_file) = tokio::fs::File::open(&form.tmp_file).await else {
         return Nip96Response::error("Failed to open temporary file");
     };
+    #[cfg_attr(not(feature = "payments"), allow(unused_variables))]
+    let mut is_new_file = false;
     let upload = match state
         .fs
         .put(
@@ -335,6 +378,7 @@ async fn upload(
         .await
     {
         Ok(FileSystemResult::NewFile(blob)) => {
+            is_new_file = true;
             let mut upload: FileUpload = (&blob).into();
 
             // Validate file size after upload if no pre-upload size was available
@@ -355,7 +399,12 @@ async fn upload(
             )));
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
-            Ok(Some(f)) => f,
+            Ok(Some(f)) if !f.banned => f,
+            Ok(Some(_)) => {
+                return Nip96Response::Forbidden(Json(Nip96UploadResult::error(
+                    "File is not allowed on this server",
+                )));
+            }
             _ => return Nip96Response::error("File not found"),
         },
         Err(e) => {
@@ -369,10 +418,12 @@ async fn upload(
         Err(e) => return Nip96Response::error(&format!("Could not save user: {}", e)),
     };
 
-    // Post-upload quota check if we didn't have size information before upload (only if payments are configured)
+    // Post-upload quota check, using the actual stored size. The declared
+    // size is only a hint and is never trusted for quota enforcement.
     #[cfg(feature = "payments")]
-    if upload_size == 0 {
-        if let Some(payment_config) = &settings.payments {
+    {
+        let _ = upload_size;
+        if is_new_file && let Some(payment_config) = &settings.payments {
             let free_quota = payment_config.free_quota_bytes.unwrap_or(104857600); // Default to 100MB
 
             match state

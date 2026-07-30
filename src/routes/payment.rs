@@ -88,7 +88,20 @@ async fn req_payment(
         }
     };
 
-    let amount = btc_amount * req.units * req.quantity as f32;
+    // Clamp user-supplied quantities to sane bounds and compute the total in
+    // double precision — f32 arithmetic can round and overflow.
+    if !(req.units.is_finite() && req.units > 0.0 && req.units <= 1_000_000.0) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid units".to_string()));
+    }
+    if req.quantity == 0 || req.quantity > 1000 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid quantity".to_string()));
+    }
+
+    let amount = (btc_amount as f64) * (req.units as f64) * (req.quantity as f64);
+    if amount > 2_100_000_000_000_000.0 {
+        // > total BTC supply in sats — clearly bogus
+        return Err((StatusCode::BAD_REQUEST, "Amount too large".to_string()));
+    }
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
     let uid = state.db.upsert_user(&pubkey_vec).await.map_err(|_| {
@@ -105,7 +118,8 @@ async fn req_payment(
 
     let mut lnd = lnd_client.deref().clone();
     let c = lnd.lightning();
-    let msat = (amount * 1e11f32) as u64;
+    // amount is BTC-denominated satoshis as f64 (validated above); convert to msat.
+    let msat = (amount * 1e11f64) as u64;
     let memo = format!(
         "{}x {} {} for {}",
         req.quantity, req.units, cfg.unit, auth.event.pubkey

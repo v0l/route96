@@ -131,6 +131,9 @@ impl FileStatsTracker {
                     hex::encode(&snap.file_id),
                     e
                 );
+                // Re-record the delta so it isn't lost — it will be retried
+                // on the next flush.
+                self.record(&snap.file_id, snap.egress_bytes, snap.last_accessed);
             }
         }
     }
