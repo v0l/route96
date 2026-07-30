@@ -39,27 +39,67 @@ impl IntoResponse for BlossomRejection {
     }
 }
 
+/// Reduce a `server` tag value or configured public URL to a bare lowercase host.
+/// Strips any scheme, userinfo, port, path, query and fragment so that
+/// `https://cdn.example.com:443/foo` and `cdn.example.com` compare equal.
+fn normalize_server_host(value: &str) -> String {
+    let v = value.trim().to_lowercase();
+    // Strip scheme
+    let v = match v.split_once("://") {
+        Some((_, rest)) => rest,
+        None => v.as_str(),
+    };
+    // Strip path / query / fragment
+    let v = v.split(['/', '?', '#']).next().unwrap_or(v);
+    // Strip userinfo
+    let v = match v.rsplit_once('@') {
+        Some((_, host)) => host,
+        None => v,
+    };
+    // Strip port (IPv6 literals keep their brackets)
+    let host = if v.starts_with('[') {
+        match v.find(']') {
+            Some(end) => &v[..=end],
+            None => v,
+        }
+    } else {
+        match v.split_once(':') {
+            Some((h, _)) => h,
+            None => v,
+        }
+    };
+    host.to_string()
+}
+
 impl BlossomAuth {
     /// Get all x tags from the authorization event
     pub fn x_tags(&self) -> Vec<String> {
-        self.event.tags.iter().filter_map(|t| {
-            if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
-                t.content().map(|s| s.to_lowercase())
-            } else {
-                None
-            }
-        }).collect()
+        self.event
+            .tags
+            .iter()
+            .filter_map(|t| {
+                if t.kind() == TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::X)) {
+                    t.content().map(|s| s.to_lowercase())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Get all server tags from the authorization event
     pub fn server_tags(&self) -> Vec<String> {
-        self.event.tags.iter().filter_map(|t| {
-            if t.kind() == TagKind::Server {
-                t.content().map(|s| s.to_lowercase())
-            } else {
-                None
-            }
-        }).collect()
+        self.event
+            .tags
+            .iter()
+            .filter_map(|t| {
+                if t.kind() == TagKind::Server {
+                    t.content().map(|s| s.to_lowercase())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Validate x tag requirement for endpoints that require it.
@@ -67,13 +107,13 @@ impl BlossomAuth {
     pub fn validate_x_tag(&self, expected_hash: &str) -> Result<(), BlossomRejection> {
         let expected_lower = expected_hash.to_lowercase();
         let has_match = self.x_tags().iter().any(|h| h == &expected_lower);
-        
+
         if has_match {
             Ok(())
         } else {
-            Err(BlossomRejection { 
-                status: StatusCode::UNAUTHORIZED, 
-                reason: "Missing or mismatched x tag" 
+            Err(BlossomRejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Missing or mismatched x tag",
             })
         }
     }
@@ -81,23 +121,31 @@ impl BlossomAuth {
     /// Validate server tag requirement.
     /// If server tags are present, the server's domain must be in the list.
     /// Returns Ok(()) if no server tags are present (unscoped token) or if the server is in the list.
+    ///
+    /// BUD-11 (Tag scoping): the `server` tag value "MUST be a lowercase domain name
+    /// only (e.g. `cdn.example.com`), not a full URL". Callers pass `public_url`,
+    /// which is a full URL, so both sides are normalised to a bare host before
+    /// comparison. Previously this compared the tag against the raw `public_url`,
+    /// which rejected every spec-compliant token and only accepted full-URL tags.
     pub fn validate_server_tag(&self, server_domain: &str) -> Result<(), BlossomRejection> {
         let server_tags = self.server_tags();
-        
+
         // If no server tags, token is valid on any server (unscoped)
         if server_tags.is_empty() {
             return Ok(());
         }
-        
-        let server_lower = server_domain.to_lowercase();
-        let has_match = server_tags.iter().any(|s| s == &server_lower);
-        
+
+        let expected = normalize_server_host(server_domain);
+        let has_match = server_tags
+            .iter()
+            .any(|s| normalize_server_host(s) == expected);
+
         if has_match {
             Ok(())
         } else {
-            Err(BlossomRejection { 
-                status: StatusCode::UNAUTHORIZED, 
-                reason: "Server not in authorization token scope" 
+            Err(BlossomRejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Server not in authorization token scope",
             })
         }
     }
@@ -113,29 +161,49 @@ where
         let auth = parts
             .headers
             .get("authorization")
-            .ok_or(BlossomRejection { status: StatusCode::UNAUTHORIZED, reason: "Auth header not found" })?
+            .ok_or(BlossomRejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Auth header not found",
+            })?
             .to_str()
-            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid auth header" })?;
+            .map_err(|_| BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Invalid auth header",
+            })?;
 
         if !auth.starts_with("Nostr ") {
-            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Auth scheme must be Nostr" });
+            return Err(BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Auth scheme must be Nostr",
+            });
         }
 
         let event = BASE64_STANDARD
             .decode(&auth[6..])
-            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid auth string" })?;
+            .map_err(|_| BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Invalid auth string",
+            })?;
 
-        let event = Event::from_json(event)
-            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Invalid nostr event" })?;
+        let event = Event::from_json(event).map_err(|_| BlossomRejection {
+            status: StatusCode::BAD_REQUEST,
+            reason: "Invalid nostr event",
+        })?;
 
         if event.kind != Kind::Custom(24242) {
-            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Wrong event kind" });
+            return Err(BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Wrong event kind",
+            });
         }
 
         if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
             >= 60 * 3
         {
-            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Created timestamp is out of range" });
+            return Err(BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Created timestamp is out of range",
+            });
         }
 
         // check expiration tag
@@ -148,15 +216,22 @@ where
         }) {
             let u_exp: Timestamp = expiration.parse().unwrap();
             if u_exp <= Timestamp::now() {
-                return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Expiration invalid" });
+                return Err(BlossomRejection {
+                    status: StatusCode::BAD_REQUEST,
+                    reason: "Expiration invalid",
+                });
             }
         } else {
-            return Err(BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Missing expiration tag" });
+            return Err(BlossomRejection {
+                status: StatusCode::BAD_REQUEST,
+                reason: "Missing expiration tag",
+            });
         }
 
-        event
-            .verify()
-            .map_err(|_| BlossomRejection { status: StatusCode::BAD_REQUEST, reason: "Event signature invalid" })?;
+        event.verify().map_err(|_| BlossomRejection {
+            status: StatusCode::BAD_REQUEST,
+            reason: "Event signature invalid",
+        })?;
 
         info!("{}", event.as_json());
 
@@ -198,5 +273,62 @@ where
             x_content_type,
             x_identical_media,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_server_host;
+
+    /// BUD-11: the `server` tag "MUST be a lowercase domain name only
+    /// (e.g. `cdn.example.com`), not a full URL". Callers pass `public_url`
+    /// (a full URL), so both sides must normalise to the same bare host.
+    #[test]
+    fn normalizes_full_url_to_bare_host() {
+        assert_eq!(
+            normalize_server_host("https://cdn.example.com"),
+            "cdn.example.com"
+        );
+        assert_eq!(normalize_server_host("http://localhost:8000"), "localhost");
+        assert_eq!(
+            normalize_server_host("https://cdn.example.com:443/path?q=1#f"),
+            "cdn.example.com"
+        );
+    }
+
+    #[test]
+    fn normalizes_bare_domain_unchanged() {
+        assert_eq!(normalize_server_host("cdn.example.com"), "cdn.example.com");
+        assert_eq!(normalize_server_host("localhost"), "localhost");
+    }
+
+    #[test]
+    fn normalization_is_case_insensitive_and_trims() {
+        assert_eq!(
+            normalize_server_host("  HTTPS://CDN.Example.COM/  "),
+            "cdn.example.com"
+        );
+    }
+
+    #[test]
+    fn strips_userinfo() {
+        assert_eq!(
+            normalize_server_host("https://user:pass@cdn.example.com"),
+            "cdn.example.com"
+        );
+    }
+
+    #[test]
+    fn preserves_ipv6_literal() {
+        assert_eq!(normalize_server_host("http://[::1]:8000"), "[::1]");
+    }
+
+    /// Regression: a spec-compliant bare-domain tag must match a full-URL public_url.
+    #[test]
+    fn bare_domain_tag_matches_full_url_public_url() {
+        assert_eq!(
+            normalize_server_host("localhost"),
+            normalize_server_host("http://localhost:8000")
+        );
     }
 }
