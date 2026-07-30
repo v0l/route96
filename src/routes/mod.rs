@@ -435,17 +435,36 @@ pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
     }
 }
 
+/// Outcome of resolving a `Range` header against a known file size.
+///
+/// RFC 9110 distinguishes two failure modes that must not be conflated:
+/// a range we do not understand MUST be ignored (serve 200 with the full
+/// body), whereas a well-formed but unsatisfiable range gets a 416.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RangeOutcome {
+    /// Serve 206 for this inclusive byte range.
+    Satisfiable(u64, u64),
+    /// Well-formed but not satisfiable for this file: 416.
+    Unsatisfiable,
+    /// Not understood or unsupported: ignore the header and serve 200.
+    Ignore,
+}
+
 /// Get the range from a parsed Range header
-fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64)> {
+fn get_range_from_header(range_header: &str, file_size: u64) -> RangeOutcome {
     let ranges = match parse_range_header(range_header) {
         Ok(r) => r,
-        Err(_) => return None,
+        // Unparseable or an unknown range unit (e.g. `items=0-10`).
+        // RFC 9110 s14.2: the server MUST ignore such a header.
+        Err(_) => return RangeOutcome::Ignore,
     };
 
-    // Only handle single range (no multipart)
+    // Multipart ranges are unsupported; ignoring the header (200 + whole body)
+    // is a valid response, whereas 416 would break clients that ask for two
+    // perfectly satisfiable ranges.
     if ranges.ranges.len() != 1 {
         warn!("Multipart ranges are not supported, fallback to non-range request");
-        return None;
+        return RangeOutcome::Ignore;
     }
 
     let single_range = ranges.ranges.first().unwrap();
@@ -462,12 +481,12 @@ fn get_range_from_header(range_header: &str, file_size: u64) -> Option<(u64, u64
             .min(start + MAX_UNBOUNDED_RANGE),
     };
 
-    // Validate the range
+    // Well-formed but outside the file: this is the genuine 416 case.
     if start > end || start >= file_size {
-        return None;
+        return RangeOutcome::Unsatisfiable;
     }
 
-    Some((start, end))
+    RangeOutcome::Satisfiable(start, end)
 }
 
 pub async fn get_blob(
@@ -523,23 +542,23 @@ pub async fn get_blob(
 
     if let Some(range_str) = range_header {
         match get_range_from_header(range_str, info.size) {
-            Some((start, end)) => {
+            RangeOutcome::Satisfiable(start, end) => {
                 // Record range-request stats (bytes = range length).
                 let bytes_served = end - start + 1;
                 state.file_stats.record(&id, bytes_served, Utc::now());
                 return build_range_response(file_path, info, start, end).await;
             }
-            None => {
-                // A Range header was sent but could not be satisfied — return
-                // 416 with the total size per RFC 7233.
+            RangeOutcome::Unsatisfiable => {
+                // RFC 9110 s14.4: `Content-Range: bytes */<complete-length>`
+                // (space after the unit, not a slash).
                 let mut response = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
-                if let Ok(v) = format!("bytes/*/{}", info.size).parse() {
-                    response
-                        .headers_mut()
-                        .insert(header::CONTENT_RANGE, v);
+                if let Ok(v) = format!("bytes */{}", info.size).parse() {
+                    response.headers_mut().insert(header::CONTENT_RANGE, v);
                 }
                 return Ok(response);
             }
+            // Fall through to the normal full-body 200 response.
+            RangeOutcome::Ignore => {}
         }
     }
 
@@ -661,7 +680,15 @@ pub async fn get_blob_thumb(
 
     let file_path = state.fs.get(&id);
 
-    let mut thumb_file = temp_dir().join(format!("thumb_{}", sha256));
+    // Key the cache file and the generation lock on the canonical lowercase hex
+    // of the decoded id, not the raw path string. `hex::decode` accepts mixed
+    // case, so `/thumb/AB..` and `/thumb/ab..` are the same blob; using the raw
+    // string gave each casing its own lock entry and its own cache file, which
+    // both defeated the per-hash lock and let an unauthenticated caller grow
+    // THUMB_LOCKS and the temp dir without bound.
+    let canonical = hex::encode(&id);
+
+    let mut thumb_file = temp_dir().join(format!("thumb_{}", canonical));
     thumb_file.set_extension("webp");
 
     if !thumb_file.exists() {
@@ -670,7 +697,7 @@ pub async fn get_blob_thumb(
         let lock = {
             let mut locks = THUMB_LOCKS.lock().await;
             locks
-                .entry(sha256.to_string())
+                .entry(canonical.clone())
                 .or_insert_with(|| Arc::new(Mutex::new(())))
                 .clone()
         };
@@ -682,7 +709,8 @@ pub async fn get_blob_thumb(
             // FFmpeg work is CPU-bound and blocking; run it off the async
             // executor so we don't stall other requests. Write to a unique
             // temp path first, then atomically rename into place.
-            let mut tmp_out = temp_dir().join(format!("thumb_{}_{}", sha256, uuid::Uuid::new_v4()));
+            let mut tmp_out =
+                temp_dir().join(format!("thumb_{}_{}", canonical, uuid::Uuid::new_v4()));
             tmp_out.set_extension("webp");
             let src = file_path.clone();
             let tmp = tmp_out.clone();
@@ -739,69 +767,89 @@ mod tests {
     fn test_range_header_prefix() {
         // bytes=0-1023 — typical range request
         let result = get_range_from_header("bytes=0-1023", 100_000);
-        assert_eq!(result, Some((0, 1023)));
+        assert_eq!(result, RangeOutcome::Satisfiable(0, 1023));
     }
 
     #[test]
     fn test_range_header_suffix() {
         // bytes=-500 — last 500 bytes
         let result = get_range_from_header("bytes=-500", 10_000);
-        assert_eq!(result, Some((9_500, 9_999)));
+        assert_eq!(result, RangeOutcome::Satisfiable(9_500, 9_999));
     }
 
     #[test]
     fn test_range_header_open_ended() {
         // bytes=44- — from byte 44 to end (capped by MAX_UNBOUNDED_RANGE for small files)
         let result = get_range_from_header("bytes=44-", 1_000_000);
-        assert_eq!(result, Some((44, 999_999)));
+        assert_eq!(result, RangeOutcome::Satisfiable(44, 999_999));
     }
 
     #[test]
     fn test_range_header_small_file() {
         // Small file (under 1 KiB) — range should still work
         let result = get_range_from_header("bytes=0-511", 1024);
-        assert_eq!(result, Some((0, 511)));
+        assert_eq!(result, RangeOutcome::Satisfiable(0, 511));
     }
 
     #[test]
     fn test_range_header_past_eof() {
         // Range starts past end of file
         let result = get_range_from_header("bytes=5000-6000", 1000);
-        assert_eq!(result, None);
+        assert_eq!(result, RangeOutcome::Unsatisfiable);
     }
 
     #[test]
     fn test_range_header_end_clamped() {
         // End is beyond file size — should be clamped
         let result = get_range_from_header("bytes=500-99999", 1000);
-        assert_eq!(result, Some((500, 999)));
+        assert_eq!(result, RangeOutcome::Satisfiable(500, 999));
     }
 
     #[test]
     fn test_range_header_invalid() {
-        // Completely invalid header
+        // Completely invalid header: RFC 9110 says ignore it and serve the full body.
         let result = get_range_from_header("garbage", 1000);
-        assert_eq!(result, None);
+        assert_eq!(result, RangeOutcome::Ignore);
     }
 
     #[test]
     fn test_range_header_start_equals_end() {
         // Single byte range
         let result = get_range_from_header("bytes=100-100", 1000);
-        assert_eq!(result, Some((100, 100)));
+        assert_eq!(result, RangeOutcome::Satisfiable(100, 100));
     }
 
     #[test]
     fn test_range_header_start_greater_than_end() {
         // Invalid: start > end
         let result = get_range_from_header("bytes=500-100", 1000);
-        assert_eq!(result, None);
+        assert_eq!(result, RangeOutcome::Unsatisfiable);
+    }
+
+    /// Regression: an unknown range unit MUST be ignored (200 + full body),
+    /// not answered with 416.
+    #[test]
+    fn test_range_header_unknown_unit_is_ignored() {
+        assert_eq!(
+            get_range_from_header("items=0-10", 1000),
+            RangeOutcome::Ignore
+        );
+    }
+
+    /// Regression: multi-range requests are satisfiable ranges we simply do not
+    /// support, so they must fall back to a full 200 rather than 416.
+    #[test]
+    fn test_range_header_multipart_is_ignored() {
+        assert_eq!(
+            get_range_from_header("bytes=0-10,20-30", 1000),
+            RangeOutcome::Ignore
+        );
     }
 
     #[test]
     fn test_range_header_zero_length_file() {
-        // Empty file — any range request should return None
+        // Empty file — any range is unsatisfiable
         let result = get_range_from_header("bytes=0-", 0);
-        assert_eq!(result, None);
+        assert_eq!(result, RangeOutcome::Unsatisfiable);
     }
 }

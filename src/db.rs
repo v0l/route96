@@ -258,9 +258,13 @@ impl Database {
     /// setup requests can't both be promoted. Returns the user id and whether
     /// the caller was granted admin.
     pub async fn upsert_first_admin(&self, pubkey: &Vec<u8>) -> Result<(u64, bool), Error> {
+        // The `on duplicate key` branch must also promote: a users row is created
+        // by any upload or quota check, so an operator whose key already touched
+        // the API would otherwise be permanently unable to complete setup.
         sqlx::query(
             "insert into users(pubkey, is_admin) values(?, not exists(select 1 from (select id from users where is_admin = 1 limit 1) a)) \
-             on duplicate key update id = last_insert_id(id)",
+             on duplicate key update \
+               is_admin = greatest(is_admin, not exists(select 1 from (select id from users where is_admin = 1 limit 1) a))",
         )
         .bind(pubkey)
         .execute(&self.pool)

@@ -463,9 +463,14 @@ async fn mirror(
     };
 
     // SSRF protection: only allow fetching public http(s) URLs.
-    if BlossomAuth::validate_mirror_url(&url).await.is_err() {
-        return BlossomResponse::bad_request("URL is not fetchable by this server");
-    }
+    let validated_addrs = match BlossomAuth::validate_mirror_url(&url).await {
+        Ok(addrs) => addrs,
+        Err(_) => return BlossomResponse::bad_request("URL is not fetchable by this server"),
+    };
+    let validated_host = match url.host_str() {
+        Some(h) => h.trim_start_matches('[').trim_end_matches(']').to_string(),
+        None => return BlossomResponse::bad_request("URL is not fetchable by this server"),
+    };
 
     let hash = url
         .path_segments()
@@ -476,6 +481,13 @@ async fn mirror(
         .timeout(std::time::Duration::from_secs(120))
         .connect_timeout(std::time::Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
+        // Pin the addresses validated above. Without this the client performs
+        // its own DNS lookup, which can return a private address the check
+        // never saw (DNS rebinding) — defeating the SSRF guard entirely.
+        .resolve_to_addrs(&validated_host, &validated_addrs)
+        // Ignore HTTP(S)_PROXY from the environment: a proxy would tunnel the
+        // request past the pinned addresses and the IP checks.
+        .no_proxy()
         .build()
     {
         Ok(c) => c,
@@ -514,7 +526,10 @@ async fn mirror(
     let mime_type = rsp
         .headers()
         .get("content-type")
-        .map(|h| h.to_str().unwrap())
+        // A mirror origin is untrusted: HeaderValue permits obs-text bytes
+        // (0x80-0xFF) that to_str() rejects, so unwrap() here was a remotely
+        // triggerable panic. Fall back to octet-stream on any non-ASCII value.
+        .and_then(|h| h.to_str().ok())
         .unwrap_or("application/octet-stream")
         .to_string();
     let pubkey = auth.event.pubkey.to_bytes().to_vec();

@@ -77,7 +77,14 @@ impl BlossomAuth {
     /// Rejects non-http(s) schemes and any host that resolves to a
     /// loopback, private, link-local or otherwise non-public address, to
     /// prevent SSRF against internal services / cloud metadata endpoints.
-    pub async fn validate_mirror_url(url: &url::Url) -> Result<(), BlossomRejection> {
+    ///
+    /// Returns the validated socket addresses. Callers MUST pin these on the
+    /// HTTP client (`resolve_to_addrs`) rather than letting it re-resolve the
+    /// hostname: a second lookup can return a different, private address
+    /// (DNS rebinding), which would bypass this check entirely.
+    pub async fn validate_mirror_url(
+        url: &url::Url,
+    ) -> Result<Vec<std::net::SocketAddr>, BlossomRejection> {
         use std::net::IpAddr;
 
         fn ip_is_public(ip: &IpAddr) -> bool {
@@ -96,17 +103,53 @@ impl BlossomAuth {
                         || v4.octets()[0] == 0
                         || (v4.octets()[0] == 192 && v4.octets()[1] == 0 && v4.octets()[2] == 0)
                         || (v4.octets()[0] == 198 && (v4.octets()[1] & 0xFE) == 18)
-                        || v4.octets()[0] >= 240)
+                        // 224.0.0.0/4 multicast, 240.0.0.0/4 reserved
+                        || v4.octets()[0] >= 224)
                 }
                 IpAddr::V6(v6) => {
+                    let seg = v6.segments();
+                    // Any embedded IPv4 address must be re-checked, otherwise a
+                    // private v4 can be smuggled through a v6 literal/AAAA record.
+                    // to_ipv4() covers both IPv4-mapped (::ffff:0:0/96) and the
+                    // deprecated IPv4-compatible (::/96) forms.
+                    let embedded_v4_is_private =
+                        v6.to_ipv4().is_some_and(|v4| !ip_is_public(&IpAddr::V4(v4)));
+                    // NAT64 (RFC 6052) 64:ff9b::/96 and 64:ff9b:1::/48 — translated
+                    // straight to the embedded v4 on hosts with a NAT64 path, so
+                    // 64:ff9b::a9fe:a9fe would reach 169.254.169.254.
+                    let nat64 = seg[0] == 0x0064
+                        && (seg[1] == 0xff9b)
+                        && {
+                            let v4 = std::net::Ipv4Addr::new(
+                                (seg[6] >> 8) as u8,
+                                (seg[6] & 0xff) as u8,
+                                (seg[7] >> 8) as u8,
+                                (seg[7] & 0xff) as u8,
+                            );
+                            !ip_is_public(&IpAddr::V4(v4))
+                        };
+                    // 6to4 2002::/16 embeds a v4 address in segments 1-2.
+                    let six_to_four = seg[0] == 0x2002 && {
+                        let v4 = std::net::Ipv4Addr::new(
+                            (seg[1] >> 8) as u8,
+                            (seg[1] & 0xff) as u8,
+                            (seg[2] >> 8) as u8,
+                            (seg[2] & 0xff) as u8,
+                        );
+                        !ip_is_public(&IpAddr::V4(v4))
+                    };
                     !(v6.is_loopback()
                         || v6.is_unspecified()
                         || v6.is_unique_local()
                         || v6.is_unicast_link_local()
-                        // IPv4-mapped IPv6 — re-check the embedded v4 address
-                        || v6
-                            .to_ipv4_mapped()
-                            .is_some_and(|v4| !ip_is_public(&IpAddr::V4(v4))))
+                        || v6.is_multicast()
+                        // 2001:db8::/32 documentation, 2001::/32 Teredo, 100::/64 discard
+                        || (seg[0] == 0x2001 && seg[1] == 0x0db8)
+                        || (seg[0] == 0x2001 && seg[1] == 0x0000)
+                        || (seg[0] == 0x0100 && seg[1] == 0 && seg[2] == 0 && seg[3] == 0)
+                        || embedded_v4_is_private
+                        || nat64
+                        || six_to_four)
                 }
             }
         }
@@ -123,12 +166,15 @@ impl BlossomAuth {
         let host = url.host_str().ok_or_else(reject)?;
         let port = url.port_or_known_default().unwrap_or(80);
 
-        // Literal IP host — check directly.
-        if let Ok(ip) = host.parse::<IpAddr>() {
+        // Literal IP host — check directly. Strip brackets so IPv6 literals
+        // (`host_str()` yields the bracketed form) are parsed rather than
+        // falling through to a DNS lookup that can never succeed.
+        let bare = host.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = bare.parse::<IpAddr>() {
             if !ip_is_public(&ip) {
                 return Err(reject());
             }
-            return Ok(());
+            return Ok(vec![std::net::SocketAddr::new(ip, port)]);
         }
 
         // DNS name — resolve and require at least one public address; reject
@@ -141,7 +187,7 @@ impl BlossomAuth {
             return Err(reject());
         }
 
-        Ok(())
+        Ok(addrs)
     }
 
     /// Get all x tags from the authorization event
@@ -410,5 +456,81 @@ mod tests {
             normalize_server_host("localhost"),
             normalize_server_host("http://localhost:8000")
         );
+    }
+
+    // ---- SSRF guard (validate_mirror_url) ----
+
+    async fn rejects(u: &str) -> bool {
+        let url = url::Url::parse(u).expect("test url must parse");
+        super::BlossomAuth::validate_mirror_url(&url).await.is_err()
+    }
+
+    #[tokio::test]
+    async fn rejects_non_http_schemes() {
+        assert!(rejects("file:///etc/passwd").await);
+        assert!(rejects("ftp://example.com/x").await);
+        assert!(rejects("gopher://example.com/x").await);
+    }
+
+    #[tokio::test]
+    async fn rejects_loopback_and_private_literals() {
+        for u in [
+            "http://127.0.0.1/x",
+            "http://10.0.0.5/x",
+            "http://192.168.1.1/x",
+            "http://172.16.0.1/x",
+            "http://169.254.169.254/latest/meta-data/", // cloud metadata
+            "http://100.64.0.1/x",                      // CGNAT
+            "http://0.0.0.0/x",
+        ] {
+            assert!(rejects(u).await, "should reject {u}");
+        }
+    }
+
+    /// The URL parser normalises these to 127.0.0.1 before we see them;
+    /// pin that behaviour so an encoding bypass can't regress silently.
+    #[tokio::test]
+    async fn rejects_obfuscated_ipv4_literals() {
+        for u in [
+            "http://0177.0.0.1/x",  // octal
+            "http://2130706433/x",  // decimal
+            "http://127.1/x",       // short form
+        ] {
+            assert!(rejects(u).await, "should reject {u}");
+        }
+    }
+
+    /// IPv6 literals arrive bracketed from `host_str()`; these must be parsed
+    /// rather than falling through to a DNS lookup.
+    #[tokio::test]
+    async fn rejects_ipv6_private_literals() {
+        for u in [
+            "http://[::1]/x",                  // loopback
+            "http://[::ffff:127.0.0.1]/x",     // IPv4-mapped
+            "http://[::ffff:10.0.0.1]/x",      // IPv4-mapped private
+            "http://[fd00::1]/x",              // unique local
+            "http://[fe80::1]/x",              // link local
+            "http://[64:ff9b::a9fe:a9fe]/x",   // NAT64 -> 169.254.169.254
+            "http://[64:ff9b::a00:5]/x",       // NAT64 -> 10.0.0.5
+            "http://[2002:7f00:1::]/x",        // 6to4 -> 127.0.0.1
+            "http://[2002:a00:5::]/x",         // 6to4 -> 10.0.0.5
+            "http://[::7f00:1]/x",             // IPv4-compatible -> 127.0.0.1
+        ] {
+            assert!(rejects(u).await, "should reject {u}");
+        }
+    }
+
+    #[tokio::test]
+    async fn accepts_public_literal_and_returns_pinned_addr() {
+        let url = url::Url::parse("https://1.1.1.1/blob").unwrap();
+        let addrs = match super::BlossomAuth::validate_mirror_url(&url).await {
+            Ok(a) => a,
+            Err(_) => panic!("public literal must be accepted"),
+        };
+        // The caller pins these on the HTTP client; an empty set would silently
+        // fall back to re-resolution.
+        assert_eq!(addrs.len(), 1);
+        assert_eq!(addrs[0].ip().to_string(), "1.1.1.1");
+        assert_eq!(addrs[0].port(), 443);
     }
 }
