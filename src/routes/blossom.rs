@@ -1,7 +1,8 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{AppState, Nip94Event, delete_file};
+use crate::db::Database;
+use crate::routes::{AppState, Nip94Event, ban_check, delete_file};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use axum::{
@@ -322,13 +323,20 @@ fn check_method(event: &nostr::Event, method: &str) -> bool {
     false
 }
 
-async fn check_whitelist(auth: &BlossomAuth, whitelist: &Whitelist) -> Option<BlossomResponse> {
+async fn check_whitelist(
+    auth: &BlossomAuth,
+    whitelist: &Whitelist,
+    db: &Database,
+) -> Option<BlossomResponse> {
     if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
         return Some(BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::FORBIDDEN,
             message: Some("Not on whitelist".to_string()),
             payment_headers: None,
         }));
+    }
+    if let Some(msg) = ban_check(db, &auth.event.pubkey.to_bytes().to_vec()).await {
+        return Some(BlossomResponse::forbidden(msg));
     }
     None
 }
@@ -415,7 +423,14 @@ struct ListFilesParams {
 
 async fn upload_head(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings().await;
-    check_head(auth, &state.wl().await, &settings, &settings.public_url).await
+    check_head(
+        auth,
+        &state.wl().await,
+        &state.db,
+        &settings,
+        &settings.public_url,
+    )
+    .await
 }
 
 async fn upload(
@@ -453,7 +468,7 @@ async fn mirror(
         return e;
     }
     
-    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl().await, &state.db).await {
         return e;
     }
 
@@ -555,11 +570,24 @@ async fn mirror(
 #[cfg(feature = "media-compression")]
 async fn head_media(auth: BlossomAuth, AxumState(state): AxumState<Arc<AppState>>) -> BlossomHead {
     let settings = state.settings().await;
-    check_head_media(auth, &state.wl().await, &settings, &settings.public_url).await
+    check_head_media(
+        auth,
+        &state.wl().await,
+        &state.db,
+        &settings,
+        &settings.public_url,
+    )
+    .await
 }
 
 #[cfg(feature = "media-compression")]
-async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings, server_domain: &str) -> BlossomHead {
+async fn check_head_media(
+    auth: BlossomAuth,
+    whitelist: &Whitelist,
+    db: &Database,
+    settings: &Settings,
+    server_domain: &str,
+) -> BlossomHead {
     if !check_method(&auth.event, "media") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -613,6 +641,16 @@ async fn check_head_media(auth: BlossomAuth, whitelist: &Whitelist, settings: &S
         };
     }
 
+    if ban_check(db, &auth.event.pubkey.to_bytes().to_vec())
+        .await
+        .is_some()
+    {
+        return BlossomHead {
+            msg: Some("Pubkey is banned"),
+            status: StatusCode::FORBIDDEN,
+        };
+    }
+
     // BUD-11: validate server tag
     if auth.validate_server_tag(server_domain).is_err() {
         return BlossomHead {
@@ -633,7 +671,13 @@ async fn upload_media(
     process_upload("media", true, auth, state, body).await
 }
 
-async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Settings, server_domain: &str) -> BlossomHead {
+async fn check_head(
+    auth: BlossomAuth,
+    whitelist: &Whitelist,
+    db: &Database,
+    settings: &Settings,
+    server_domain: &str,
+) -> BlossomHead {
     if !check_method(&auth.event, "upload") {
         return BlossomHead {
             msg: Some("Invalid auth method tag"),
@@ -683,6 +727,16 @@ async fn check_head(auth: BlossomAuth, whitelist: &Whitelist, settings: &Setting
     if !whitelist.is_allowed(&auth.event.pubkey.to_hex()).await {
         return BlossomHead {
             msg: Some("Not on whitelist"),
+            status: StatusCode::FORBIDDEN,
+        };
+    }
+
+    if ban_check(db, &auth.event.pubkey.to_bytes().to_vec())
+        .await
+        .is_some()
+    {
+        return BlossomHead {
+            msg: Some("Pubkey is banned"),
             status: StatusCode::FORBIDDEN,
         };
     }
@@ -737,7 +791,7 @@ async fn process_upload(
     }
 
     // check whitelist
-    if let Some(e) = check_whitelist(&auth, &state.wl().await).await {
+    if let Some(e) = check_whitelist(&auth, &state.wl().await, &state.db).await {
         return e;
     }
 
@@ -1060,6 +1114,10 @@ async fn report_file(
         .collect();
     if file_hashes.is_empty() {
         return BlossomResponse::bad_request("No valid file hashes in x tags");
+    }
+
+    if let Some(msg) = ban_check(&state.db, &data.pubkey.to_bytes().to_vec()).await {
+        return BlossomResponse::forbidden(msg);
     }
 
     // Get or create the reporter user from the report event pubkey

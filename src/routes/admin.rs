@@ -57,6 +57,10 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
         .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
         .route(
+            "/admin/user/{user_pubkey}/ban",
+            post(admin_ban_user).delete(admin_unban_user),
+        )
+        .route(
             "/admin/whitelist",
             get(admin_list_whitelist)
                 .post(admin_add_whitelist)
@@ -195,6 +199,9 @@ pub struct UserFile {
 pub struct AdminUserInfo {
     pub pubkey: String,
     pub is_admin: bool,
+    pub banned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ban_reason: Option<String>,
     pub file_count: u64,
     pub total_size: u64,
     pub created: String,
@@ -242,6 +249,9 @@ async fn require_admin(auth: &Nip98Auth, db: &Database) -> Result<User, String> 
         .map_err(|_| "User not found".to_string())?;
     if !user.is_admin {
         return Err("User is not an admin".to_string());
+    }
+    if user.banned {
+        return Err("User is banned".to_string());
     }
     Ok(user)
 }
@@ -913,6 +923,8 @@ async fn admin_get_user_info(
     AdminResponse::success(AdminUserInfo {
         pubkey: hex::encode(&target_pubkey),
         is_admin: target_user.is_admin,
+        banned: target_user.banned,
+        ban_reason: target_user.ban_reason.clone(),
         file_count: user_stats.file_count,
         total_size: user_stats.total_size,
         created: target_user.created.to_rfc3339(),
@@ -932,6 +944,81 @@ async fn admin_get_user_info(
         payments,
         files: files_result,
     })
+}
+
+/// Request body for `POST /admin/user/{pubkey}/ban`.
+#[derive(Deserialize, Default)]
+struct AdminBanUserBody {
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// POST /admin/user/{pubkey}/ban — block a pubkey from all authenticated writes
+async fn admin_ban_user(
+    auth: Nip98Auth,
+    Path(user_pubkey): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+    body: Option<Json<AdminBanUserBody>>,
+) -> AdminResponse<()> {
+    let admin = match require_admin(&auth, &state.db).await {
+        Ok(u) => u,
+        Err(e) => return AdminResponse::error(&e),
+    };
+
+    let target_pubkey = match hex::decode(&user_pubkey) {
+        Ok(pk) => pk,
+        Err(_) => return AdminResponse::error("Invalid pubkey format"),
+    };
+
+    if target_pubkey == admin.pubkey {
+        return AdminResponse::error("You cannot ban yourself");
+    }
+
+    // Banning an admin would let one operator lock out another; demote first.
+    if let Ok(target) = state.db.get_user(&target_pubkey).await
+        && target.is_admin
+    {
+        return AdminResponse::error("Cannot ban an admin user");
+    }
+
+    let reason = body
+        .map(|Json(b)| b.reason)
+        .unwrap_or_default()
+        .filter(|r| !r.trim().is_empty());
+
+    match state.db.ban_user(&target_pubkey, reason.as_deref()).await {
+        Ok(()) => AdminResponse::Ok(Json(AdminResponseBase {
+            status: "success".to_string(),
+            message: Some(format!("Banned {}", user_pubkey)),
+            data: None,
+        })),
+        Err(e) => AdminResponse::error(&format!("Failed to ban user: {}", e)),
+    }
+}
+
+/// DELETE /admin/user/{pubkey}/ban — lift a ban
+async fn admin_unban_user(
+    auth: Nip98Auth,
+    Path(user_pubkey): Path<String>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let target_pubkey = match hex::decode(&user_pubkey) {
+        Ok(pk) => pk,
+        Err(_) => return AdminResponse::error("Invalid pubkey format"),
+    };
+
+    match state.db.unban_user(&target_pubkey).await {
+        Ok(()) => AdminResponse::Ok(Json(AdminResponseBase {
+            status: "success".to_string(),
+            message: Some(format!("Unbanned {}", user_pubkey)),
+            data: None,
+        })),
+        Err(e) => AdminResponse::error(&format!("Failed to unban user: {}", e)),
+    }
 }
 
 async fn admin_purge_user(

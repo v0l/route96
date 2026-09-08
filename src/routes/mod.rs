@@ -363,6 +363,21 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     }
 }
 
+/// Reason string if `pubkey` is banned from writing, `None` if allowed.
+///
+/// Fails closed like the whitelist check: a database error blocks the write
+/// rather than silently letting a banned pubkey through.
+pub async fn ban_check(db: &Database, pubkey: &Vec<u8>) -> Option<String> {
+    match db.is_user_banned(pubkey).await {
+        Ok(false) => None,
+        Ok(true) => Some("Pubkey is banned".to_string()),
+        Err(e) => {
+            warn!("Ban check failed, failing closed: {}", e);
+            Some("Could not verify ban status".to_string())
+        }
+    }
+}
+
 async fn delete_file(
     sha256: &str,
     auth: &Event,
@@ -385,6 +400,9 @@ async fn delete_file(
     }
     if let Ok(Some(_info)) = db.get_file(&id).await {
         let pubkey_vec = auth.pubkey.to_bytes().to_vec();
+        if let Some(msg) = ban_check(db, &pubkey_vec).await {
+            return Err(Error::msg(msg));
+        }
         let auth_user = db.get_user(&pubkey_vec).await?;
         let owners = db.get_file_owners(&id).await?;
         if auth_user.is_admin {
