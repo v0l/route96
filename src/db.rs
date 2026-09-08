@@ -127,6 +127,8 @@ pub struct User {
     pub pubkey: Vec<u8>,
     pub created: DateTime<Utc>,
     pub is_admin: bool,
+    pub banned: bool,
+    pub ban_reason: Option<String>,
     #[cfg(feature = "payments")]
     pub paid_until: Option<DateTime<Utc>>,
     #[cfg(feature = "payments")]
@@ -241,6 +243,49 @@ impl Database {
         };
 
         Ok(user_id)
+    }
+
+    /// Ban a pubkey, blocking every authenticated write path.
+    ///
+    /// Inserts the user row if it does not exist yet, so a pubkey can be banned
+    /// before it has ever touched the API.
+    pub async fn ban_user(&self, pubkey: &Vec<u8>, reason: Option<&str>) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+        // Insert ignore rather than an upsert: columns added by later migrations
+        // (paid_size) are NOT NULL without a default, which strict mode rejects
+        // unless the row insert is ignorable.
+        sqlx::query("insert ignore into users(pubkey, is_admin) values(?, 0)")
+            .bind(pubkey)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("update users set banned = 1, ban_reason = ? where pubkey = ?")
+            .bind(reason)
+            .bind(pubkey)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Lift a ban on `pubkey`. Does nothing if the user does not exist.
+    pub async fn unban_user(&self, pubkey: &Vec<u8>) -> Result<(), Error> {
+        sqlx::query("update users set banned = 0, ban_reason = null where pubkey = ?")
+            .bind(pubkey)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Returns `true` if `pubkey` is banned. Unknown pubkeys are not banned.
+    pub async fn is_user_banned(&self, pubkey: &Vec<u8>) -> Result<bool, Error> {
+        let row = sqlx::query("select banned from users where pubkey = ?")
+            .bind(pubkey)
+            .fetch_optional(&self.pool)
+            .await?;
+        match row {
+            Some(r) => r.try_get(0),
+            None => Ok(false),
+        }
     }
 
     /// Grant admin privileges to the user identified by `pubkey`.
@@ -475,6 +520,8 @@ impl Database {
                 pubkey: row.try_get("pubkey")?,
                 created: row.try_get("created")?,
                 is_admin: row.try_get("is_admin")?,
+                banned: row.try_get("banned")?,
+                ban_reason: row.try_get("ban_reason")?,
                 #[cfg(feature = "payments")]
                 paid_until: row.try_get("paid_until")?,
                 #[cfg(feature = "payments")]

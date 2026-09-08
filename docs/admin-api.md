@@ -324,6 +324,8 @@ Return detailed info for a user identified by their hex-encoded pubkey.
   "data": {
     "pubkey": "abc123...",
     "is_admin": false,
+    "banned": false,
+    "ban_reason": "spam",
     "file_count": 5,
     "total_size": 2097152,
     "created": "2025-06-01T12:00:00Z",
@@ -337,6 +339,42 @@ Return detailed info for a user identified by their hex-encoded pubkey.
     }
   }
 }
+```
+
+---
+
+### `POST /admin/user/{pubkey}/ban`
+
+Ban a pubkey. Banned pubkeys are rejected on every authenticated write path:
+Blossom upload, media, mirror, delete and report, and NIP-96 upload and delete.
+Existing files stay online; ban them separately if they must stop being served.
+
+The pubkey does not have to be known to the server; the user row is created on
+demand so a key can be banned before its first request. Admins cannot be banned
+(demote first), and you cannot ban yourself.
+
+**Request body** (optional)
+
+```json
+{ "reason": "spam" }
+```
+
+**Response**
+
+```json
+{ "status": "success", "message": "Banned abc123..." }
+```
+
+---
+
+### `DELETE /admin/user/{pubkey}/ban`
+
+Lift a ban and clear the stored reason.
+
+**Response**
+
+```json
+{ "status": "success", "message": "Unbanned abc123..." }
 ```
 
 ---

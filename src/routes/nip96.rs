@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::auth::nip98::Nip98Auth;
 use crate::db::FileUpload;
 use crate::filesystem::FileSystemResult;
-use crate::routes::{AppState, Nip94Event, PagedResult, delete_file};
+use crate::routes::{AppState, Nip94Event, PagedResult, ban_check, delete_file};
 use crate::settings::Settings;
 use axum::{
     Json, Router,
@@ -343,6 +343,10 @@ async fn upload(
     }
 
     let pubkey_vec = auth.event.pubkey.to_bytes().to_vec();
+
+    if let Some(msg) = ban_check(&state.db, &pubkey_vec).await {
+        return Nip96Response::Forbidden(Json(Nip96UploadResult::error(&msg)));
+    }
 
     // check quota (only if payments are configured)
     #[cfg(feature = "payments")]

@@ -15,6 +15,7 @@ export default function UserScope() {
   const [loading, setLoading] = useState(true);
   const [filesPage, setFilesPage] = useState(0);
   const [purging, setPurging] = useState(false);
+  const [banning, setBanning] = useState(false);
 
   const login = useLogin();
   const pub = usePublisher();
@@ -52,6 +53,36 @@ export default function UserScope() {
         });
     }
   }, [pub, self?.is_admin, pubkey, filesPage, url]);
+
+  async function handleToggleBan() {
+    if (!pub || !pubkey || !userInfo) return;
+
+    const r96 = new Route96(url, pub);
+    setError(undefined);
+
+    try {
+      if (userInfo.banned) {
+        if (!window.confirm("Lift the ban on this pubkey?")) return;
+        setBanning(true);
+        await r96.unbanUser(pubkey);
+      } else {
+        const reason = window.prompt(
+          "Ban this pubkey? Uploads, mirrors, deletes and reports will be rejected.\n\nReason (optional):",
+        );
+        if (reason === null) return;
+        setBanning(true);
+        await r96.banUser(pubkey, reason || undefined);
+      }
+
+      const response = await r96.getUserInfo(pubkey, filesPage, 50);
+      setUserInfo(response.data);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to update ban";
+      setError(message);
+    } finally {
+      setBanning(false);
+    }
+  }
 
   async function handlePurgeUser() {
     if (!pub || !pubkey) return;
@@ -188,10 +219,37 @@ export default function UserScope() {
               <div className="text-yellow-400">Admin</div>
             </div>
           )}
+          {userInfo.banned && (
+            <div>
+              <label className="text-neutral-500">Status</label>
+              <div className="text-red-400">
+                Banned{userInfo.ban_reason ? `: ${userInfo.ban_reason}` : ""}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Danger Zone */}
-        <div className="mt-4 pt-3 border-t border-neutral-800">
+        <div className="mt-4 pt-3 border-t border-neutral-800 space-y-2">
+          <div className="flex items-center justify-between bg-red-950/30 border border-red-900/50 rounded-sm p-2">
+            <div>
+              <div className="text-xs text-red-400">
+                {userInfo.banned ? "Banned" : "Ban Pubkey"}
+              </div>
+              <div className="text-xs text-red-500/70">
+                {userInfo.banned
+                  ? userInfo.ban_reason || "No reason recorded"
+                  : "Reject uploads, mirrors, deletes and reports"}
+              </div>
+            </div>
+            <button
+              onClick={handleToggleBan}
+              disabled={banning || userInfo.is_admin}
+              className="bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-400 text-white px-2 py-1 rounded-sm text-xs"
+            >
+              {banning ? "..." : userInfo.banned ? "Unban" : "Ban"}
+            </button>
+          </div>
           <div className="flex items-center justify-between bg-red-950/30 border border-red-900/50 rounded-sm p-2">
             <div>
               <div className="text-xs text-red-400">Purge Account</div>

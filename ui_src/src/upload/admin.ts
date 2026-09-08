@@ -34,6 +34,8 @@ export interface Route96File {
 export interface AdminUserInfo {
   pubkey: string;
   is_admin: boolean;
+  banned: boolean;
+  ban_reason?: string;
   file_count: number;
   total_size: number;
   created: string;
@@ -264,6 +266,22 @@ export class Route96 {
       "GET",
     );
     const data = await this.#handleResponse<AdminResponse<AdminUserInfo>>(rsp);
+    return data;
+  }
+
+  async banUser(pubkey: string, reason?: string) {
+    const rsp = await this.#req(
+      `admin/user/${pubkey}/ban`,
+      "POST",
+      JSON.stringify({ reason }),
+    );
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
+    return data;
+  }
+
+  async unbanUser(pubkey: string) {
+    const rsp = await this.#req(`admin/user/${pubkey}/ban`, "DELETE");
+    const data = await this.#handleResponse<AdminResponse<void>>(rsp);
     return data;
   }
 
