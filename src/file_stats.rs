@@ -14,7 +14,7 @@
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use log::{error, info};
+use log::{debug, error, info};
 use serde::Serialize;
 use sqlx::FromRow;
 use std::sync::Arc;
@@ -126,6 +126,18 @@ impl FileStatsTracker {
         info!("FileStats: flushing {} entries", snapshots.len());
         for snap in snapshots {
             if let Err(e) = db.upsert_file_stats(&snap).await {
+                // A foreign key violation means the upload row was deleted
+                // between the download and this flush. Retrying can never
+                // succeed, so drop the delta instead of re-recording it.
+                if e.as_database_error()
+                    .is_some_and(|d| d.is_foreign_key_violation())
+                {
+                    debug!(
+                        "FileStats: dropping stats for deleted file {}",
+                        hex::encode(&snap.file_id)
+                    );
+                    continue;
+                }
                 error!(
                     "FileStats: failed to upsert stats for {}: {}",
                     hex::encode(&snap.file_id),
