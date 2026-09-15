@@ -32,6 +32,11 @@ pub const MIN_CONFIDENCE: f32 = 0.4;
 /// Maximum number of frames to sample from a video (max 10 frames, spread over entire file)
 const MAX_VIDEO_FRAMES: usize = 10;
 
+/// Media smaller than this on either axis is not worth classifying: the model
+/// input is 224x224, so a degenerate strip (e.g. 900x1) only yields garbage
+/// labels or upsets the scaler.
+pub const MIN_LABEL_DIMENSION: u32 = 48;
+
 // ── Labeling error type ────────────────────────────────────────────────────
 
 /// Error type for labeling operations.
@@ -50,6 +55,8 @@ pub enum LabelError {
     NoMediaStream,
     /// ffmpeg decoded packets but produced no usable image data.
     NoImageData,
+    /// The media is too small on at least one axis to label usefully.
+    TooSmall { width: u32, height: u32 },
     /// The file appears corrupt: ffmpeg exceeded the packet limit without
     /// producing a decodable frame.
     CorruptMedia { detail: String },
@@ -78,7 +85,16 @@ impl LabelError {
     /// Returns `true` if this error is transient and the file should be
     /// retried later rather than permanently marked as done.
     pub fn is_transient(&self) -> bool {
-        matches!(self, Self::ApiTimeout | Self::ApiFailed(_) | Self::ApiEmptyResponse)
+        matches!(
+            self,
+            Self::ApiTimeout | Self::ApiFailed(_) | Self::ApiEmptyResponse
+        )
+    }
+
+    /// Returns `true` when the file was deliberately skipped rather than
+    /// failing, so callers can log it quietly.
+    pub fn is_skip(&self) -> bool {
+        matches!(self, Self::TooSmall { .. })
     }
 }
 
@@ -89,6 +105,11 @@ impl fmt::Display for LabelError {
             Self::InvalidPath => write!(f, "Non-UTF-8 file path"),
             Self::NoMediaStream => write!(f, "No video/image stream found"),
             Self::NoImageData => write!(f, "No image data found"),
+            Self::TooSmall { width, height } => write!(
+                f,
+                "Media too small to label: {}x{} (minimum {}px on each axis)",
+                width, height, MIN_LABEL_DIMENSION
+            ),
             Self::CorruptMedia { detail } => write!(f, "Corrupt media: {}", detail),
             Self::TempFileIo(e) => write!(f, "Temp file I/O error: {}", e),
             Self::Ffmpeg(e) => write!(f, "FFmpeg error: {}", e),
@@ -101,6 +122,14 @@ impl fmt::Display for LabelError {
 }
 
 impl std::error::Error for LabelError {}
+
+/// Reject media that is too small on either axis to produce meaningful labels.
+fn check_dimensions(width: u32, height: u32) -> Result<(), LabelError> {
+    if width < MIN_LABEL_DIMENSION || height < MIN_LABEL_DIMENSION {
+        return Err(LabelError::TooSmall { width, height });
+    }
+    Ok(())
+}
 
 impl From<candle_core::Error> for LabelError {
     fn from(e: candle_core::Error) -> Self {
@@ -230,7 +259,8 @@ impl VitModel {
             Ok(HashMap::new())
         } else {
             let image = unsafe { load_frame_224(path, &self.device) }?;
-            self.classify(&image, min_confidence).map_err(LabelError::Ffmpeg)
+            self.classify(&image, min_confidence)
+                .map_err(LabelError::Ffmpeg)
         }
     }
 }
@@ -323,15 +353,11 @@ impl GenericLlmLabeler {
             return Err(LabelError::FileNotFound(path.to_path_buf()));
         }
 
-        let path_str = path
-            .to_str()
-            .ok_or(LabelError::InvalidPath)?;
+        let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
 
         let temp_path =
             std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
-        let temp_str = temp_path
-            .to_str()
-            .ok_or(LabelError::InvalidPath)?;
+        let temp_str = temp_path.to_str().ok_or(LabelError::InvalidPath)?;
 
         unsafe {
             let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
@@ -342,6 +368,8 @@ impl GenericLlmLabeler {
                 .iter()
                 .find(|s| s.stream_type == StreamType::Video)
                 .ok_or(LabelError::NoMediaStream)?;
+
+            check_dimensions(stream.width as u32, stream.height as u32)?;
 
             let target_height = 1024i32;
             let (out_width, out_height) = if stream.height as i32 > target_height {
@@ -363,7 +391,9 @@ impl GenericLlmLabeler {
 
             let mut sws = Scaler::new();
             let mut decoder = Decoder::new();
-            decoder.setup_decoder(stream, None).map_err(LabelError::Ffmpeg)?;
+            decoder
+                .setup_decoder(stream, None)
+                .map_err(LabelError::Ffmpeg)?;
             let stream_index = stream.index as i32;
 
             let mut packet_count = 0;
@@ -399,8 +429,9 @@ impl GenericLlmLabeler {
                     enc.save_picture(&scaled, temp_str)
                         .map_err(LabelError::Ffmpeg)?;
 
-                    let buffer = std::fs::read(&temp_path)
-                        .map_err(|e| LabelError::TempFileIo(format!("Failed to read encoded JPEG: {}", e)))?;
+                    let buffer = std::fs::read(&temp_path).map_err(|e| {
+                        LabelError::TempFileIo(format!("Failed to read encoded JPEG: {}", e))
+                    })?;
                     let _ = std::fs::remove_file(&temp_path);
                     return Ok(buffer);
                 }
@@ -458,7 +489,11 @@ impl GenericLlmLabeler {
         Ok(vec![message])
     }
 
-    async fn call_api(&self, image_base64: &str, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
+    async fn call_api(
+        &self,
+        image_base64: &str,
+        mime_type: &str,
+    ) -> Result<HashMap<String, f32>, LabelError> {
         let messages = self.build_messages(mime_type, image_base64)?;
 
         let request = CreateChatCompletionRequest {
@@ -598,14 +633,12 @@ fn classify_frames(
 
 /// Extract up to MAX_VIDEO_FRAMES frames from a video, spread evenly across the entire duration.
 unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>, LabelError> {
-    let path_str = path
-        .to_str()
-        .ok_or(LabelError::InvalidPath)?;
+    let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
     let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    let video_stream = info
-        .best_video()
-        .ok_or(LabelError::NoMediaStream)?;
+    let video_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
+
+    check_dimensions(video_stream.width as u32, video_stream.height as u32)?;
 
     let _time_base_num = video_stream.timebase.0 as f64;
     let _time_base_den = video_stream.timebase.1 as f64;
@@ -613,13 +646,13 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     let mut total_frames: usize = 0;
     let mut demux2 = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info2 = unsafe { demux2.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    let video_stream2 = info2
-        .best_video()
-        .ok_or(LabelError::NoMediaStream)?;
+    let video_stream2 = info2.best_video().ok_or(LabelError::NoMediaStream)?;
     let stream_index2 = video_stream2.index as i32;
 
     let mut decoder2 = Decoder::new();
-    decoder2.setup_decoder(video_stream2, None).map_err(LabelError::Ffmpeg)?;
+    decoder2
+        .setup_decoder(video_stream2, None)
+        .map_err(LabelError::Ffmpeg)?;
 
     while let Ok((pkt, _)) = unsafe { demux2.get_packet() } {
         let pkt = match pkt {
@@ -631,7 +664,9 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             continue;
         }
 
-        let decoded = decoder2.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
+        let decoded = decoder2
+            .decode_pkt(Some(&pkt))
+            .map_err(LabelError::Ffmpeg)?;
         for (_frame, _) in decoded {
             total_frames += 1;
         }
@@ -656,13 +691,13 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     // Second pass: extract the target frames
     let mut demux3 = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info3 = unsafe { demux3.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    let video_stream3 = info3
-        .best_video()
-        .ok_or(LabelError::NoMediaStream)?;
+    let video_stream3 = info3.best_video().ok_or(LabelError::NoMediaStream)?;
     let stream_index3 = video_stream3.index as i32;
 
     let mut decoder3 = Decoder::new();
-    decoder3.setup_decoder(video_stream3, None).map_err(LabelError::Ffmpeg)?;
+    decoder3
+        .setup_decoder(video_stream3, None)
+        .map_err(LabelError::Ffmpeg)?;
 
     let mut scaler = Scaler::new();
     let mut frames = Vec::new();
@@ -680,7 +715,9 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             continue;
         }
 
-        let decoded = decoder3.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
+        let decoded = decoder3
+            .decode_pkt(Some(&pkt))
+            .map_err(LabelError::Ffmpeg)?;
         for (frame, _) in decoded {
             if frame_index_set.contains(&frame_index) {
                 match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
@@ -724,7 +761,9 @@ unsafe fn frame_to_tensor(
     scaler: &mut Scaler,
     device: &Device,
 ) -> Result<Tensor, LabelError> {
-    let scaled = scaler.process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24).map_err(LabelError::Ffmpeg)?;
+    let scaled = scaler
+        .process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24)
+        .map_err(LabelError::Ffmpeg)?;
     let width = 224usize;
     let height = 224usize;
 
@@ -747,29 +786,31 @@ unsafe fn frame_to_tensor(
 
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
 unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>, LabelError> {
-    let path_str = path_buf
-        .to_str()
-        .ok_or(LabelError::InvalidPath)?;
+    let path_str = path_buf.to_str().ok_or(LabelError::InvalidPath)?;
     let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    let image_stream = info
-        .best_video()
-        .ok_or(LabelError::NoMediaStream)?;
+    let image_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
+
+    check_dimensions(image_stream.width as u32, image_stream.height as u32)?;
 
     let mut decoder = Decoder::new();
-    decoder.setup_decoder(image_stream, None).map_err(LabelError::Ffmpeg)?;
+    decoder
+        .setup_decoder(image_stream, None)
+        .map_err(LabelError::Ffmpeg)?;
 
     let mut scaler = Scaler::new();
 
     macro_rules! try_frame {
         ($decoded:expr) => {
             if let Some((frame, _)) = $decoded.into_iter().next() {
-                let new_frame = scaler.process_frame(
-                    &frame,
-                    width as u16,
-                    height as u16,
-                    AVPixelFormat::AV_PIX_FMT_RGB24,
-                ).map_err(LabelError::Ffmpeg)?;
+                let new_frame = scaler
+                    .process_frame(
+                        &frame,
+                        width as u16,
+                        height as u16,
+                        AVPixelFormat::AV_PIX_FMT_RGB24,
+                    )
+                    .map_err(LabelError::Ffmpeg)?;
                 let mut dst_vec = Vec::with_capacity(3 * width * height);
                 for row in 0..height {
                     let line_size = new_frame.linesize[0] as usize;
@@ -858,6 +899,26 @@ mod tests {
 
     fn test_models_dir() -> PathBuf {
         std::env::temp_dir().join("route96_test_models")
+    }
+
+    #[test]
+    fn test_check_dimensions_rejects_degenerate_media() {
+        assert!(check_dimensions(224, 224).is_ok());
+        assert!(check_dimensions(MIN_LABEL_DIMENSION, MIN_LABEL_DIMENSION).is_ok());
+
+        let err = check_dimensions(900, 1).unwrap_err();
+        assert!(matches!(
+            err,
+            LabelError::TooSmall {
+                width: 900,
+                height: 1
+            }
+        ));
+        assert!(err.is_skip());
+        assert!(!err.is_transient());
+        assert!(err.to_string().contains("900x1"));
+
+        assert!(check_dimensions(1, 900).is_err());
     }
 
     #[test]

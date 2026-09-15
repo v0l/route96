@@ -262,14 +262,27 @@ impl LabelFiles {
                     let elapsed = start.elapsed();
                     let file_id = file.id.clone();
                     let is_transient = e.is_transient();
-                    error!(
-                        "Label model '{}' failed on {} after {:.2?}: {} [{}]",
-                        model_name,
-                        hex::encode(&file_id),
-                        elapsed,
-                        e,
-                        if is_transient { "transient" } else { "permanent" },
-                    );
+                    if e.is_skip() {
+                        info!(
+                            "Label model '{}' skipped {}: {}",
+                            model_name,
+                            hex::encode(&file_id),
+                            e,
+                        );
+                    } else {
+                        error!(
+                            "Label model '{}' failed on {} after {:.2?}: {} [{}]",
+                            model_name,
+                            hex::encode(&file_id),
+                            elapsed,
+                            e,
+                            if is_transient {
+                                "transient"
+                            } else {
+                                "permanent"
+                            },
+                        );
+                    }
                     if !is_transient {
                         db.add_labeled_by(&file_id, &model_name)
                             .await
@@ -357,6 +370,6 @@ impl LabelFiles {
             }
         }
 
-BatchResult::Processed { found, failed }
+        BatchResult::Processed { found, failed }
     }
 }
