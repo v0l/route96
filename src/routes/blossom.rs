@@ -1,15 +1,15 @@
 use crate::auth::blossom::BlossomAuth;
-use crate::db::FileUpload;
-use crate::filesystem::FileSystemResult;
 use crate::db::Database;
+use crate::db::FileUpload;
+use crate::filesystem::{FileSystemResult, HashMismatch};
 use crate::routes::{AppState, Nip94Event, ban_check, delete_file};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use axum::{
     Json, Router,
     body::Body,
-    extract::State as AxumState,
-    http::{HeaderMap, StatusCode},
+    extract::{Path, RawQuery, State as AxumState},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, head, put},
 };
@@ -19,8 +19,7 @@ use log::{error, info};
 use nostr::{Alphabet, JsonUtil, SingleLetterTag, TagKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 use url::Url;
@@ -82,7 +81,12 @@ fn url_hash_from_url(url: &str) -> Option<String> {
 
 pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = Router::new()
-        .route("/{sha256}", delete(delete_blob))
+        .route(
+            "/{sha256}",
+            delete(delete_blob)
+                .put(upload_by_hash)
+                .options(hash_options),
+        )
         .route("/list/{pubkey}", get(list_files))
         .route("/upload", head(upload_head).put(upload))
         .route("/mirror", put(mirror))
@@ -92,6 +96,38 @@ pub fn blossom_routes() -> Router<Arc<AppState>> {
     let router = router.route("/media", head(head_media).put(upload_media));
 
     router
+}
+
+pub(crate) const HASH_RESOURCE_METHODS: &str = "GET, HEAD, PUT, DELETE, OPTIONS";
+
+pub(crate) fn is_bud13_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn has_url_query(raw_query: Option<&str>) -> bool {
+    raw_query.is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes()).any(|(key, _)| key == "url")
+    })
+}
+
+async fn hash_options(Path(sha256): Path<String>) -> Response {
+    if !is_bud13_sha256(&sha256) {
+        return BlossomResponse::bad_request("Invalid sha256 path").into_response();
+    }
+
+    (
+        StatusCode::NO_CONTENT,
+        [
+            (header::ALLOW, HASH_RESOURCE_METHODS),
+            (header::ACCESS_CONTROL_ALLOW_METHODS, HASH_RESOURCE_METHODS),
+            (header::ACCESS_CONTROL_EXPOSE_HEADERS, "Allow"),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+        ],
+    )
+        .into_response()
 }
 
 /// Generic holder response, mostly for errors
@@ -441,6 +477,25 @@ async fn upload(
     process_upload("upload", false, auth, state, body).await
 }
 
+async fn upload_by_hash(
+    Path(sha256): Path<String>,
+    RawQuery(raw_query): RawQuery,
+    auth: BlossomAuth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    body: Body,
+) -> BlossomResponse {
+    if !is_bud13_sha256(&sha256) {
+        return BlossomResponse::bad_request("Invalid sha256 path");
+    }
+    if has_url_query(raw_query.as_deref()) {
+        return BlossomResponse::bad_request(
+            "The url query parameter is not supported for PUT /<sha256>",
+        );
+    }
+
+    process_upload_with_expected_hash("upload", false, auth, state, body, Some(&sha256)).await
+}
+
 async fn mirror(
     auth: BlossomAuth,
     AxumState(state): AxumState<Arc<AppState>>,
@@ -550,10 +605,10 @@ async fn mirror(
     let pubkey = auth.event.pubkey.to_bytes().to_vec();
 
     process_stream(
-        Sha256Reader::new(StreamReader::new(
+        StreamReader::new(
             rsp.bytes_stream()
                 .map(|result| result.map_err(std::io::Error::other)),
-        )),
+        ),
         &mime_type,
         &None,
         &pubkey,
@@ -759,15 +814,29 @@ async fn process_upload(
     state: Arc<AppState>,
     body: Body,
 ) -> BlossomResponse {
+    process_upload_with_expected_hash(method, compress, auth, state, body, None).await
+}
+
+async fn process_upload_with_expected_hash(
+    method: &str,
+    compress: bool,
+    auth: BlossomAuth,
+    state: Arc<AppState>,
+    body: Body,
+    expected_hash: Option<&str>,
+) -> BlossomResponse {
     if !check_method(&auth.event, method) {
         return BlossomResponse::bad_request("Invalid request method tag");
     }
 
-    // BUD-11: validate x tag if X-SHA-256 header is provided
-    if let Some(ref x_sha) = auth.x_sha_256
-        && auth.validate_x_tag(x_sha).is_err() {
-            return BlossomResponse::unauthorized("Missing or mismatched x tag");
-        }
+    // BUD-11: BUD-13 requires an x tag matching the path hash. Legacy uploads
+    // validate the x tag when X-SHA-256 is supplied.
+    let authorization_hash = expected_hash.or(auth.x_sha_256.as_deref());
+    if let Some(hash) = authorization_hash
+        && auth.validate_x_tag(hash).is_err()
+    {
+        return BlossomResponse::unauthorized("Missing or mismatched x tag");
+    }
 
     let name = auth.event.tags.iter().find_map(|t| {
         if t.kind() == TagKind::Name {
@@ -804,13 +873,15 @@ async fn process_upload(
     let stream = TryStreamExt::map_err(data_stream, std::io::Error::other);
     let reader = StreamReader::new(stream);
 
-    // Compute SHA-256 of the original upload data for X-SHA-256 validation.
-    // This must be computed before any compression so the client-provided
-    // hash (which refers to the original content) can be validated.
-    let hashing_reader = Sha256Reader::new(reader);
+    // BUD-13 uses the path as the authoritative hash. X-SHA-256 remains a
+    // legacy PUT /upload check and is ignored for path-based uploads.
+    let x_sha_256 = expected_hash
+        .is_none()
+        .then_some(auth.x_sha_256.as_deref())
+        .flatten();
 
     process_stream(
-        hashing_reader,
+        reader,
         &auth
             .content_type
             .unwrap_or("application/octet-stream".to_string()),
@@ -819,65 +890,16 @@ async fn process_upload(
         compress,
         size,
         state,
-        None,
+        expected_hash.and_then(|hash| hex::decode(hash).ok()),
         auth.x_identical_media,
-        auth.x_sha_256.as_deref(),
+        x_sha_256,
     )
     .await
 }
 
-/// Wraps an `AsyncRead` and computes SHA-256 of all bytes read.
-/// The hasher is shared via `Arc<Mutex>` so the hash can be read after
-/// the reader is consumed.
-struct Sha256Reader<S> {
-    inner: S,
-    hasher: Arc<Mutex<Sha256>>,
-}
-
-impl<S> Sha256Reader<S> {
-    fn new(inner: S) -> Self {
-        Self {
-            inner,
-            hasher: Arc::new(Mutex::new(Sha256::new())),
-        }
-    }
-
-    fn hasher_clone(&self) -> Arc<Mutex<Sha256>> {
-        self.hasher.clone()
-    }
-}
-
-impl<S: AsyncRead + Unpin> AsyncRead for Sha256Reader<S> {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let filled_before = buf.filled().len();
-        let poll = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
-        if let std::task::Poll::Ready(Ok(())) = &poll {
-            let filled_after = buf.filled().len();
-            if filled_after > filled_before
-                && let Ok(mut hasher) = self.hasher.lock() {
-                    hasher.update(&buf.filled()[filled_before..filled_after]);
-                }
-        }
-        poll
-    }
-}
-
-fn finalize_hash(hasher: Arc<Mutex<Sha256>>) -> Vec<u8> {
-    if let Ok(mut h) = hasher.lock() {
-        let hasher = std::mem::replace(&mut *h, Sha256::new());
-        hasher.finalize().to_vec()
-    } else {
-        Vec::new()
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn process_stream<'p, S>(
-    stream: Sha256Reader<S>,
+    stream: S,
     mime_type: &str,
     name: &Option<&str>,
     pubkey: &Vec<u8>,
@@ -896,40 +918,35 @@ where
     S: AsyncRead + Unpin + 'p,
 {
     let settings = state.settings().await;
-    let input_hasher = stream.hasher_clone();
+    let x_sha_256_hash = x_sha_256.and_then(|expected| hex::decode(expected).ok());
+    let expected_input_hash = expect_hash.as_deref().or(x_sha_256_hash.as_deref());
 
     let mut is_new_file = false;
-    let upload = match state.fs.put(&state.db, stream, mime_type, compress).await {
-        Ok(FileSystemResult::NewFile(blob)) => {
+    let filesystem_result = match state
+        .fs
+        .put_with_expected_hash(&state.db, stream, mime_type, compress, expected_input_hash)
+        .await
+    {
+        Ok(result) => result,
+        Err(e) if e.downcast_ref::<HashMismatch>().is_some() => {
+            return BlossomResponse::conflict("SHA-256 hash mismatch");
+        }
+        Err(e) => {
+            error!("{}", e);
+            if e.to_string().contains("exceeds maximum upload size") {
+                return BlossomResponse::content_too_large("File too large");
+            }
+            return BlossomResponse::service_unavailable(format!(
+                "Error saving file (disk): {}",
+                e
+            ));
+        }
+    };
+
+    let upload = match filesystem_result {
+        FileSystemResult::NewFile(blob) => {
             is_new_file = true;
             let mut ret: FileUpload = (&blob).into();
-
-            // check expected hash (mirroring)
-            if let Some(h) = expect_hash
-                && h != ret.id
-            {
-                if let Err(e) = state.fs.delete(&ret.id).await {
-                    log::warn!("Failed to cleanup file: {}", e);
-                }
-                return BlossomResponse::conflict(
-                    "Mirror request failed, server responses with invalid file content (hash mismatch)",
-                );
-            }
-
-            // BUD-02: validate X-SHA-256 header against the original
-            // upload content hash (before any server-side compression).
-            if let Some(expected_sha) = x_sha_256
-                && let Ok(expected_bytes) = hex::decode(expected_sha) {
-                    let original_hash = finalize_hash(input_hasher.clone());
-                    if expected_bytes != original_hash {
-                        if let Err(e) = state.fs.delete(&ret.id).await {
-                            log::warn!("Failed to cleanup file: {}", e);
-                        }
-                        return BlossomResponse::conflict(
-                            "X-SHA-256 hash mismatch",
-                        );
-                    }
-                }
 
             // Check for sensitive EXIF metadata if enabled
             #[cfg(feature = "blossom")]
@@ -998,14 +1015,14 @@ where
 
             ret
         }
-        Ok(FileSystemResult::Banned) => {
+        FileSystemResult::Banned => {
             return BlossomResponse::Generic(BlossomGenericResponse {
                 message: Some("File is not allowed on this server".to_string()),
                 status: StatusCode::FORBIDDEN,
                 payment_headers: None,
             });
         }
-        Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
+        FileSystemResult::AlreadyExists(i) => match state.db.get_file(&i).await {
             Ok(Some(f)) if !f.banned => f,
             Ok(Some(_)) => {
                 return BlossomResponse::Generic(BlossomGenericResponse {
@@ -1016,10 +1033,6 @@ where
             }
             _ => return BlossomResponse::not_found("File not found"),
         },
-        Err(e) => {
-            error!("{}", e);
-            return BlossomResponse::service_unavailable(format!("Error saving file (disk): {}", e));
-        }
     };
 
     let user_id = match state.db.upsert_user(pubkey).await {
@@ -1189,5 +1202,259 @@ async fn report_file(
             )),
             payment_headers: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file_stats::FileStatsTracker;
+    use crate::filesystem::FileStore;
+    use axum::extract::{Path, RawQuery, State};
+    use nostr::{EventBuilder, Keys, Kind};
+    use sha2::Digest;
+    use sqlx::mysql::MySqlPoolOptions;
+    use tempfile::TempDir;
+    use tokio::sync::RwLock;
+    use tower::ServiceExt;
+
+    fn test_auth() -> BlossomAuth {
+        let keys = Keys::generate();
+        let event = EventBuilder::new(Kind::Custom(24242), "")
+            .sign_with_keys(&keys)
+            .unwrap();
+        BlossomAuth {
+            content_type: Some("application/octet-stream".to_string()),
+            x_content_type: None,
+            x_sha_256: None,
+            x_content_length: None,
+            x_identical_media: None,
+            event,
+        }
+    }
+
+    fn test_state() -> (Arc<AppState>, TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            listen: None,
+            storage_dir: temp.path().to_string_lossy().into_owned(),
+            database: "mysql://user:pass@127.0.0.1:1/route96".to_string(),
+            max_upload_bytes: 1024,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            reject_sensitive_exif: None,
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let pool = MySqlPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
+            .unwrap();
+        let db = Database { pool };
+        let state = Arc::new(AppState {
+            fs: FileStore::new(settings.clone()),
+            db,
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        (state, temp)
+    }
+
+    #[test]
+    fn bud13_hash_requires_lowercase_sha256() {
+        assert!(is_bud13_sha256(&"a".repeat(64)));
+        assert!(is_bud13_sha256(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_bud13_sha256(&"A".repeat(64)));
+        assert!(!is_bud13_sha256(&"g".repeat(64)));
+        assert!(!is_bud13_sha256(&"a".repeat(63)));
+        assert!(!is_bud13_sha256(&("a".repeat(64) + ".jpg")));
+    }
+
+    #[test]
+    fn detects_url_query_parameter_after_decoding() {
+        assert!(has_url_query(Some("url=https%3A%2F%2Fexample.com")));
+        assert!(has_url_query(Some("u%72l=https%3A%2F%2Fexample.com")));
+        assert!(!has_url_query(Some("source=https%3A%2F%2Fexample.com")));
+        assert!(!has_url_query(None));
+    }
+
+    #[tokio::test]
+    async fn hash_options_advertises_put_but_not_post() {
+        let hash = "a".repeat(64);
+        let response = hash_options(Path(hash.clone())).await;
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            response.headers().get(header::ALLOW).unwrap(),
+            HASH_RESOURCE_METHODS
+        );
+        assert!(!response
+            .headers()
+            .get(header::ALLOW)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("POST"));
+
+        let response = hash_options(Path("A".repeat(64))).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let (state, _temp) = test_state();
+        let response = blossom_routes()
+            .with_state(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("OPTIONS")
+                    .uri(format!("/{hash}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn path_upload_rejects_invalid_path_and_remote_url_query() {
+        let (state, _temp) = test_state();
+        let response = upload_by_hash(
+            Path("A".repeat(64)),
+            RawQuery(None),
+            test_auth(),
+            State(state.clone()),
+            Body::empty(),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = upload_by_hash(
+            Path("a".repeat(64)),
+            RawQuery(Some("url=https%3A%2F%2Fexample.com".to_string())),
+            test_auth(),
+            State(state.clone()),
+            Body::empty(),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get("x-reason").unwrap(),
+            "The url query parameter is not supported for PUT /<sha256>"
+        );
+
+        // A valid BUD-13 path reaches the shared upload authorization pipeline.
+        let response = upload_by_hash(
+            Path("a".repeat(64)),
+            RawQuery(None),
+            test_auth(),
+            State(state),
+            Body::empty(),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let reason = response.headers().get("x-reason").unwrap();
+        assert_eq!(reason, "Invalid request method tag");
+
+        let response = process_upload(
+            "upload",
+            false,
+            test_auth(),
+            test_state().0,
+            Body::empty(),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn process_stream_maps_storage_failure_to_service_unavailable() {
+        let (state, _temp) = test_state();
+        let reader = tokio::io::empty();
+        let response = process_stream(
+            reader,
+            "application/octet-stream",
+            &None,
+            &vec![1; 32],
+            false,
+            0,
+            state,
+            None,
+            None,
+            None,
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn process_stream_rejects_hash_mismatch_before_publishing() {
+        let (state, _temp) = test_state();
+        let content = b"mismatched content";
+        let response = process_stream(
+            std::io::Cursor::new(content),
+            "application/octet-stream",
+            &None,
+            &vec![1; 32],
+            false,
+            0,
+            state.clone(),
+            Some(vec![0; 32]),
+            None,
+            None,
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let actual_hash = sha2::Sha256::digest(content).to_vec();
+        assert!(!state.fs.get(&actual_hash).exists());
+    }
+
+    #[tokio::test]
+    async fn process_stream_returns_413_for_actual_oversized_body() {
+        let (state, _temp) = test_state();
+        let reader = std::io::Cursor::new(vec![0; 1025]);
+        let response = process_stream(
+            reader,
+            "application/octet-stream",
+            &None,
+            &vec![1; 32],
+            false,
+            0,
+            state,
+            None,
+            None,
+            None,
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

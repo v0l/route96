@@ -115,12 +115,24 @@ These use kind `24242` auth — see [Blossom auth](#blossom-auth-blossom-endpoin
 ### Upload a file
 
 ```bash
+SHA256=$(sha256sum photo.jpg | cut -d' ' -f1)
+AUTH_EVENT=$(nak event \
+  --kind 24242 \
+  -t t=upload \
+  -t x="$SHA256" \
+  -t expiration=$(($(date +%s) + 300)) \
+  --sec $(cat ~/.nostr/key.nsec))
+AUTH_HEADER="Nostr $(echo "$AUTH_EVENT" | base64 -w0)"
+
 curl -X PUT \
   -H "Authorization: $AUTH_HEADER" \
   -H "Content-Type: image/jpeg" \
   --data-binary @photo.jpg \
-  "$ROUTE96_URL/upload"
+  "$ROUTE96_URL/$SHA256"
 ```
+
+The hash path must be exactly 64 lowercase hexadecimal characters. The legacy
+`PUT /upload` endpoint remains available for older clients.
 
 Response:
 
@@ -211,7 +223,8 @@ curl -o thumb.webp "$ROUTE96_URL/thumb/<sha256>"
 | Download file       | GET    | `/{sha256}`                       | None        |
 | Check file exists   | HEAD   | `/{sha256}`                       | None        |
 | Get thumbnail       | GET    | `/thumb/{sha256}`                 | None        |
-| Upload (Blossom)    | PUT    | `/upload`                         | Kind 24242  |
+| Upload (Blossom)    | PUT    | `/{sha256}`                       | Kind 24242  |
+| Upload (legacy)     | PUT    | `/upload`                         | Kind 24242  |
 | Upload media        | PUT    | `/media`                          | Kind 24242  |
 | Mirror file         | PUT    | `/mirror`                         | Kind 24242  |
 | Delete (Blossom)    | DELETE | `/{sha256}`                       | Kind 24242  |

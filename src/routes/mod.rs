@@ -39,7 +39,7 @@ use tokio_util::io::ReaderStream;
 
 mod admin;
 #[cfg(feature = "blossom")]
-mod blossom;
+pub(crate) mod blossom;
 #[cfg(feature = "nip96")]
 mod nip96;
 #[cfg(feature = "payments")]
