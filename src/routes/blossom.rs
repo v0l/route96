@@ -477,65 +477,16 @@ async fn mirror(
         Err(e) => return BlossomResponse::bad_request(format!("Invalid URL: {}", e)),
     };
 
-    // SSRF protection: only allow fetching public http(s) URLs.
-    let validated_addrs = match BlossomAuth::validate_mirror_url(&url).await {
-        Ok(addrs) => addrs,
-        Err(_) => return BlossomResponse::bad_request("URL is not fetchable by this server"),
-    };
-    let validated_host = match url.host_str() {
-        Some(h) => h.trim_start_matches('[').trim_end_matches(']').to_string(),
-        None => return BlossomResponse::bad_request("URL is not fetchable by this server"),
-    };
-
     let hash = url
         .path_segments()
         .and_then(|mut c| c.next_back())
-        .and_then(|s| s.split(".").next());
+        .and_then(|s| s.split(".").next())
+        .map(str::to_string);
 
-    let client = match Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        // Pin the addresses validated above. Without this the client performs
-        // its own DNS lookup, which can return a private address the check
-        // never saw (DNS rebinding) — defeating the SSRF guard entirely.
-        .resolve_to_addrs(&validated_host, &validated_addrs)
-        // Ignore HTTP(S)_PROXY from the environment: a proxy would tunnel the
-        // request past the pinned addresses and the IP checks.
-        .no_proxy()
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to build HTTP client: {}", e);
-            return BlossomResponse::service_unavailable("Mirror fetch failed");
-        }
-    };
-
-    let req_builder = client.get(url.clone()).header(
-        "user-agent",
-        format!("route96 ({})", state.settings().await.public_url),
-    );
-    info!("Requesting mirror: {}", url);
-    info!("{:?}", req_builder);
-
-    // download file
-    let rsp = match req_builder.send().await {
-        Err(e) => {
-            error!("Error downloading file: {}", e);
-            return BlossomResponse::bad_gateway("Failed to fetch blob from origin URL");
-        }
-        Ok(rsp) if !rsp.status().is_success() => {
-            let status = rsp.status();
-            let body = rsp.bytes().await.unwrap_or(Default::default());
-            error!(
-                "Error downloading file, status is not OK({}): {}",
-                status,
-                String::from_utf8_lossy(&body)
-            );
-            return BlossomResponse::bad_gateway("Failed to fetch blob from origin URL");
-        }
+    let user_agent = format!("route96 ({})", settings.public_url);
+    let rsp = match fetch_mirror_origin(url, &user_agent).await {
         Ok(rsp) => rsp,
+        Err(e) => return e,
     };
 
     let mime_type = rsp
@@ -565,6 +516,77 @@ async fn mirror(
         None,
     )
     .await
+}
+
+const MIRROR_MAX_REDIRECTS: usize = 5;
+
+async fn fetch_mirror_origin(
+    mut url: Url,
+    user_agent: &str,
+) -> Result<reqwest::Response, BlossomResponse> {
+    for _ in 0..=MIRROR_MAX_REDIRECTS {
+        let validated_addrs = BlossomAuth::validate_mirror_url(&url)
+            .await
+            .map_err(|_| BlossomResponse::bad_request("URL is not fetchable by this server"))?;
+        let validated_host = url
+            .host_str()
+            .map(|h| h.trim_start_matches('[').trim_end_matches(']').to_string())
+            .ok_or_else(|| BlossomResponse::bad_request("URL is not fetchable by this server"))?;
+
+        // Pin the addresses validated above. Without this the client performs
+        // its own DNS lookup, which can return a private address the check
+        // never saw (DNS rebinding) — defeating the SSRF guard entirely.
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(&validated_host, &validated_addrs)
+            // Ignore HTTP(S)_PROXY from the environment: a proxy would tunnel the
+            // request past the pinned addresses and the IP checks.
+            .no_proxy()
+            .build()
+            .map_err(|e| {
+                error!("Failed to build HTTP client: {}", e);
+                BlossomResponse::service_unavailable("Mirror fetch failed")
+            })?;
+
+        info!("Requesting mirror: {}", url);
+        let rsp = client
+            .get(url.clone())
+            .header("user-agent", user_agent)
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Error downloading file: {}", e);
+                BlossomResponse::bad_gateway("Failed to fetch blob from origin URL")
+            })?;
+
+        let status = rsp.status();
+        if status.is_success() {
+            return Ok(rsp);
+        }
+        if status.is_redirection()
+            && let Some(next) = rsp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|l| l.to_str().ok())
+                .and_then(|l| url.join(l).ok())
+        {
+            url = next;
+            continue;
+        }
+
+        let body = rsp.bytes().await.unwrap_or_default();
+        error!(
+            "Error downloading file, status is not OK({}): {}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
+        return Err(BlossomResponse::bad_gateway(
+            "Failed to fetch blob from origin URL",
+        ));
+    }
+    Err(BlossomResponse::bad_gateway("Too many redirects from origin URL"))
 }
 
 #[cfg(feature = "media-compression")]
