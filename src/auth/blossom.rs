@@ -7,6 +7,18 @@ use base64::prelude::*;
 use log::info;
 use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
 
+/// Decode a BUD-11 authorization token.
+///
+/// Prefer the current Base64URL-without-padding format while accepting the
+/// padded and legacy standard-Base64 variants used by deployed clients.
+fn decode_auth_token(token: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    BASE64_URL_SAFE_NO_PAD
+        .decode(token)
+        .or_else(|_| BASE64_URL_SAFE.decode(token))
+        .or_else(|_| BASE64_STANDARD_NO_PAD.decode(token))
+        .or_else(|_| BASE64_STANDARD.decode(token))
+}
+
 pub struct BlossomAuth {
     pub content_type: Option<String>,
     pub x_content_type: Option<String>,
@@ -296,12 +308,10 @@ where
             });
         }
 
-        let event = BASE64_STANDARD
-            .decode(&auth[6..])
-            .map_err(|_| BlossomRejection {
-                status: StatusCode::BAD_REQUEST,
-                reason: "Invalid auth string",
-            })?;
+        let event = decode_auth_token(&auth[6..]).map_err(|_| BlossomRejection {
+            status: StatusCode::BAD_REQUEST,
+            reason: "Invalid auth string",
+        })?;
 
         let event = Event::from_json(event).map_err(|_| BlossomRejection {
             status: StatusCode::BAD_REQUEST,
@@ -404,7 +414,32 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_server_host;
+    use base64::prelude::*;
+
+    use super::{decode_auth_token, normalize_server_host};
+
+    #[test]
+    fn decodes_all_supported_blossom_auth_encodings() {
+        // This payload produces both alphabet-specific characters and padding:
+        // standard `+/8=` and URL-safe `-_8=`.
+        let payload = [0xfb, 0xff];
+        let tokens = [
+            BASE64_URL_SAFE_NO_PAD.encode(payload),
+            BASE64_URL_SAFE.encode(payload),
+            BASE64_STANDARD_NO_PAD.encode(payload),
+            BASE64_STANDARD.encode(payload),
+        ];
+
+        for token in tokens {
+            assert_eq!(decode_auth_token(&token).unwrap(), payload);
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_blossom_auth_encodings() {
+        assert!(decode_auth_token("-/8=").is_err());
+        assert!(decode_auth_token("A").is_err());
+    }
 
     /// BUD-11: the `server` tag "MUST be a lowercase domain name only
     /// (e.g. `cdn.example.com`), not a full URL". Callers pass `public_url`

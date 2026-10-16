@@ -1,4 +1,4 @@
-import { base64 } from "@scure/base";
+import { base64, base64urlnopad } from "@scure/base";
 import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
 
@@ -522,7 +522,7 @@ export class Route96 {
     });
     const headers: Record<string, string> = {
       accept: "application/json",
-      authorization: `Nostr ${base64.encode(new TextEncoder().encode(JSON.stringify(auth)))}`,
+      authorization: `Nostr ${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(auth)))}`,
     };
     if (body && method !== "GET") {
       headers["content-type"] = "application/json";

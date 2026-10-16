@@ -1,4 +1,4 @@
-import { base64, hex } from "@scure/base";
+import { base64urlnopad, hex } from "@scure/base";
 import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
 import { UploadProgressCallback, uploadWithProgress } from "./progress";
@@ -163,7 +163,7 @@ export class Blossom {
         tags?.forEach((t) => eb.tag(t));
         return eb;
       });
-      return `Nostr ${base64.encode(
+      return `Nostr ${base64urlnopad.encode(
         new TextEncoder().encode(JSON.stringify(auth)),
       )}`;
     };

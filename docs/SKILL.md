@@ -39,8 +39,8 @@ AUTH_EVENT=$(nak event \
   -t expiration=$(($(date +%s) + 300)) \
   --sec $(cat ~/.nostr/key.nsec))
 
-# 2. Base64-encode it
-AUTH_HEADER="Nostr $(echo "$AUTH_EVENT" | base64 -w0)"
+# 2. Encode it as unpadded Base64URL (BUD-11)
+AUTH_HEADER="Nostr $(printf %s "$AUTH_EVENT" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
 
 # 3. Use with curl
 curl -X PUT \
@@ -51,6 +51,10 @@ curl -X PUT \
 ```
 
 Action types for the `t` tag: `upload`, `delete`, `list`.
+
+Route96 emits unpadded Base64URL and accepts both the URL-safe and legacy
+standard Base64 alphabets, with or without padding, for compatibility with
+deployed Blossom clients.
 
 ## NIP-96 Endpoints
 
