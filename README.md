@@ -16,6 +16,7 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
   - [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md) - Upload requirement validation
   - [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md) - NIP-94 metadata support
   - [BUD-09](https://github.com/hzrd149/blossom/blob/master/buds/09.md) - Content reporting system
+  - [BUD-13](https://github.com/hzrd149/blossom/blob/simpler-put/buds/13.md) - Path-based blob uploads
 
 ### Media Processing
 - **Image & Video Compression** - Automatic WebP conversion and optimization
@@ -55,7 +56,8 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 ### Blossom Protocol
 - `GET /<sha256>` - Retrieve blob by hash
 - `HEAD /<sha256>` - Check blob existence
-- `PUT /upload` - Upload new blob
+- `PUT /<sha256>` - Upload a blob using its lowercase SHA-256 path (BUD-13)
+- `PUT /upload` - Legacy-compatible blob upload
 - `DELETE /<sha256>` - Delete owned blob
 - `GET /list/<pubkey>` - List user's blobs
 - `PUT /mirror` - Mirror blob from remote URL
@@ -145,10 +147,11 @@ payments:
 
 ### Upload a file (Blossom)
 ```bash
-auth_event='{"kind":24242,"tags":[["t","upload"],["expiration","1234567890"]],"content":"Upload file"}'
+sha256=$(sha256sum image.jpg | cut -d' ' -f1)
+auth_event='{"kind":24242,"tags":[["t","upload"],["x","'$sha256'"],["expiration","1234567890"]],"content":"Upload file"}'
 auth_b64=$(echo $auth_event | base64 -w 0)
 
-curl -X PUT http://localhost:8000/upload \
+curl -X PUT "http://localhost:8000/$sha256" \
   -H "Authorization: Nostr $auth_b64" \
   -H "Content-Type: image/jpeg" \
   --data-binary @image.jpg

@@ -1,5 +1,8 @@
-use axum::http::{HeaderName, Method};
+use axum::http::{HeaderName, Method, header};
 use tower_http::cors::CorsLayer;
+
+#[cfg(feature = "blossom")]
+use axum::{extract::Request, middleware::Next, response::Response};
 
 pub fn cors_layer() -> CorsLayer {
     CorsLayer::new()
@@ -28,10 +31,46 @@ pub fn cors_layer() -> CorsLayer {
             HeaderName::from_static("*"),
         ])
         .expose_headers([
+            header::ALLOW,
             HeaderName::from_static("x-reason"),
             HeaderName::from_static("x-identical-media"),
             HeaderName::from_static("sunset"),
         ])
+}
+
+/// Correct the generic CORS method list for BUD-13 hash resources.
+///
+/// The application also has POST endpoints, so the global CORS layer must
+/// allow POST. BUD-01 feature discovery, however, requires `/<sha256>` to
+/// advertise only methods actually supported on that resource.
+#[cfg(feature = "blossom")]
+pub async fn bud13_discovery_headers(request: Request, next: Next) -> Response {
+    let is_hash_resource = request
+        .uri()
+        .path()
+        .strip_prefix('/')
+        .is_some_and(crate::routes::blossom::is_bud13_sha256);
+    let is_options = request.method() == Method::OPTIONS;
+
+    let mut response = next.run(request).await;
+    if is_hash_resource
+        && (is_options || response.status() == axum::http::StatusCode::METHOD_NOT_ALLOWED)
+    {
+        response.headers_mut().insert(
+            header::ALLOW,
+            crate::routes::blossom::HASH_RESOURCE_METHODS
+                .parse()
+                .expect("valid Allow value"),
+        );
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            crate::routes::blossom::HASH_RESOURCE_METHODS
+                .parse()
+                .expect("valid Access-Control-Allow-Methods value"),
+        );
+    }
+
+    response
 }
 
 #[cfg(test)]
@@ -100,5 +139,44 @@ mod tests {
             Some("*"),
             "BUD-01 requires Access-Control-Allow-Origin: *"
         );
+    }
+
+    #[cfg(feature = "blossom")]
+    #[tokio::test]
+    async fn bud13_discovery_omits_unsupported_post() {
+        use axum::middleware;
+
+        let hash = "a".repeat(64);
+        let app = Router::new()
+            .route("/{sha256}", get(|| async { "ok" }))
+            .layer(cors_layer())
+            .layer(middleware::from_fn(super::bud13_discovery_headers));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri(format!("/{hash}"))
+                    .header("origin", "https://example.com")
+                    .header("access-control-request-method", "PUT")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let allow = response.headers().get("allow").unwrap().to_str().unwrap();
+        let cors_allow = response
+            .headers()
+            .get("access-control-allow-methods")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        for method in ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"] {
+            assert!(allow.contains(method));
+            assert!(cors_allow.contains(method));
+        }
+        assert!(!allow.contains("POST"));
+        assert!(!cors_allow.contains("POST"));
     }
 }

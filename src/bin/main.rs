@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use anyhow::Error;
+#[cfg(feature = "blossom")]
+use axum::middleware;
 use axum::{
     Router,
     routing::{get, head},
@@ -163,6 +165,10 @@ async fn main() -> Result<(), Error> {
     // Add middleware layers
     app = app.layer(ResponseLogLayer);
     app = app.layer(cors_layer());
+    #[cfg(feature = "blossom")]
+    {
+        app = app.layer(middleware::from_fn(route96::cors::bud13_discovery_headers));
+    }
     // Disable axum's default 2 MiB body limit so upload handlers can enforce
     // max_upload_bytes themselves. usize::MAX is effectively unlimited.
     app = app.layer(RequestBodyLimitLayer::new(usize::MAX));

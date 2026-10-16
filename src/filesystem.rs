@@ -20,6 +20,17 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+#[derive(Debug)]
+pub struct HashMismatch;
+
+impl std::fmt::Display for HashMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SHA-256 hash mismatch")
+    }
+}
+
+impl std::error::Error for HashMismatch {}
+
 #[derive(Clone)]
 pub enum FileSystemResult {
     /// File hash already exists
@@ -97,6 +108,23 @@ impl FileStore {
     where
         S: AsyncRead + Unpin + 'r,
     {
+        self.put_with_expected_hash(db, path, mime_type, compress, None)
+            .await
+    }
+
+    /// Store a file, rejecting an unexpected input hash before publishing it
+    /// at the shared content-addressed path.
+    pub async fn put_with_expected_hash<'r, S>(
+        &self,
+        db: &Database,
+        path: S,
+        mime_type: &str,
+        compress: bool,
+        expected_hash: Option<&[u8]>,
+    ) -> Result<FileSystemResult>
+    where
+        S: AsyncRead + Unpin + 'r,
+    {
         let max = self.settings().await.max_upload_bytes;
         // store file in temp path and hash the file
         // Read at most max+1 bytes so we can detect over-limit uploads without
@@ -106,6 +134,11 @@ impl FileStore {
         if size > max {
             tokio::fs::remove_file(&temp_file).await.ok();
             return Err(anyhow::anyhow!("File exceeds maximum upload size"));
+        }
+
+        if expected_hash.is_some_and(|expected| expected != hash) {
+            tokio::fs::remove_file(&temp_file).await?;
+            return Err(HashMismatch.into());
         }
 
         // check banned before anything else
@@ -408,6 +441,102 @@ impl FileStore {
 
     pub fn storage_dir(&self) -> PathBuf {
         self.storage_dir.clone()
+    }
+}
+
+#[cfg(test)]
+mod expected_hash_tests {
+    use super::*;
+    use sqlx::mysql::MySqlPoolOptions;
+
+    fn test_store(storage_dir: &Path) -> (FileStore, Database) {
+        let settings = Settings {
+            listen: None,
+            storage_dir: storage_dir.to_string_lossy().into_owned(),
+            database: "mysql://user:pass@127.0.0.1:1/route96".to_string(),
+            max_upload_bytes: 1024,
+            public_url: String::new(),
+            whitelist: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            #[cfg(feature = "blossom")]
+            reject_sensitive_exif: None,
+            #[cfg(feature = "blossom")]
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let pool = MySqlPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
+            .unwrap();
+        (FileStore::new(settings), Database { pool })
+    }
+
+    #[tokio::test]
+    async fn hash_mismatch_does_not_delete_existing_blob() {
+        let temp = tempfile::tempdir().unwrap();
+        let (store, db) = test_store(temp.path());
+        let content = b"shared content";
+        let actual_hash = Sha256::digest(content).to_vec();
+        let final_path = store.get(&actual_hash);
+        tokio::fs::create_dir_all(final_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&final_path, content).await.unwrap();
+
+        let error = store
+            .put_with_expected_hash(
+                &db,
+                std::io::Cursor::new(content),
+                "application/octet-stream",
+                false,
+                Some(&[0; 32]),
+            )
+            .await
+            .err()
+            .unwrap();
+
+        assert!(error.downcast_ref::<HashMismatch>().is_some());
+        assert_eq!(error.to_string(), "SHA-256 hash mismatch");
+        assert_eq!(tokio::fs::read(final_path).await.unwrap(), content);
+        assert!(
+            tokio::fs::read_dir(store.temp_dir())
+                .await
+                .unwrap()
+                .next_entry()
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        // The legacy entry point still delegates to the shared implementation.
+        let error = store
+            .put(
+                &db,
+                std::io::Cursor::new(Vec::<u8>::new()),
+                "application/octet-stream",
+                false,
+            )
+            .await
+            .err()
+            .unwrap();
+        assert!(error.downcast_ref::<HashMismatch>().is_none());
     }
 }
 
