@@ -50,6 +50,7 @@ label_models:
   #   model: "gpt-4o-mini"
   #   api_key: "your-api-key"
   #   prompt: "Focus on clothing items"
+  #   max_image_pixels: 1800000
   #   name: "my-llm-labeler"
   #   label_exclude:
   #     - "unknown"

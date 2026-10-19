@@ -245,6 +245,10 @@ pub enum LabelerType {
         api_key: Option<String>,
         /// Additional prompt to append to the default label request (optional).
         prompt: Option<String>,
+        /// Largest image, in pixels, sent to the server (default 1,800,000).
+        /// Qwen3-VL on vLLM rejects images of 2,097,152 pixels or more.
+        #[serde(default)]
+        max_image_pixels: Option<u64>,
     },
 }
 

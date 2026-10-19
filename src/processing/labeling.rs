@@ -21,7 +21,7 @@ use candle_transformers::models::vit;
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat;
 use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
-use log::{debug, info};
+use log::{debug, info, warn};
 use nostr::serde_json;
 use serde::Deserialize;
 
@@ -70,8 +70,10 @@ pub enum LabelError {
     // ── Transient: external service problems ────────────────────────────
     /// The remote API request timed out.
     ApiTimeout,
-    /// The remote API returned an error (network, rate-limit, server, etc.).
+    /// The remote API could not be reached (network, DNS, connection reset).
     ApiFailed(String),
+    /// The remote API answered with an error, for example an image it refused.
+    ApiRejected(String),
     /// The remote API returned a response with no usable content.
     /// Treated as transient because the model may produce content on retry.
     ApiEmptyResponse,
@@ -87,7 +89,7 @@ impl LabelError {
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
-            Self::ApiTimeout | Self::ApiFailed(_) | Self::ApiEmptyResponse
+            Self::ApiTimeout | Self::ApiFailed(_) | Self::ApiRejected(_) | Self::ApiEmptyResponse
         )
     }
 
@@ -115,6 +117,7 @@ impl fmt::Display for LabelError {
             Self::Ffmpeg(e) => write!(f, "FFmpeg error: {}", e),
             Self::ApiTimeout => write!(f, "API request timed out"),
             Self::ApiFailed(e) => write!(f, "API request failed: {}", e),
+            Self::ApiRejected(e) => write!(f, "API rejected request: {}", e),
             Self::ApiEmptyResponse => write!(f, "No content in API response"),
             Self::RequestBuild(e) => write!(f, "Failed to build request: {}", e),
         }
@@ -124,6 +127,26 @@ impl fmt::Display for LabelError {
 impl std::error::Error for LabelError {}
 
 /// Reject media that is too small on either axis to produce meaningful labels.
+const LLM_MAX_HEIGHT: u32 = 1024;
+pub const DEFAULT_LLM_MAX_PIXELS: u64 = 1_800_000;
+const LLM_RETRY_PIXEL_DIVISOR: u64 = 4;
+
+fn llm_target_size(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
+    let mut scale = 1.0f64;
+    if height > LLM_MAX_HEIGHT {
+        scale = LLM_MAX_HEIGHT as f64 / height as f64;
+    }
+    let scaled_pixels = width as f64 * height as f64 * scale * scale;
+    if scaled_pixels > max_pixels as f64 {
+        scale *= (max_pixels as f64 / scaled_pixels).sqrt();
+    }
+    if scale >= 1.0 {
+        return (width, height);
+    }
+    let even = |v: f64| (((v as u32).max(2)) / 2) * 2;
+    (even(width as f64 * scale), even(height as f64 * scale))
+}
+
 fn check_dimensions(width: u32, height: u32) -> Result<(), LabelError> {
     if width < MIN_LABEL_DIMENSION || height < MIN_LABEL_DIMENSION {
         return Err(LabelError::TooSmall { width, height });
@@ -318,9 +341,11 @@ pub struct GenericLlmLabeler {
     label_exclude: Vec<String>,
     min_confidence: f32,
     name: String,
+    max_pixels: u64,
 }
 
 impl GenericLlmLabeler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         api_url: String,
         model: String,
@@ -329,6 +354,7 @@ impl GenericLlmLabeler {
         label_exclude: Vec<String>,
         min_confidence: Option<f32>,
         name: String,
+        max_pixels: Option<u64>,
     ) -> Result<Self> {
         let config = OpenAIConfig::new()
             .with_api_base(&api_url)
@@ -342,10 +368,11 @@ impl GenericLlmLabeler {
             label_exclude,
             min_confidence: min_confidence.unwrap_or(MIN_CONFIDENCE),
             name,
+            max_pixels: max_pixels.unwrap_or(DEFAULT_LLM_MAX_PIXELS),
         })
     }
 
-    fn compress_image_to_jpeg(path: &Path) -> Result<Vec<u8>, LabelError> {
+    fn compress_image_to_jpeg(path: &Path, max_pixels: u64) -> Result<Vec<u8>, LabelError> {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
         use ffmpeg_rs_raw::{Encoder, StreamType};
 
@@ -371,15 +398,9 @@ impl GenericLlmLabeler {
 
             check_dimensions(stream.width as u32, stream.height as u32)?;
 
-            let target_height = 1024i32;
-            let (out_width, out_height) = if stream.height as i32 > target_height {
-                let new_height = target_height;
-                let new_width =
-                    (stream.width as f32 * (new_height as f32 / stream.height as f32)) as i32;
-                (new_width, new_height)
-            } else {
-                (stream.width as i32, stream.height as i32)
-            };
+            let (out_width, out_height) =
+                llm_target_size(stream.width as u32, stream.height as u32, max_pixels);
+            let (out_width, out_height) = (out_width as i32, out_height as i32);
 
             let enc = Encoder::new(AV_CODEC_ID_MJPEG)
                 .map_err(LabelError::Ffmpeg)?
@@ -441,8 +462,8 @@ impl GenericLlmLabeler {
         }
     }
 
-    fn encode_image_to_base64(&self, path: &Path) -> Result<String, LabelError> {
-        let bytes = Self::compress_image_to_jpeg(path)?;
+    fn encode_image_to_base64(&self, path: &Path, max_pixels: u64) -> Result<String, LabelError> {
+        let bytes = Self::compress_image_to_jpeg(path, max_pixels)?;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
 
@@ -509,7 +530,12 @@ impl GenericLlmLabeler {
             )
             .await
             .map_err(|_| LabelError::ApiTimeout)?
-            .map_err(|e| LabelError::ApiFailed(e.to_string()))?;
+            .map_err(|e| match e {
+                async_openai::error::OpenAIError::Reqwest(_) => {
+                    LabelError::ApiFailed(e.to_string())
+                }
+                _ => LabelError::ApiRejected(e.to_string()),
+            })?;
 
         let content = response
             .choices
@@ -538,6 +564,32 @@ impl GenericLlmLabeler {
     }
 }
 
+impl GenericLlmLabeler {
+    fn request_labels(
+        &self,
+        rt: &tokio::runtime::Handle,
+        path: &Path,
+        mime_type: &str,
+    ) -> Result<HashMap<String, f32>, LabelError> {
+        let image_base64 = self.encode_image_to_base64(path, self.max_pixels)?;
+        match rt.block_on(self.call_api(&image_base64, mime_type)) {
+            Err(LabelError::ApiRejected(first)) => {
+                let reduced = (self.max_pixels / LLM_RETRY_PIXEL_DIVISOR).max(1);
+                warn!(
+                    "LLM labeler '{}' rejected {} ({}), retrying within {} pixels",
+                    self.name,
+                    path.display(),
+                    first,
+                    reduced
+                );
+                let image_base64 = self.encode_image_to_base64(path, reduced)?;
+                rt.block_on(self.call_api(&image_base64, mime_type))
+            }
+            other => other,
+        }
+    }
+}
+
 impl MediaLabeler for GenericLlmLabeler {
     fn name(&self) -> &str {
         &self.name
@@ -552,10 +604,8 @@ impl MediaLabeler for GenericLlmLabeler {
     }
 
     fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
-        let image_base64 = self.encode_image_to_base64(path)?;
-
         let rt = tokio::runtime::Handle::current();
-        let labels = rt.block_on(self.call_api(&image_base64, mime_type))?;
+        let labels = self.request_labels(&rt, path, mime_type)?;
 
         let filtered: HashMap<String, f32> = labels
             .into_iter()
@@ -899,6 +949,34 @@ mod tests {
 
     fn test_models_dir() -> PathBuf {
         std::env::temp_dir().join("route96_test_models")
+    }
+
+    #[test]
+    fn test_llm_target_size_caps_pixels_and_height() {
+        assert_eq!(
+            llm_target_size(800, 600, DEFAULT_LLM_MAX_PIXELS),
+            (800, 600)
+        );
+        assert_eq!(
+            llm_target_size(1000, 2000, DEFAULT_LLM_MAX_PIXELS),
+            (512, 1024)
+        );
+        for (w, h) in [
+            (2163u32, 1024u32),
+            (2527, 1024),
+            (2688, 1024),
+            (1500, 1500),
+            (4000, 3000),
+            (9000, 600),
+        ] {
+            let (ow, oh) = llm_target_size(w, h, DEFAULT_LLM_MAX_PIXELS);
+            assert!(
+                ow as u64 * oh as u64 <= DEFAULT_LLM_MAX_PIXELS,
+                "{w}x{h} -> {ow}x{oh}"
+            );
+            assert!(oh <= LLM_MAX_HEIGHT, "{w}x{h} -> {ow}x{oh}");
+            assert!(ow % 2 == 0 && oh % 2 == 0 && ow >= 2 && oh >= 2);
+        }
     }
 
     #[test]

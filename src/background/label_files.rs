@@ -148,6 +148,7 @@ impl LabelFiles {
                 model,
                 api_key,
                 prompt,
+                max_image_pixels,
             } => {
                 if model.is_empty() {
                     error!("GenericLlm labeler '{}' requires a model name", cfg.name);
@@ -162,6 +163,7 @@ impl LabelFiles {
                     cfg.label_exclude.clone(),
                     cfg.min_confidence,
                     cfg.name.clone(),
+                    *max_image_pixels,
                 ) {
                     Ok(l) => Some(Box::new(l)),
                     Err(e) => {
