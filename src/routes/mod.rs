@@ -326,6 +326,13 @@ pub async fn get_props(
 const MAX_UNBOUNDED_RANGE: u64 = 8 * 1024 * 1024;
 /// Chunk size for streaming file responses (64 KiB)
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+const INLINE_BODY_MAX: u64 = 256 * 1024;
+
+fn inline_response(bytes: Vec<u8>, info: &FileUpload) -> Response {
+    let mut response = Response::new(Body::from(bytes));
+    set_file_headers(&mut response, info);
+    response
+}
 
 /// Set common headers for file responses
 fn set_file_headers(response: &mut Response, info: &FileUpload) {
@@ -543,7 +550,7 @@ pub async fn get_blob(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let info = match state.db.get_file(&id).await {
+    let info = match state.db.get_file_cached(&id).await {
         Ok(Some(info)) => info,
         _ => return Err(StatusCode::NOT_FOUND),
     };
@@ -583,7 +590,13 @@ pub async fn get_blob(
     // Record full-file access stats.
     state.file_stats.record(&id, info.size, Utc::now());
 
-    // Full file response
+    if info.size <= INLINE_BODY_MAX {
+        let bytes = tokio::fs::read(&file_path)
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        return Ok(inline_response(bytes, &info));
+    }
+
     let file = File::open(&file_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
@@ -638,7 +651,7 @@ pub async fn head_blob(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let info = match state.db.get_file(&id).await {
+    let info = match state.db.get_file_cached(&id).await {
         Ok(Some(info)) => info,
         _ => return Err(StatusCode::NOT_FOUND),
     };
@@ -779,6 +792,22 @@ pub async fn get_blob_thumb(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn inline_response_sets_headers_and_body() {
+        let info = FileUpload {
+            size: 5,
+            mime_type: "text/plain".to_string(),
+            ..Default::default()
+        };
+        let response = inline_response(b"hello".to_vec(), &info);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
+        assert_eq!(response.headers()[header::ACCEPT_RANGES], "bytes");
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"hello");
+    }
+
     use super::*;
 
     #[test]

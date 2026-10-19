@@ -1,9 +1,12 @@
 use crate::file_stats::{FileStatSnapshot, FileStats};
 use crate::filesystem::NewFileResult;
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
 use sqlx::{Error, Executor, FromRow, QueryBuilder, Row};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Column to sort files by.
 #[derive(Deserialize, Default)]
@@ -216,12 +219,50 @@ pub struct LabelModel {
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
+    file_cache: Arc<DashMap<Vec<u8>, (Instant, Option<FileUpload>)>>,
 }
+
+const FILE_CACHE_TTL: Duration = Duration::from_secs(30);
+const FILE_CACHE_MISS_TTL: Duration = Duration::from_secs(5);
+const FILE_CACHE_MAX_ENTRIES: usize = 50_000;
 
 impl Database {
     pub async fn new(conn: &str) -> Result<Self, Error> {
         let db = sqlx::mysql::MySqlPool::connect(conn).await?;
-        Ok(Self { pool: db })
+        Ok(Self::from_pool(db))
+    }
+
+    pub fn from_pool(pool: sqlx::pool::Pool<sqlx::mysql::MySql>) -> Self {
+        Self {
+            pool,
+            file_cache: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub async fn get_file_cached(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
+        if let Some(entry) = self.file_cache.get(file) {
+            let ttl = if entry.1.is_some() {
+                FILE_CACHE_TTL
+            } else {
+                FILE_CACHE_MISS_TTL
+            };
+            if entry.0.elapsed() < ttl {
+                return Ok(entry.1.clone());
+            }
+        }
+        let found = self.get_file(file).await?;
+        if self.file_cache.len() >= FILE_CACHE_MAX_ENTRIES {
+            self.file_cache.clear();
+        }
+        self.file_cache
+            .insert(file.clone(), (Instant::now(), found.clone()));
+        Ok(found)
+    }
+
+    pub(crate) fn forget_files<'a>(&self, ids: impl IntoIterator<Item = &'a [u8]>) {
+        for id in ids {
+            self.file_cache.remove(id);
+        }
     }
 
     pub async fn migrate(&self) -> Result<(), MigrateError> {
@@ -368,6 +409,7 @@ impl Database {
     }
 
     pub async fn add_file(&self, file: &FileUpload, user_id: Option<u64>) -> Result<(), Error> {
+        self.forget_files([file.id.as_slice()]);
         let mut tx = self.pool.begin().await?;
         let q = sqlx::query("insert ignore into \
         uploads(id,name,size,mime_type,blur_hash,width,height,alt,created,duration,bitrate,review_state,banned) values(?,?,?,?,?,?,?,?,?,?,?,?,?)")
@@ -420,6 +462,7 @@ impl Database {
         }
 
         tx.commit().await?;
+        self.forget_files([file.id.as_slice()]);
         Ok(())
     }
 
@@ -604,10 +647,12 @@ impl Database {
     }
 
     pub async fn delete_file(&self, file: &Vec<u8>) -> Result<(), Error> {
+        self.forget_files([file.as_slice()]);
         sqlx::query("delete from uploads where id = ?")
             .bind(file)
             .execute(&self.pool)
             .await?;
+        self.forget_files([file.as_slice()]);
         // Clean up auxiliary rows that reference the file (FK cascades cover
         // reports and phash, but be explicit for tables without cascades).
         for q in [
@@ -634,6 +679,7 @@ impl Database {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
+        self.forget_files([file]);
         Ok(())
     }
 
@@ -927,6 +973,7 @@ impl Database {
         .await?;
 
         tx.commit().await?;
+        self.file_cache.clear();
 
         Ok(ids.into_iter().map(|(id,)| id).collect())
     }
@@ -1129,6 +1176,7 @@ impl Database {
             .bind(file_id)
             .execute(&self.pool)
             .await?;
+        self.forget_files([file_id]);
         Ok(())
     }
 
@@ -1150,6 +1198,7 @@ impl Database {
         }
         sep.push_unseparated(")");
         qb.build().execute(&self.pool).await?;
+        self.forget_files(file_ids.iter().map(|id| id.as_slice()));
         Ok(())
     }
 
@@ -1179,6 +1228,7 @@ impl Database {
         qb.build().execute(&mut *tx).await?;
 
         tx.commit().await?;
+        self.forget_files(file_ids.iter().map(|id| id.as_slice()));
         Ok(())
     }
 
@@ -1941,5 +1991,65 @@ mod tests {
     #[test]
     fn test_review_state_default_is_none() {
         assert_eq!(ReviewState::default(), ReviewState::None);
+    }
+}
+
+#[cfg(test)]
+mod file_cache_tests {
+    use super::*;
+
+    fn offline_db() -> Database {
+        Database::from_pool(
+            sqlx::mysql::MySqlPoolOptions::new()
+                .acquire_timeout(Duration::from_millis(200))
+                .connect_lazy("mysql://nobody:nothing@127.0.0.1:1/none")
+                .unwrap(),
+        )
+    }
+
+    fn upload(id: u8) -> FileUpload {
+        FileUpload {
+            id: vec![id; 32],
+            size: 7,
+            mime_type: "text/plain".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_hit_skips_database() {
+        let db = offline_db();
+        let f = upload(1);
+        db.file_cache
+            .insert(f.id.clone(), (Instant::now(), Some(f.clone())));
+        let got = db.get_file_cached(&f.id).await.unwrap().unwrap();
+        assert_eq!(got.size, 7);
+    }
+
+    #[tokio::test]
+    async fn cached_miss_skips_database() {
+        let db = offline_db();
+        let id = vec![2u8; 32];
+        db.file_cache.insert(id.clone(), (Instant::now(), None));
+        assert!(db.get_file_cached(&id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn expired_entry_goes_to_database() {
+        let db = offline_db();
+        let f = upload(3);
+        let old = Instant::now() - FILE_CACHE_TTL - Duration::from_secs(1);
+        db.file_cache.insert(f.id.clone(), (old, Some(f.clone())));
+        assert!(db.get_file_cached(&f.id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn forget_files_evicts_entries() {
+        let db = offline_db();
+        let f = upload(4);
+        db.file_cache
+            .insert(f.id.clone(), (Instant::now(), Some(f.clone())));
+        db.forget_files([f.id.as_slice()]);
+        assert!(db.get_file_cached(&f.id).await.is_err());
     }
 }

@@ -485,7 +485,7 @@ mod expected_hash_tests {
             .acquire_timeout(std::time::Duration::from_millis(50))
             .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
             .unwrap();
-        (FileStore::new(settings), Database { pool })
+        (FileStore::new(settings), Database::from_pool(pool))
     }
 
     #[tokio::test]

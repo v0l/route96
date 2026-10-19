@@ -218,6 +218,9 @@ async fn main() -> Result<(), Error> {
     // graceful-drain mode: it stops accepting new connections and waits for
     // existing ones to close.  We give that drain up to 5 s; after that we
     // abandon any lingering keep-alive connections.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     let serve =
         axum::serve(listener, app).with_graceful_shutdown(shutdown.clone().cancelled_owned());
 

@@ -100,6 +100,7 @@ impl Database {
             .bind(id)
             .execute(&self.pool)
             .await?;
+        self.forget_files([id.as_slice()]);
         Ok(())
     }
 }

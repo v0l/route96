@@ -1290,7 +1290,7 @@ mod tests {
             .acquire_timeout(std::time::Duration::from_millis(50))
             .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
             .unwrap();
-        let db = Database { pool };
+        let db = Database::from_pool(pool);
         let state = Arc::new(AppState {
             fs: FileStore::new(settings.clone()),
             db,
