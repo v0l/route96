@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -243,8 +243,11 @@ impl FileStore {
             tokio::fs::remove_file(&res.path).await?;
             Ok(FileSystemResult::AlreadyExists(res.id))
         } else {
-            tokio::fs::create_dir_all(final_dest.parent().unwrap()).await?;
-            tokio::fs::rename(&res.path, &final_dest).await?;
+            let parent = final_dest.parent().unwrap();
+            if tokio::fs::rename(&res.path, &final_dest).await.is_err() {
+                tokio::fs::create_dir_all(parent).await?;
+                tokio::fs::rename(&res.path, &final_dest).await?;
+            }
 
             res.path = final_dest;
 
@@ -406,13 +409,30 @@ impl FileStore {
     {
         let uid = Uuid::new_v4();
         let out_path = self.temp_dir().join(uid.to_string());
-        tokio::fs::create_dir_all(&out_path.parent().unwrap()).await?;
 
-        let mut file = File::create(&out_path).await?;
-        let n = tokio::io::copy(&mut stream, &mut file).await?;
+        let mut file = match File::create(&out_path).await {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tokio::fs::create_dir_all(self.temp_dir()).await?;
+                File::create(&out_path).await?
+            }
+            Err(e) => return Err(e.into()),
+        };
 
-        let hash = FileStore::hash_file(&out_path).await?;
-        Ok((out_path, n, hash))
+        let mut hasher = Sha256::new();
+        let mut total = 0u64;
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = stream.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            file.write_all(&buf[..n]).await?;
+            total += n as u64;
+        }
+        file.flush().await?;
+        Ok((out_path, total, hasher.finalize().to_vec()))
     }
 
     pub async fn hash_file(p: &Path) -> Result<Vec<u8>, Error> {
@@ -486,6 +506,40 @@ mod expected_hash_tests {
             .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
             .unwrap();
         (FileStore::new(settings), Database::from_pool(pool))
+    }
+
+    #[tokio::test]
+    async fn streaming_store_hashes_and_counts_in_one_pass() {
+        let temp = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store(temp.path());
+        let content = vec![7u8; 1000];
+
+        let (path, size, hash) = store
+            .store_hash_temp_file(std::io::Cursor::new(content.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(size, 1000);
+        assert_eq!(hash, Sha256::digest(&content).to_vec());
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), content);
+        assert_eq!(path.parent().unwrap(), store.temp_dir());
+    }
+
+    #[tokio::test]
+    async fn streaming_store_creates_the_temp_dir_when_it_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store(temp.path());
+        assert!(!store.temp_dir().exists());
+        let (path, size, _) = store
+            .store_hash_temp_file(std::io::Cursor::new(vec![1u8; 10]))
+            .await
+            .unwrap();
+        assert!(path.exists());
+        assert_eq!(size, 10);
+        store
+            .store_hash_temp_file(std::io::Cursor::new(vec![2u8; 10]))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

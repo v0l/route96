@@ -1,11 +1,13 @@
 use crate::file_stats::{FileStatSnapshot, FileStats};
 use crate::filesystem::NewFileResult;
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateError;
 use sqlx::{Error, Executor, FromRow, QueryBuilder, Row};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Column to sort files by.
@@ -220,15 +222,25 @@ pub struct LabelModel {
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
     file_cache: Arc<DashMap<Vec<u8>, (Instant, Option<FileUpload>)>>,
+    body_cache: Arc<DashMap<Vec<u8>, (Instant, Bytes)>>,
+    body_cache_bytes: Arc<AtomicUsize>,
+    user_ids: Arc<DashMap<Vec<u8>, u64>>,
 }
 
 const FILE_CACHE_TTL: Duration = Duration::from_secs(30);
 const FILE_CACHE_MISS_TTL: Duration = Duration::from_secs(5);
 const FILE_CACHE_MAX_ENTRIES: usize = 50_000;
+pub const BODY_CACHE_MAX_BLOB: usize = 256 * 1024;
+const BODY_CACHE_MAX_BYTES: usize = 128 * 1024 * 1024;
+const USER_ID_CACHE_MAX_ENTRIES: usize = 100_000;
+const DB_POOL_SIZE: u32 = 32;
 
 impl Database {
     pub async fn new(conn: &str) -> Result<Self, Error> {
-        let db = sqlx::mysql::MySqlPool::connect(conn).await?;
+        let db = sqlx::mysql::MySqlPoolOptions::new()
+            .max_connections(DB_POOL_SIZE)
+            .connect(conn)
+            .await?;
         Ok(Self::from_pool(db))
     }
 
@@ -236,7 +248,38 @@ impl Database {
         Self {
             pool,
             file_cache: Arc::new(DashMap::new()),
+            body_cache: Arc::new(DashMap::new()),
+            body_cache_bytes: Arc::new(AtomicUsize::new(0)),
+            user_ids: Arc::new(DashMap::new()),
         }
+    }
+
+    pub fn cached_body(&self, file: &[u8]) -> Option<Bytes> {
+        let entry = self.body_cache.get(file)?;
+        if entry.0.elapsed() < FILE_CACHE_TTL {
+            Some(entry.1.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn remember_body(&self, file: &[u8], body: Bytes) {
+        if body.len() > BODY_CACHE_MAX_BLOB {
+            return;
+        }
+        let added = body.len();
+        if self.body_cache_bytes.load(Ordering::Relaxed) + added > BODY_CACHE_MAX_BYTES {
+            self.body_cache.clear();
+            self.body_cache_bytes.store(0, Ordering::Relaxed);
+        }
+        if let Some(old) = self
+            .body_cache
+            .insert(file.to_vec(), (Instant::now(), body))
+        {
+            self.body_cache_bytes
+                .fetch_sub(old.1.len(), Ordering::Relaxed);
+        }
+        self.body_cache_bytes.fetch_add(added, Ordering::Relaxed);
     }
 
     pub async fn get_file_cached(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
@@ -262,6 +305,10 @@ impl Database {
     pub(crate) fn forget_files<'a>(&self, ids: impl IntoIterator<Item = &'a [u8]>) {
         for id in ids {
             self.file_cache.remove(id);
+            if let Some((_, old)) = self.body_cache.remove(id) {
+                self.body_cache_bytes
+                    .fetch_sub(old.1.len(), Ordering::Relaxed);
+            }
         }
     }
 
@@ -270,6 +317,18 @@ impl Database {
     }
 
     pub async fn upsert_user(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
+        if let Some(id) = self.user_ids.get(pubkey) {
+            return Ok(*id);
+        }
+        let id = self.upsert_user_uncached(pubkey).await?;
+        if self.user_ids.len() >= USER_ID_CACHE_MAX_ENTRIES {
+            self.user_ids.clear();
+        }
+        self.user_ids.insert(pubkey.clone(), id);
+        Ok(id)
+    }
+
+    async fn upsert_user_uncached(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
         let res = sqlx::query("insert ignore into users(pubkey) values(?) returning id")
             .bind(pubkey)
             .fetch_optional(&self.pool)
@@ -2041,6 +2100,78 @@ mod file_cache_tests {
         let old = Instant::now() - FILE_CACHE_TTL - Duration::from_secs(1);
         db.file_cache.insert(f.id.clone(), (old, Some(f.clone())));
         assert!(db.get_file_cached(&f.id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn body_cache_returns_the_bytes_it_was_given() {
+        let db = offline_db();
+        db.remember_body(&[5u8; 32], Bytes::from_static(b"hello"));
+        assert_eq!(
+            db.cached_body(&[5u8; 32]).unwrap(),
+            Bytes::from_static(b"hello")
+        );
+        assert!(db.cached_body(&[6u8; 32]).is_none());
+    }
+
+    #[tokio::test]
+    async fn expired_body_is_not_served() {
+        let db = offline_db();
+        let old = Instant::now() - FILE_CACHE_TTL - Duration::from_secs(1);
+        db.body_cache
+            .insert(vec![7u8; 32], (old, Bytes::from_static(b"stale")));
+        assert!(db.cached_body(&[7u8; 32]).is_none());
+    }
+
+    #[tokio::test]
+    async fn forgetting_a_file_drops_its_body_and_its_byte_count() {
+        let db = offline_db();
+        db.remember_body(&[8u8; 32], Bytes::from(vec![0u8; 1000]));
+        assert_eq!(db.body_cache_bytes.load(Ordering::Relaxed), 1000);
+        db.forget_files([[8u8; 32].as_slice()]);
+        assert!(db.cached_body(&[8u8; 32]).is_none());
+        assert_eq!(db.body_cache_bytes.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn replacing_a_body_does_not_double_count_it() {
+        let db = offline_db();
+        db.remember_body(&[9u8; 32], Bytes::from(vec![0u8; 400]));
+        db.remember_body(&[9u8; 32], Bytes::from(vec![0u8; 300]));
+        assert_eq!(db.body_cache_bytes.load(Ordering::Relaxed), 300);
+    }
+
+    #[tokio::test]
+    async fn blobs_over_the_limit_are_not_cached() {
+        let db = offline_db();
+        db.remember_body(&[1u8; 32], Bytes::from(vec![0u8; BODY_CACHE_MAX_BLOB + 1]));
+        assert!(db.cached_body(&[1u8; 32]).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_body_cache_is_cleared_instead_of_growing_past_its_budget() {
+        let db = offline_db();
+        let chunk = BODY_CACHE_MAX_BLOB;
+        let count = BODY_CACHE_MAX_BYTES / chunk + 2;
+        for i in 0..count {
+            let mut id = vec![0u8; 32];
+            id[..8].copy_from_slice(&(i as u64).to_be_bytes());
+            db.remember_body(&id, Bytes::from(vec![0u8; chunk]));
+        }
+        assert!(db.body_cache_bytes.load(Ordering::Relaxed) <= BODY_CACHE_MAX_BYTES);
+    }
+
+    #[tokio::test]
+    async fn a_known_user_id_skips_the_database() {
+        let db = offline_db();
+        db.user_ids.insert(vec![3u8; 32], 42);
+        assert_eq!(db.upsert_user(&vec![3u8; 32]).await.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_user_goes_to_the_database_and_is_not_cached_on_error() {
+        let db = offline_db();
+        assert!(db.upsert_user(&vec![4u8; 32]).await.is_err());
+        assert!(db.user_ids.get(&vec![4u8; 32]).is_none());
     }
 
     #[tokio::test]

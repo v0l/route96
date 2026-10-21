@@ -18,10 +18,11 @@ use anyhow::{Error, Result};
 use axum::{
     body::Body,
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Json, Response},
 };
 use axum_extra::response::file_stream::FileStream;
+use bytes::Bytes;
 use chrono::Utc;
 use http_range_header::{EndPosition, StartPosition, parse_range_header};
 use log::warn;
@@ -328,8 +329,8 @@ const MAX_UNBOUNDED_RANGE: u64 = 8 * 1024 * 1024;
 const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 const INLINE_BODY_MAX: u64 = 256 * 1024;
 
-fn inline_response(bytes: Vec<u8>, info: &FileUpload) -> Response {
-    let mut response = Response::new(Body::from(bytes));
+fn inline_response(bytes: impl Into<Body>, info: &FileUpload) -> Response {
+    let mut response = Response::new(bytes.into());
     set_file_headers(&mut response, info);
     response
 }
@@ -344,11 +345,11 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        "max-age=31536000, immutable".parse().unwrap(),
+        HeaderValue::from_static("max-age=31536000, immutable"),
     );
     response
         .headers_mut()
-        .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+        .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     if let Some(name) = &info.name {
         // Sanitize the filename: strip characters that could break out of the
         // quoted-string (", \, CR, LF and other control chars).
@@ -591,9 +592,17 @@ pub async fn get_blob(
     state.file_stats.record(&id, info.size, Utc::now());
 
     if info.size <= INLINE_BODY_MAX {
-        let bytes = tokio::fs::read(&file_path)
-            .await
-            .map_err(|_| StatusCode::NOT_FOUND)?;
+        if let Some(bytes) = state.db.cached_body(&id) {
+            return Ok(inline_response(bytes, &info));
+        }
+        let bytes = Bytes::from(
+            tokio::fs::read(&file_path)
+                .await
+                .map_err(|_| StatusCode::NOT_FOUND)?,
+        );
+        if bytes.len() as u64 == info.size {
+            state.db.remember_body(&id, bytes.clone());
+        }
         return Ok(inline_response(bytes, &info));
     }
 

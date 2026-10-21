@@ -53,6 +53,7 @@ notify = "8.2"
 kamadak-exif = "0.6"
 http-range-header = "0.4"
 dashmap = "6"
+bytes = "1"
 
 image = { version = "0.25", default-features = false, features = ["webp", "jpeg"] }
 image_hasher = "3"

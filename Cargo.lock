@@ -3949,6 +3949,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64",
+ "bytes",
  "candle-core",
  "candle-nn",
  "candle-transformers",
