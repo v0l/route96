@@ -26,6 +26,7 @@ def read_manifest(data_dir):
         return [
             (r["sha256"], LABELS.index(overrides.get(r["sha256"], r["label"])), r["kind"])
             for r in csv.DictReader(f)
+            if r["kind"] != "suspect" or r["sha256"] in overrides
         ]
 
 

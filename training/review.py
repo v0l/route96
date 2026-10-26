@@ -86,7 +86,7 @@ class Frame(wx.Frame):
         top = wx.Panel(self)
         self.filter = wx.Choice(
             top,
-            choices=["positive (nsfw)", "hard_negative", "normal", "changed by me", "all"],
+            choices=["suspect (model says nsfw)", "positive (nsfw)", "hard_negative", "normal", "changed by me", "all"],
         )
         self.filter.SetSelection(0)
         self.filter.Bind(wx.EVT_CHOICE, lambda e: self.reset())
@@ -123,10 +123,10 @@ class Frame(wx.Frame):
 
     def select_rows(self):
         choice = self.filter.GetSelection()
-        kinds = {0: "positive", 1: "hard_negative", 2: "normal"}
+        kinds = {0: "suspect", 1: "positive", 2: "hard_negative", 3: "normal"}
         if choice in kinds:
             return [r for r in self.rows if r["kind"] == kinds[choice]]
-        if choice == 3:
+        if choice == 4:
             return [r for r in self.rows if r["sha256"] in self.overrides]
         return self.rows
 

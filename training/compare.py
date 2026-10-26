@@ -12,7 +12,7 @@ from train import best_threshold, hard_negative_fpr, metrics, read_manifest, spl
 
 NSFW_LABELS = {
     "nsfw", "porn", "pornography", "hentai", "sexy", "enticingorsensual",
-    "explicit", "sexual", "suggestive", "unsafe", "low", "medium", "high",
+    "explicit", "sexual", "suggestive", "unsafe", "questionable", "low", "medium", "high",
 }
 STRICT_LABELS = {
     "nsfw", "porn", "pornography", "hentai", "explicit", "sexual", "unsafe",
