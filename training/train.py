@@ -23,11 +23,24 @@ def read_overrides(data_dir):
 def read_manifest(data_dir):
     overrides = read_overrides(data_dir)
     with open(data_dir / "manifest.csv") as f:
-        return [
-            (r["sha256"], LABELS.index(overrides.get(r["sha256"], r["label"])), r["kind"])
-            for r in csv.DictReader(f)
-            if r["kind"] != "suspect" or r["sha256"] in overrides
-        ]
+        rows = []
+        for r in csv.DictReader(f):
+            label = overrides.get(r["sha256"], r["label"])
+            kind = r["kind"]
+            if kind == "suspect":
+                kind = "positive" if label == "nsfw" else "normal"
+            rows.append((r["sha256"], LABELS.index(label), kind))
+        return rows
+
+
+def split_by_shas(rows, val_shas):
+    return [r for r in rows if r[0] not in val_shas], [r for r in rows if r[0] in val_shas]
+
+
+def val_shas_from(manifest_path, val_fraction, seed):
+    with open(manifest_path) as f:
+        rows = [(r["sha256"], LABELS.index(r["label"]), r["kind"]) for r in csv.DictReader(f)]
+    return {r[0] for r in split(rows, val_fraction, seed)[1]}
 
 
 def split(rows, val_fraction, seed):
@@ -124,6 +137,7 @@ def main():
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--val-fraction", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--val-from")
     p.add_argument("--workers", type=int, default=8)
     args = p.parse_args()
 
@@ -137,7 +151,12 @@ def main():
     assert [id2label[i] for i in range(len(LABELS))] == LABELS, id2label
 
     train_tf, eval_tf = train_transform, eval_transform
-    train_rows, val_rows = split(read_manifest(data_dir), args.val_fraction, args.seed)
+    rows = read_manifest(data_dir)
+    if args.val_from:
+        val_shas = val_shas_from(args.val_from, args.val_fraction, args.seed)
+        train_rows, val_rows = split_by_shas(rows, val_shas)
+    else:
+        train_rows, val_rows = split(rows, args.val_fraction, args.seed)
     print(f"train {len(train_rows)} val {len(val_rows)}")
 
     counts = [sum(1 for r in train_rows if r[1] == c) for c in range(len(LABELS))]

@@ -8,7 +8,15 @@ from torch.utils.data import DataLoader, Dataset
 from huggingface_hub import hf_hub_download
 from transformers import AutoModelForImageClassification
 
-from train import best_threshold, hard_negative_fpr, metrics, read_manifest, split
+from train import (
+    best_threshold,
+    hard_negative_fpr,
+    metrics,
+    read_manifest,
+    split,
+    split_by_shas,
+    val_shas_from,
+)
 
 NSFW_LABELS = {
     "nsfw", "porn", "pornography", "hentai", "sexy", "enticingorsensual",
@@ -128,12 +136,18 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--all", action="store_true")
+    p.add_argument("--val-from")
     p.add_argument("--out", default="compare.json")
     args = p.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     rows = read_manifest(Path(args.data))
-    val_rows = rows if args.all else split(rows, args.val_fraction, args.seed)[1]
+    if args.all:
+        val_rows = rows
+    elif args.val_from:
+        val_rows = split_by_shas(rows, val_shas_from(args.val_from, args.val_fraction, args.seed))[1]
+    else:
+        val_rows = split(rows, args.val_fraction, args.seed)[1]
     results = {}
     for name in args.models:
         try:
