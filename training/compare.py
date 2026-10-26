@@ -6,12 +6,18 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from huggingface_hub import hf_hub_download
-from transformers import ViTForImageClassification
+from transformers import AutoModelForImageClassification
 
-from train import best_threshold, metrics, read_manifest, split
+from train import best_threshold, hard_negative_fpr, metrics, read_manifest, split
 
-NSFW_LABELS = {"nsfw", "porn", "hentai", "sexy", "explicit", "unsafe"}
-STRICT_LABELS = {"nsfw", "porn", "hentai", "explicit", "unsafe"}
+NSFW_LABELS = {
+    "nsfw", "porn", "pornography", "hentai", "sexy", "enticingorsensual",
+    "explicit", "sexual", "suggestive", "unsafe", "low", "medium", "high",
+}
+STRICT_LABELS = {
+    "nsfw", "porn", "pornography", "hentai", "explicit", "sexual", "unsafe",
+    "medium", "high",
+}
 
 DEFAULT_MODELS = [
     "out/model",
@@ -20,7 +26,9 @@ DEFAULT_MODELS = [
     "giacomoarienti/nsfw-classifier",
     "LukeJacob2023/nsfw-image-detector",
     "AdamCodd/vit-base-nsfw-detector",
-    "hakl36/vit-base-nsfw-detector",
+    "Parveshiiii/SafeScan",
+    "carbon225/vit-base-patch16-224-hentai",
+    "JanadaSroor/vit-nsfw-classifier",
 ]
 
 
@@ -36,7 +44,7 @@ class Images(Dataset):
         return len(self.rows)
 
     def __getitem__(self, i):
-        sha, label = self.rows[i]
+        sha, label, _ = self.rows[i]
         img = Image.open(self.dir / f"{sha}.jpg").convert("RGB").resize(
             (self.size, self.size), Image.BILINEAR
         )
@@ -45,11 +53,26 @@ class Images(Dataset):
         return (arr - self.mean) / self.std, label
 
 
-def normalization(name):
-    if Path(name).exists():
-        return [0.5] * 3, [0.5] * 3
-    cfg = json.load(open(hf_hub_download(name, "preprocessor_config.json")))
-    return cfg["image_mean"], cfg["image_std"]
+def load(name):
+    if name.startswith("Marqo/"):
+        import timm
+
+        model = timm.create_model(f"hf-hub:{name}", pretrained=True).eval()
+        cfg = model.pretrained_cfg
+        labels = {i: l.lower() for i, l in enumerate(cfg["label_names"])}
+        return model, lambda x: model(x), cfg["input_size"][1], cfg["mean"], cfg["std"], labels
+    model = AutoModelForImageClassification.from_pretrained(name).eval()
+    labels = {int(k): v.lower() for k, v in model.config.id2label.items()}
+    if hasattr(model, "timm_model"):
+        cfg = model.timm_model.pretrained_cfg
+        size, mean, std = cfg["input_size"][1], cfg["mean"], cfg["std"]
+    elif Path(name).exists():
+        size, mean, std = model.config.image_size, [0.5] * 3, [0.5] * 3
+    else:
+        pre = json.load(open(hf_hub_download(name, "preprocessor_config.json")))
+        size = pre["size"] if isinstance(pre["size"], int) else pre["size"].get("height", model.config.image_size)
+        mean, std = pre["image_mean"], pre["image_std"]
+    return model, lambda x: model(pixel_values=x).logits, size, mean, std, labels
 
 
 def average_precision(probs, labels):
@@ -61,13 +84,11 @@ def average_precision(probs, labels):
 
 @torch.no_grad()
 def score(name, args, rows, device):
-    model = ViTForImageClassification.from_pretrained(name).to(device).eval()
-    mean, std = normalization(name)
-    size = model.config.image_size
-    id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
+    model, forward, size, mean, std, id2label = load(name)
+    model = model.to(device)
     loader = DataLoader(
         Images(Path(args.data), rows, size, mean, std),
-        batch_size=64,
+        batch_size=32,
         num_workers=args.workers,
     )
     variants = {"nsfw": NSFW_LABELS, "strict": STRICT_LABELS}
@@ -77,11 +98,12 @@ def score(name, args, rows, device):
     out = {k: [] for k in variants}
     labels = []
     for x, y in loader:
-        p = torch.softmax(model(pixel_values=x.to(device)).logits.float(), -1).cpu()
+        p = torch.softmax(forward(x.to(device)).float(), -1).cpu()
         for k, idx in picked.items():
             out[k].append(p[:, idx].sum(-1))
         labels.append(y)
     labels = torch.cat(labels)
+    kinds = [r[2] for r in rows]
     result = {"image_size": size, "classes": list(id2label.values())}
     for k, v in out.items():
         probs = torch.cat(v)
@@ -91,6 +113,7 @@ def score(name, args, rows, device):
             "at_0.5": metrics(probs, labels),
             "best_threshold": t,
             "at_best": metrics(probs, labels, t),
+            "hard_negative_fpr_at_0.5": hard_negative_fpr(probs, kinds),
         }
     del model
     torch.cuda.empty_cache()
@@ -122,7 +145,7 @@ def main():
             m = r[k]
             print(
                 f"  {k:6} AP {m['ap']:.3f}  @0.5 P {m['at_0.5']['precision']:.3f} R {m['at_0.5']['recall']:.3f} F1 {m['at_0.5']['f1']:.3f}"
-                f"  best t={m['best_threshold']} F1 {m['at_best']['f1']:.3f}"
+                f"  best t={m['best_threshold']} F1 {m['at_best']['f1']:.3f}  hardneg FPR {m['hard_negative_fpr_at_0.5']}"
             )
     Path(args.out).write_text(json.dumps(results, indent=2))
 

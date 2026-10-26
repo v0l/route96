@@ -2,6 +2,7 @@ import argparse
 import csv
 import io
 import os
+import random
 import re
 import subprocess
 import tarfile
@@ -13,13 +14,15 @@ NSFW_PATTERN = re.compile(r"nsfw|nipple|brassiere|nude|topless|breast", re.I)
 BENIGN_PATTERN = re.compile(
     r"clamp|pump|feeding|cancer|piercing|jewelry|pasties|chicken|turkey|stroke|plate", re.I
 )
-IMAGE_MIMES = ("image/jpeg", "image/png", "image/webp")
+SCREENSHOT_PATTERN = re.compile(r"screenshot|user interface|^ui$|website|chat|app interface|document|meme", re.I)
 
 QUERY = """
-select hex(u.id), u.mime_type, coalesce(group_concat(l.label separator '|'), '')
+select hex(u.id), u.mime_type, coalesce(group_concat(distinct l.label separator '|'), ''),
+       count(distinct n.file) > 0
 from uploads u
 join upload_labeled_by b on b.file = u.id and b.model = '{model}'
 left join upload_labels l on l.file = u.id and l.model = '{model}'
+left join upload_labels n on n.file = u.id and n.model = '{baseline}' and n.label = 'nsfw'
 where u.mime_type in ('image/jpeg', 'image/png', 'image/webp')
 group by u.id, u.mime_type
 """
@@ -56,11 +59,11 @@ def fetch_rows(args):
         "-N",
         "-B",
         "-e",
-        QUERY.format(model=args.model),
+        QUERY.format(model=args.model, baseline=args.baseline),
     )
     for line in out.decode().splitlines():
-        sha, mime, labels = line.split("\t")
-        yield sha.lower(), mime, [l for l in labels.split("|") if l]
+        sha, mime, labels, baseline_flagged = line.split("\t")
+        yield sha.lower(), mime, [l for l in labels.split("|") if l], baseline_flagged == "1"
 
 
 def blob_path(sha):
@@ -108,6 +111,7 @@ def main():
     p.add_argument("--db-deploy", default="mysql")
     p.add_argument("--db-password", default=os.environ.get("DB_PASSWORD"), required=not os.environ.get("DB_PASSWORD"))
     p.add_argument("--model", default="qwen3.5")
+    p.add_argument("--baseline", default="nsfw")
     p.add_argument("--storage-dir", default="/data")
     p.add_argument("--short-side", type=int, default=288)
     p.add_argument("--batch", type=int, default=200)
@@ -120,15 +124,20 @@ def main():
 
     rows = []
     skipped = 0
-    for sha, mime, labels in fetch_rows(args):
+    for sha, mime, labels, baseline_flagged in fetch_rows(args):
         label = classify(labels)
         if label is None:
             skipped += 1
             continue
-        rows.append((sha, label, mime, "|".join(labels)))
+        kind = "positive"
+        if label == "normal":
+            hard = baseline_flagged or any(SCREENSHOT_PATTERN.search(l) for l in labels)
+            kind = "hard_negative" if hard else "normal"
+        rows.append((sha, label, kind, mime, "|".join(labels)))
     if args.max_normal:
-        normals = [r for r in rows if r[1] == "normal"][: args.max_normal]
-        rows = [r for r in rows if r[1] == "nsfw"] + normals
+        random.Random(0).shuffle(rows)
+        plain = [r for r in rows if r[2] == "normal"][: args.max_normal]
+        rows = [r for r in rows if r[2] != "normal"] + plain
     print(f"{len(rows)} files, {skipped} ambiguous skipped")
 
     todo = [r for r in rows if not (img_dir / f"{r[0]}.jpg").exists()]
@@ -147,7 +156,7 @@ def main():
 
     with open(out / "manifest.csv", "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["sha256", "label", "mime", "llm_labels"])
+        w.writerow(["sha256", "label", "kind", "mime", "llm_labels"])
         for r in rows:
             if r[0] not in done_missing and (img_dir / f"{r[0]}.jpg").exists():
                 w.writerow(r)

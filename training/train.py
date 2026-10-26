@@ -14,14 +14,16 @@ LABELS = ["normal", "nsfw"]
 
 def read_manifest(data_dir):
     with open(data_dir / "manifest.csv") as f:
-        return [(r["sha256"], LABELS.index(r["label"])) for r in csv.DictReader(f)]
+        return [
+            (r["sha256"], LABELS.index(r["label"]), r["kind"]) for r in csv.DictReader(f)
+        ]
 
 
 def split(rows, val_fraction, seed):
     rng = random.Random(seed)
     train, val = [], []
-    for cls in range(len(LABELS)):
-        group = sorted(r for r in rows if r[1] == cls)
+    for kind in sorted({r[2] for r in rows}):
+        group = sorted(r for r in rows if r[2] == kind)
         rng.shuffle(group)
         cut = int(len(group) * val_fraction)
         val += group[:cut]
@@ -39,7 +41,7 @@ class Images(Dataset):
         return len(self.rows)
 
     def __getitem__(self, i):
-        sha, label = self.rows[i]
+        sha, label, _ = self.rows[i]
         return self.tf(Image.open(self.dir / f"{sha}.jpg").convert("RGB")), label
 
 
@@ -75,6 +77,13 @@ def probabilities(model, loader, device):
         probs.append(torch.softmax(logits.float(), -1)[:, 1].cpu())
         labels.append(y)
     return torch.cat(probs), torch.cat(labels)
+
+
+def hard_negative_fpr(probs, kinds, threshold=0.5):
+    mask = torch.tensor([k == "hard_negative" for k in kinds])
+    if not mask.any():
+        return None
+    return round((probs[mask] >= threshold).float().mean().item(), 4)
 
 
 def metrics(probs, labels, threshold=0.5):
@@ -121,7 +130,7 @@ def main():
     print(f"train {len(train_rows)} val {len(val_rows)}")
 
     counts = [sum(1 for r in train_rows if r[1] == c) for c in range(len(LABELS))]
-    weights = [1.0 / counts[r[1]] for r in train_rows]
+    weights = [(2.0 if r[2] == "hard_negative" else 1.0) / counts[r[1]] for r in train_rows]
     sampler = WeightedRandomSampler(weights, num_samples=len(train_rows), replacement=True)
     train_loader = DataLoader(
         Images(data_dir, train_rows, train_tf),
@@ -135,7 +144,12 @@ def main():
     )
 
     probs, labels = probabilities(model, val_loader, device)
-    baseline = {"threshold_0.5": metrics(probs, labels), "best_threshold": best_threshold(probs, labels)}
+    val_kinds = [r[2] for r in val_rows]
+    baseline = {
+        "threshold_0.5": metrics(probs, labels),
+        "best_threshold": best_threshold(probs, labels),
+        "hard_negative_fpr": hard_negative_fpr(probs, val_kinds),
+    }
     print("baseline", baseline)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
@@ -159,6 +173,7 @@ def main():
             running += loss.item()
         probs, labels = probabilities(model, val_loader, device)
         result = metrics(probs, labels)
+        result["hard_negative_fpr"] = hard_negative_fpr(probs, val_kinds)
         print(f"epoch {epoch + 1} loss {running / len(train_loader):.4f} val {result}")
         if result["f1"] > best_f1:
             best_f1 = result["f1"]
