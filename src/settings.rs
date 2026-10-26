@@ -199,6 +199,27 @@ pub struct Settings {
     ///
     /// Set to `0` or omit to disable.
     pub delete_zero_egress_days: Option<u64>,
+
+    pub cold_storage_dir: Option<String>,
+
+    pub cold_storage_min_downloads: Option<u64>,
+
+    pub cold_storage_after_days: Option<u64>,
+}
+
+pub const DEFAULT_COLD_STORAGE_MIN_DOWNLOADS: u64 = 50;
+pub const DEFAULT_COLD_STORAGE_AFTER_DAYS: u64 = 7;
+
+impl Settings {
+    pub fn cold_storage_min_downloads(&self) -> u64 {
+        self.cold_storage_min_downloads
+            .unwrap_or(DEFAULT_COLD_STORAGE_MIN_DOWNLOADS)
+    }
+
+    pub fn cold_storage_after_days(&self) -> u64 {
+        self.cold_storage_after_days
+            .unwrap_or(DEFAULT_COLD_STORAGE_AFTER_DAYS)
+    }
 }
 
 /// Configuration for a single labeling model / API endpoint.
@@ -370,6 +391,24 @@ mod tests {
         let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com"}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.delete_zero_egress_days, None);
+    }
+
+    #[test]
+    fn cold_storage_defaults_apply_when_absent() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com"}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.cold_storage_dir, None);
+        assert_eq!(s.cold_storage_min_downloads(), 50);
+        assert_eq!(s.cold_storage_after_days(), 7);
+    }
+
+    #[test]
+    fn cold_storage_settings_deserialize() {
+        let json = r#"{"storage_dir":"/data","database":"mysql://localhost","max_upload_bytes":1048576,"public_url":"https://example.com","cold_storage_dir":"/hdd","cold_storage_min_downloads":10,"cold_storage_after_days":0}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.cold_storage_dir.as_deref(), Some("/hdd"));
+        assert_eq!(s.cold_storage_min_downloads(), 10);
+        assert_eq!(s.cold_storage_after_days(), 0);
     }
 
     #[test]

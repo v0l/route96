@@ -31,7 +31,6 @@ use serde::Serialize;
 #[cfg(feature = "media-compression")]
 use std::env::temp_dir;
 use std::io::SeekFrom;
-use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -420,7 +419,7 @@ async fn delete_file(
             if let Err(e) = db.delete_file(&id).await {
                 return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
             }
-            if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
+            if let Err(e) = fs.delete(&id).await {
                 warn!("Failed to delete (fs): {}", e);
             }
         } else {
@@ -436,7 +435,7 @@ async fn delete_file(
                 if let Err(e) = db.delete_file(&id).await {
                     return Err(Error::msg(format!("Failed to delete (fs): {}", e)));
                 }
-                if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
+                if let Err(e) = fs.delete(&id).await {
                     warn!("Failed to delete (fs): {}", e);
                 }
             }
@@ -561,8 +560,6 @@ pub async fn get_blob(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let file_path = state.fs.get(&id);
-
     // Check for Range header and handle range requests
     let range_header = headers.get(header::RANGE).and_then(|h| h.to_str().ok());
 
@@ -572,7 +569,12 @@ pub async fn get_blob(
                 // Record range-request stats (bytes = range length).
                 let bytes_served = end - start + 1;
                 state.file_stats.record(&id, bytes_served, Utc::now());
-                return build_range_response(file_path, info, start, end).await;
+                let file = state
+                    .fs
+                    .open(&id)
+                    .await
+                    .map_err(|_| StatusCode::NOT_FOUND)?;
+                return build_range_response(file, info, start, end).await;
             }
             RangeOutcome::Unsatisfiable => {
                 // RFC 9110 s14.4: `Content-Range: bytes */<complete-length>`
@@ -595,18 +597,25 @@ pub async fn get_blob(
         if let Some(bytes) = state.db.cached_body(&id) {
             return Ok(inline_response(bytes, &info));
         }
-        let bytes = Bytes::from(
-            tokio::fs::read(&file_path)
-                .await
-                .map_err(|_| StatusCode::NOT_FOUND)?,
-        );
+        let mut file = state
+            .fs
+            .open(&id)
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        let mut buf = Vec::with_capacity(info.size as usize);
+        file.read_to_end(&mut buf)
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?;
+        let bytes = Bytes::from(buf);
         if bytes.len() as u64 == info.size {
             state.db.remember_body(&id, bytes.clone());
         }
         return Ok(inline_response(bytes, &info));
     }
 
-    let file = File::open(&file_path)
+    let file = state
+        .fs
+        .open(&id)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let payload = FilePayload { file, info };
@@ -616,14 +625,11 @@ pub async fn get_blob(
 
 /// Build a range response by reading the specified range from file
 async fn build_range_response(
-    file_path: PathBuf,
+    mut file: File,
     info: FileUpload,
     start: u64,
     end: u64,
 ) -> Result<Response, StatusCode> {
-    let mut file = File::open(&file_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
     file.seek(SeekFrom::Start(start))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

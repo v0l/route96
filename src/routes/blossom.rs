@@ -1284,6 +1284,9 @@ mod tests {
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
         };
         let settings = Arc::new(RwLock::new(settings));
         let pool = MySqlPoolOptions::new()

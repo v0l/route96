@@ -65,6 +65,14 @@ pub struct FileUploadWithStats {
     pub stats: FileStats,
 }
 
+#[derive(Clone, Debug, FromRow)]
+pub struct UploadDownloads {
+    pub id: Vec<u8>,
+    pub size: u64,
+    pub created: DateTime<Utc>,
+    pub egress_bytes: u64,
+}
+
 #[derive(Clone, FromRow, Default, Serialize)]
 pub struct FileUpload {
     /// SHA-256 hash of the file
@@ -1921,6 +1929,26 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    pub async fn get_upload_downloads_page(
+        &self,
+        after: Option<&[u8]>,
+        limit: u32,
+    ) -> Result<Vec<UploadDownloads>, Error> {
+        sqlx::query_as(
+            "select u.id, u.size, u.created, cast(coalesce(fs.egress_bytes, 0) as unsigned) as egress_bytes \
+             from uploads u \
+             left join file_stats fs on fs.file = u.id \
+             where u.banned = false and u.id > ? \
+             order by u.id \
+             limit ?",
+        )
+        .bind(after.unwrap_or(&[]))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::from)
     }
 
     /// Fetch persisted stats for a batch of files.

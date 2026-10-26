@@ -108,3 +108,12 @@ payments:
 # (Optional) Hard retention limit: delete all files older than this many days,
 # regardless of download activity.
 # delete_after_days: 30
+
+# (Optional) Slow storage (e.g. HDD) for rarely downloaded files. Read at startup.
+# Files older than cold_storage_after_days (default 7) with fewer than
+# cold_storage_min_downloads (default 50) downloads are moved here, and moved
+# back to storage_dir once they reach the threshold. Both thresholds can be
+# changed at runtime from the admin config page.
+# cold_storage_dir: "/mnt/hdd/route96"
+# cold_storage_min_downloads: 50
+# cold_storage_after_days: 7

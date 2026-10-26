@@ -97,6 +97,20 @@ max_upload_bytes: 104857600  # 100MB
 public_url: "https://your-domain.com"
 ```
 
+### Hot/cold storage
+
+```yaml
+cold_storage_dir: "/mnt/hdd/route96"  # slow storage, read at startup
+cold_storage_min_downloads: 50         # default 50
+cold_storage_after_days: 7             # default 7
+```
+
+A background task moves files older than `cold_storage_after_days` with fewer than
+`cold_storage_min_downloads` downloads (egress bytes / size) from `storage_dir` to
+`cold_storage_dir`, and moves cold files back once they reach the threshold. Both
+thresholds can be changed from the admin config page. Files are copied, hash checked,
+then removed from the source, and are served from whichever tier holds them.
+
 ### AI Labeling & Auto-moderation
 
 ```yaml

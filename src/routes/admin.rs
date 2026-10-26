@@ -1048,7 +1048,7 @@ async fn admin_purge_user(
     let fs = state.fs.clone();
     tokio::spawn(async move {
         for id in file_ids {
-            if let Err(e) = tokio::fs::remove_file(fs.get(&id)).await {
+            if let Err(e) = fs.delete(&id).await {
                 log::warn!("Failed to delete physical file {}: {}", hex::encode(&id), e);
             }
         }
@@ -1162,7 +1162,7 @@ async fn admin_delete_files(
 
     // Remove physical files (best-effort, DB is already updated).
     for id in &ids {
-        if let Err(e) = tokio::fs::remove_file(state.fs.get(id)).await {
+        if let Err(e) = state.fs.delete(id).await {
             log::warn!("Could not remove file from disk {}: {}", hex::encode(id), e);
         }
     }
@@ -1192,7 +1192,7 @@ async fn admin_delete_files_bulk(
 
     // Remove physical files (best-effort, DB is already updated).
     for id in &ids {
-        if let Err(e) = tokio::fs::remove_file(state.fs.get(id)).await {
+        if let Err(e) = state.fs.delete(id).await {
             log::warn!("Could not remove file from disk {}: {}", hex::encode(id), e);
         }
     }
@@ -1912,6 +1912,9 @@ mod tests {
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
         }
     }
 

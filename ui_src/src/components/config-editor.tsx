@@ -99,6 +99,24 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "cold_storage_min_downloads",
+    label: "Cold storage download threshold",
+    description:
+      "Files with fewer downloads than this are moved to cold storage (cold_storage_dir in config.yaml), and cold files that reach it are moved back. Downloads are counted as egress bytes divided by file size. Set to 0 to keep everything hot. Defaults to 50. Has no effect unless cold_storage_dir is set.",
+    type: "integer",
+    unit: "downloads",
+    min: 0,
+    optional: true,
+  },
+  {
+    key: "cold_storage_after_days",
+    label: "Cold storage grace period",
+    description:
+      "Files uploaded within this many days always stay in hot storage. Defaults to 7.",
+    type: "days",
+    optional: true,
+  },
+  {
     key: "identical_media_dedup",
     label: "Identical media deduplication (BUD-12)",
     description:
