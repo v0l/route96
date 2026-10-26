@@ -161,7 +161,9 @@ class Frame(wx.Frame):
             if len(self.cells) >= len(self.view):
                 break
         for i, cell in enumerate(self.cells):
-            cell.SetPosition((i % cols * self.cell_w, i // cols * self.cell_h))
+            cell.SetPosition(
+                self.grid.CalcScrolledPosition((i % cols * self.cell_w, i // cols * self.cell_h))
+            )
         self.grid.SetVirtualSize((cols * self.cell_w, -(-len(self.cells) // cols) * self.cell_h))
         self.update_info()
 
