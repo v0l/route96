@@ -3,7 +3,6 @@ import csv
 from pathlib import Path
 
 import wx
-import wx.lib.scrolledpanel as scrolled
 
 COLORS = {"nsfw": wx.Colour(200, 40, 40), "normal": wx.Colour(40, 150, 60)}
 
@@ -60,45 +59,41 @@ class Cell(wx.Panel):
 
 
 class Frame(wx.Frame):
-    def __init__(self, data, per_page, size):
+    BATCH = 60
+    SCROLL_RATE = 20
+
+    def __init__(self, data, size):
         super().__init__(None, title="NSFW review", size=(1500, 950))
         self.data = data
         self.images = data / "images"
         self.overrides_path = data / "overrides.csv"
         self.overrides = load_overrides(self.overrides_path)
         self.rows = list(csv.DictReader(open(data / "manifest.csv")))
-        self.per_page = per_page
+        self.original = {r["sha256"]: r["label"] for r in self.rows}
         self.size = size
-        self.page = 0
+        self.cell_w = size + 16
+        self.cell_h = size + 56
         self.view = []
+        self.cells = []
 
         top = wx.Panel(self)
         self.filter = wx.Choice(
             top,
-            choices=[
-                "positive (nsfw)",
-                "hard_negative",
-                "normal",
-                "changed by me",
-                "all",
-            ],
+            choices=["positive (nsfw)", "hard_negative", "normal", "changed by me", "all"],
         )
         self.filter.SetSelection(0)
         self.filter.Bind(wx.EVT_CHOICE, lambda e: self.reset())
         self.info = wx.StaticText(top)
-        prev = wx.Button(top, label="< Prev")
-        nxt = wx.Button(top, label="Next >")
-        prev.Bind(wx.EVT_BUTTON, lambda e: self.go(-1))
-        nxt.Bind(wx.EVT_BUTTON, lambda e: self.go(1))
         bar = wx.BoxSizer(wx.HORIZONTAL)
-        for w in (self.filter, prev, nxt, self.info):
+        for w in (self.filter, self.info):
             bar.Add(w, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         top.SetSizer(bar)
 
-        self.grid = scrolled.ScrolledPanel(self)
-        self.grid.SetupScrolling(scroll_x=False)
-        self.flow = wx.WrapSizer(wx.HORIZONTAL)
-        self.grid.SetSizer(self.flow)
+        self.grid = wx.ScrolledWindow(self)
+        self.grid.SetScrollRate(0, self.SCROLL_RATE)
+        self.grid.Bind(wx.EVT_SIZE, self.on_event)
+        self.grid.Bind(wx.EVT_SCROLLWIN, self.on_event)
+        self.grid.Bind(wx.EVT_MOUSEWHEEL, self.on_event)
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(top, 0, wx.EXPAND)
@@ -106,55 +101,69 @@ class Frame(wx.Frame):
         self.SetSizer(root)
         self.reset()
 
+    def on_event(self, event):
+        event.Skip()
+        wx.CallAfter(self.layout)
+
     def label_of(self, sha):
-        if sha in self.overrides:
-            return self.overrides[sha]
-        return next(r["label"] for r in self.rows if r["sha256"] == sha)
+        return self.overrides.get(sha, self.original[sha])
 
     def select_rows(self):
         choice = self.filter.GetSelection()
-        if choice == 0:
-            return [r for r in self.rows if r["kind"] == "positive"]
-        if choice == 1:
-            return [r for r in self.rows if r["kind"] == "hard_negative"]
-        if choice == 2:
-            return [r for r in self.rows if r["kind"] == "normal"]
+        kinds = {0: "positive", 1: "hard_negative", 2: "normal"}
+        if choice in kinds:
+            return [r for r in self.rows if r["kind"] == kinds[choice]]
         if choice == 3:
             return [r for r in self.rows if r["sha256"] in self.overrides]
         return self.rows
 
     def reset(self):
+        for cell in self.cells:
+            cell.Destroy()
+        self.cells = []
         self.view = self.select_rows()
-        self.page = 0
-        self.show()
+        self.grid.Scroll(0, 0)
+        self.layout()
 
-    def go(self, step):
-        pages = max(1, -(-len(self.view) // self.per_page))
-        self.page = min(max(0, self.page + step), pages - 1)
-        self.show()
+    def columns(self):
+        return max(1, self.grid.GetClientSize().width // self.cell_w)
 
-    def show(self):
-        self.flow.Clear(delete_windows=True)
-        start = self.page * self.per_page
-        for row in self.view[start : start + self.per_page]:
-            self.flow.Add(Cell(self.grid, self, row, self.size))
-        pages = max(1, -(-len(self.view) // self.per_page))
+    def needs_more(self, cols):
+        if len(self.cells) >= len(self.view):
+            return False
+        top = self.grid.GetViewStart()[1] * self.SCROLL_RATE
+        visible_bottom = top + self.grid.GetClientSize().height
+        loaded_bottom = -(-len(self.cells) // cols) * self.cell_h
+        return visible_bottom > loaded_bottom - 3 * self.cell_h
+
+    def layout(self):
+        cols = self.columns()
+        while self.needs_more(cols):
+            for row in self.view[len(self.cells) : len(self.cells) + self.BATCH]:
+                cell = Cell(self.grid, self, row, self.size)
+                cell.SetSize(self.cell_w, self.cell_h)
+                self.cells.append(cell)
+            self.grid.SetVirtualSize((cols * self.cell_w, -(-len(self.cells) // cols) * self.cell_h))
+            if len(self.cells) >= len(self.view):
+                break
+        for i, cell in enumerate(self.cells):
+            cell.SetPosition((i % cols * self.cell_w, i // cols * self.cell_h))
+        self.grid.SetVirtualSize((cols * self.cell_w, -(-len(self.cells) // cols) * self.cell_h))
+        self.update_info()
+
+    def update_info(self):
         self.info.SetLabel(
-            f"page {self.page + 1}/{pages}   {len(self.view)} images   {len(self.overrides)} relabelled"
+            f"{len(self.cells)}/{len(self.view)} loaded   {len(self.overrides)} relabelled"
         )
-        self.grid.Layout()
-        self.grid.SetupScrolling(scroll_x=False, scrollToTop=True)
-        self.Layout()
 
     def mark(self, cell, label):
-        original = next(r["label"] for r in self.rows if r["sha256"] == cell.sha)
-        if label == original:
+        if label == self.original[cell.sha]:
             self.overrides.pop(cell.sha, None)
         else:
             self.overrides[cell.sha] = label
         save_overrides(self.overrides_path, self.overrides)
         cell.refresh()
-        self.info.SetLabel(self.info.GetLabel().rsplit("   ", 1)[0] + f"   {len(self.overrides)} relabelled")
+        self.update_info()
 
     def zoom(self, sha):
         dlg = wx.Dialog(self, title=sha[:12], size=(900, 900))
@@ -169,11 +178,10 @@ class Frame(wx.Frame):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data", default=str(Path(__file__).parent / "data"))
-    p.add_argument("--per-page", type=int, default=40)
     p.add_argument("--size", type=int, default=170)
     args = p.parse_args()
     app = wx.App()
-    Frame(Path(args.data), args.per_page, args.size).Show()
+    Frame(Path(args.data), args.size).Show()
     app.MainLoop()
 
 
