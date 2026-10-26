@@ -75,31 +75,36 @@ async fn main() -> Result<(), Error> {
 
     match args.command {
         Commands::Check { delete } => {
-            info!("Checking files in: {}", settings.storage_dir);
             let fs = FileStore::new(live_settings.clone());
-            iter_files(&fs.storage_dir(), 4, |entry, p| {
-                let p = p.clone();
-                Box::pin(async move {
-                    let id = if let Some(i) = id_from_path(&entry) {
-                        i
-                    } else {
-                        p.set_message(format!("Skipping invalid file: {}", &entry.display()));
-                        return Ok(());
-                    };
-
-                    let hash = FileStore::hash_file(&entry).await?;
-                    if hash != id {
-                        if delete.unwrap_or(false) {
-                            p.set_message(format!("Deleting corrupt file: {}", &entry.display()));
-                            tokio::fs::remove_file(&entry).await?;
+            for dir in std::iter::once(fs.storage_dir()).chain(fs.cold_storage_dir()) {
+                info!("Checking files in: {}", dir.display());
+                iter_files(&dir, 4, |entry, p| {
+                    let p = p.clone();
+                    Box::pin(async move {
+                        let id = if let Some(i) = id_from_path(&entry) {
+                            i
                         } else {
-                            p.set_message(format!("File is corrupted: {}", &entry.display()));
+                            p.set_message(format!("Skipping invalid file: {}", &entry.display()));
+                            return Ok(());
+                        };
+
+                        let hash = FileStore::hash_file(&entry).await?;
+                        if hash != id {
+                            if delete.unwrap_or(false) {
+                                p.set_message(format!(
+                                    "Deleting corrupt file: {}",
+                                    &entry.display()
+                                ));
+                                tokio::fs::remove_file(&entry).await?;
+                            } else {
+                                p.set_message(format!("File is corrupted: {}", &entry.display()));
+                            }
                         }
-                    }
-                    Ok(())
+                        Ok(())
+                    })
                 })
-            })
-            .await?;
+                .await?;
+            }
         }
         Commands::Import { from, probe_media } => {
             let fs = FileStore::new(live_settings.clone());

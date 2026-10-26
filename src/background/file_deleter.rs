@@ -13,7 +13,7 @@
 //! Thresholds are re-read from the live settings on every cycle so that
 //! config changes take effect without a restart.
 
-use super::{next_sleep, BatchResult};
+use super::{BatchResult, next_sleep};
 use crate::db::Database;
 use crate::filesystem::FileStore;
 use crate::settings::Settings;
@@ -180,8 +180,7 @@ impl FileDeleter {
             return true;
         }
 
-        let path = fs.get(id);
-        match tokio::fs::remove_file(&path).await {
+        match fs.delete(id).await {
             Ok(()) => {
                 info!("FileDeleter: removed {} ({})", hex::encode(id), reason);
                 false

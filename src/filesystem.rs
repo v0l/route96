@@ -5,6 +5,7 @@ use crate::db::FileLabel;
 #[cfg(feature = "media-compression")]
 use crate::processing::{compress_file, probe_file};
 use crate::settings::Settings;
+use dashmap::DashMap;
 use anyhow::Error;
 use anyhow::Result;
 #[cfg(feature = "media-compression")]
@@ -61,24 +62,39 @@ pub struct NewFileResult {
     pub labels: Vec<FileLabel>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageTier {
+    Hot,
+    Cold,
+}
+
+const TIER_CACHE_MAX_ENTRIES: usize = 1_000_000;
+
 #[derive(Clone)]
 pub struct FileStore {
     settings: Arc<RwLock<Settings>>,
     storage_dir: PathBuf,
+    cold_storage_dir: Option<PathBuf>,
+    tiers: Arc<DashMap<Vec<u8>, StorageTier>>,
 }
 
 impl FileStore {
     pub fn new(settings: Arc<RwLock<Settings>>) -> Self {
         // storage_dir is read once at startup; it is intentionally not hot-reloadable.
-        let storage_dir = {
+        let (storage_dir, cold_storage_dir) = {
             let s = settings
                 .try_read()
                 .expect("settings lock unavailable at FileStore::new");
-            PathBuf::from(&s.storage_dir)
+            (
+                PathBuf::from(&s.storage_dir),
+                s.cold_storage_dir.as_ref().map(PathBuf::from),
+            )
         };
         Self {
             settings,
             storage_dir,
+            cold_storage_dir,
+            tiers: Arc::new(DashMap::new()),
         }
     }
 
@@ -88,12 +104,126 @@ impl FileStore {
 
     /// Get a file path by id
     pub fn get(&self, id: &Vec<u8>) -> PathBuf {
-        self.map_path(id)
+        self.tier(id)
+            .and_then(|t| self.tier_path(id, t))
+            .unwrap_or_else(|| self.map_path(id))
     }
 
-    /// Delete a stored file by id
-    pub async fn delete(&self, id: &Vec<u8>) -> Result<()> {
-        tokio::fs::remove_file(self.map_path(id)).await?;
+    pub fn exists(&self, id: &Vec<u8>) -> bool {
+        self.tier(id).is_some()
+    }
+
+    /// Which tier holds the file: the cached answer, or hot then cold on disk.
+    pub fn tier(&self, id: &Vec<u8>) -> Option<StorageTier> {
+        if self.cold_storage_dir.is_none() {
+            return self.map_path(id).exists().then_some(StorageTier::Hot);
+        }
+        if let Some(t) = self.tiers.get(id) {
+            return Some(*t);
+        }
+        let found = [StorageTier::Hot, StorageTier::Cold]
+            .into_iter()
+            .find(|t| self.tier_path(id, *t).is_some_and(|p| p.exists()))?;
+        self.remember_tier(id, found);
+        Some(found)
+    }
+
+    fn remember_tier(&self, id: &[u8], tier: StorageTier) {
+        if self.cold_storage_dir.is_none() {
+            return;
+        }
+        if self.tiers.len() >= TIER_CACHE_MAX_ENTRIES {
+            self.tiers.clear();
+        }
+        self.tiers.insert(id.to_vec(), tier);
+    }
+
+    pub fn has_cold_tier(&self) -> bool {
+        self.cold_storage_dir.is_some()
+    }
+
+    pub fn tier_path(&self, id: &Vec<u8>, tier: StorageTier) -> Option<PathBuf> {
+        match tier {
+            StorageTier::Hot => Some(self.map_path(id)),
+            StorageTier::Cold => self.cold_path(id),
+        }
+    }
+
+    /// Delete a stored file by id from every tier
+    pub async fn delete(&self, id: &Vec<u8>) -> std::io::Result<()> {
+        self.tiers.remove(id);
+        let mut removed = false;
+        let mut last_err = None;
+        for path in [Some(self.map_path(id)), self.cold_path(id)]
+            .into_iter()
+            .flatten()
+        {
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => removed = true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => last_err = Some(e),
+            }
+        }
+        match (last_err, removed) {
+            (Some(e), _) => Err(e),
+            (None, true) => Ok(()),
+            (None, false) => Err(std::io::ErrorKind::NotFound.into()),
+        }
+    }
+
+    /// Move a stored file to `tier`. Returns false when the file is in neither tier.
+    pub async fn relocate(&self, id: &Vec<u8>, tier: StorageTier) -> Result<bool> {
+        let cold = self
+            .cold_path(id)
+            .ok_or_else(|| Error::msg("cold storage is not configured"))?;
+        let hot = self.map_path(id);
+        let (src, dst, staging_dir) = match tier {
+            StorageTier::Cold => (hot, cold, self.cold_temp_dir().unwrap()),
+            StorageTier::Hot => (cold, hot, self.temp_dir()),
+        };
+
+        if !tokio::fs::try_exists(&src).await? {
+            self.tiers.remove(id);
+            return Ok(tokio::fs::try_exists(&dst).await?);
+        }
+        if !tokio::fs::try_exists(&dst).await? {
+            tokio::fs::create_dir_all(&staging_dir).await?;
+            let staged = staging_dir.join(Uuid::new_v4().to_string());
+            if let Err(e) = Self::copy_verified(&src, &staged, id).await {
+                tokio::fs::remove_file(&staged).await.ok();
+                return Err(e);
+            }
+            tokio::fs::create_dir_all(dst.parent().unwrap()).await?;
+            if let Err(e) = tokio::fs::rename(&staged, &dst).await {
+                tokio::fs::remove_file(&staged).await.ok();
+                return Err(e.into());
+            }
+        }
+        self.remember_tier(id, tier);
+        tokio::fs::remove_file(&src).await?;
+        Ok(true)
+    }
+
+    /// Open a stored file, falling back to the other tier if it moved meanwhile.
+    pub async fn open(&self, id: &Vec<u8>) -> std::io::Result<File> {
+        match File::open(self.get(id)).await {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.tiers.remove(id);
+                File::open(self.get(id)).await
+            }
+            r => r,
+        }
+    }
+
+    async fn copy_verified(src: &Path, dst: &Path, id: &[u8]) -> Result<()> {
+        let mut input = File::open(src).await?;
+        let mut output = File::create(dst).await?;
+        tokio::io::copy(&mut input, &mut output).await?;
+        output.sync_all().await?;
+        drop(output);
+        if Self::hash_file(dst).await? != id {
+            return Err(HashMismatch.into());
+        }
         Ok(())
     }
 
@@ -147,10 +277,8 @@ impl FileStore {
             return Ok(FileSystemResult::Banned);
         }
 
-        let dst_path = self.map_path(&hash);
-
         // check if file hash already exists
-        if dst_path.exists() {
+        if self.exists(&hash) {
             tokio::fs::remove_file(temp_file).await?;
             return Ok(FileSystemResult::AlreadyExists(hash));
         }
@@ -239,7 +367,7 @@ impl FileStore {
         let final_dest = self.map_path(&res.id);
 
         // Compressed file already exists
-        if final_dest.exists() {
+        if self.exists(&res.id) {
             tokio::fs::remove_file(&res.path).await?;
             Ok(FileSystemResult::AlreadyExists(res.id))
         } else {
@@ -455,6 +583,20 @@ impl FileStore {
         self.storage_dir().join(&id[0..2]).join(&id[2..4]).join(id)
     }
 
+    fn cold_path(&self, id: &Vec<u8>) -> Option<PathBuf> {
+        let dir = self.cold_storage_dir.as_ref()?;
+        let id = hex::encode(id);
+        Some(dir.join(&id[0..2]).join(&id[2..4]).join(id))
+    }
+
+    fn cold_temp_dir(&self) -> Option<PathBuf> {
+        self.cold_storage_dir.as_ref().map(|d| d.join("tmp"))
+    }
+
+    pub fn cold_storage_dir(&self) -> Option<PathBuf> {
+        self.cold_storage_dir.clone()
+    }
+
     pub fn temp_dir(&self) -> PathBuf {
         self.storage_dir().join("tmp")
     }
@@ -470,6 +612,10 @@ mod expected_hash_tests {
     use sqlx::mysql::MySqlPoolOptions;
 
     fn test_store(storage_dir: &Path) -> (FileStore, Database) {
+        test_store_with_cold(storage_dir, None)
+    }
+
+    fn test_store_with_cold(storage_dir: &Path, cold: Option<&Path>) -> (FileStore, Database) {
         let settings = Settings {
             listen: None,
             storage_dir: storage_dir.to_string_lossy().into_owned(),
@@ -499,6 +645,9 @@ mod expected_hash_tests {
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,
+            cold_storage_dir: cold.map(|c| c.to_string_lossy().into_owned()),
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
         };
         let settings = Arc::new(RwLock::new(settings));
         let pool = MySqlPoolOptions::new()
@@ -506,6 +655,137 @@ mod expected_hash_tests {
             .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
             .unwrap();
         (FileStore::new(settings), Database::from_pool(pool))
+    }
+
+    async fn write_hot(store: &FileStore, content: &[u8]) -> Vec<u8> {
+        let id = Sha256::digest(content).to_vec();
+        let path = store.tier_path(&id, StorageTier::Hot).unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, content).await.unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn relocate_moves_file_to_cold_and_back() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        let content = b"rarely downloaded";
+        let id = write_hot(&store, content).await;
+        let hot_path = store.tier_path(&id, StorageTier::Hot).unwrap();
+        let cold_path = store.tier_path(&id, StorageTier::Cold).unwrap();
+        assert!(cold_path.starts_with(cold.path()));
+
+        assert!(store.relocate(&id, StorageTier::Cold).await.unwrap());
+        assert!(!hot_path.exists());
+        assert_eq!(tokio::fs::read(&cold_path).await.unwrap(), content);
+        assert_eq!(store.get(&id), cold_path);
+        let mut buf = Vec::new();
+        store
+            .open(&id)
+            .await
+            .unwrap()
+            .read_to_end(&mut buf)
+            .await
+            .unwrap();
+        assert_eq!(buf, content);
+
+        assert!(store.relocate(&id, StorageTier::Hot).await.unwrap());
+        assert!(!cold_path.exists());
+        assert_eq!(store.get(&id), hot_path);
+        assert_eq!(tokio::fs::read(&hot_path).await.unwrap(), content);
+    }
+
+    #[tokio::test]
+    async fn tier_checks_hot_then_cold_and_caches_answer() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        let id = write_hot(&store, b"cached tier").await;
+        let hot_path = store.tier_path(&id, StorageTier::Hot).unwrap();
+        let cold_path = store.tier_path(&id, StorageTier::Cold).unwrap();
+
+        assert_eq!(store.tier(&id), Some(StorageTier::Hot));
+        tokio::fs::create_dir_all(cold_path.parent().unwrap()).await.unwrap();
+        tokio::fs::rename(&hot_path, &cold_path).await.unwrap();
+        assert_eq!(store.tier(&id), Some(StorageTier::Hot));
+
+        let mut buf = Vec::new();
+        store.open(&id).await.unwrap().read_to_end(&mut buf).await.unwrap();
+        assert_eq!(buf, b"cached tier");
+        assert_eq!(store.tier(&id), Some(StorageTier::Cold));
+    }
+
+    #[tokio::test]
+    async fn tier_without_cold_storage_only_checks_hot() {
+        let hot = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store(hot.path());
+        let id = write_hot(&store, b"hot only").await;
+        assert_eq!(store.tier(&id), Some(StorageTier::Hot));
+        assert_eq!(store.tier(&vec![7u8; 32]), None);
+        store.delete(&id).await.unwrap();
+        assert_eq!(store.tier(&id), None);
+    }
+
+    #[tokio::test]
+    async fn relocate_keeps_source_when_copy_does_not_match_hash() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        let id = vec![9u8; 32];
+        let hot_path = store.tier_path(&id, StorageTier::Hot).unwrap();
+        tokio::fs::create_dir_all(hot_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&hot_path, b"corrupt").await.unwrap();
+
+        let err = store.relocate(&id, StorageTier::Cold).await.unwrap_err();
+        assert!(err.downcast_ref::<HashMismatch>().is_some());
+        assert!(hot_path.exists());
+        assert!(!store.tier_path(&id, StorageTier::Cold).unwrap().exists());
+        let mut staged = tokio::fs::read_dir(cold.path().join("tmp")).await.unwrap();
+        assert!(staged.next_entry().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn relocate_reports_missing_file() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        assert!(
+            !store
+                .relocate(&vec![1u8; 32], StorageTier::Cold)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn relocate_without_cold_tier_fails() {
+        let hot = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store(hot.path());
+        let id = write_hot(&store, b"x").await;
+        assert!(!store.has_cold_tier());
+        assert!(store.relocate(&id, StorageTier::Cold).await.is_err());
+        assert!(store.tier_path(&id, StorageTier::Hot).unwrap().exists());
+    }
+
+    #[tokio::test]
+    async fn delete_removes_file_from_cold_tier() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        let id = write_hot(&store, b"cold delete").await;
+        store.relocate(&id, StorageTier::Cold).await.unwrap();
+
+        store.delete(&id).await.unwrap();
+        assert!(!store.exists(&id));
+        assert_eq!(
+            store.delete(&id).await.unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
     }
 
     #[tokio::test]
@@ -625,6 +905,9 @@ mod tests {
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
         };
         FileStore::new(Arc::new(RwLock::new(settings)))
     }

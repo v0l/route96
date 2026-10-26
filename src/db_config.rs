@@ -146,6 +146,7 @@ fn should_skip(key: &str) -> bool {
         "database",
         "storage_dir", // server-local path, not safe to change via UI
         "listen",      // requires restart, not a runtime config
+        "cold_storage_dir",
         "models_dir",
         // whitelist serialises as a complex type; the UI manages it directly
         "whitelist",
@@ -255,6 +256,7 @@ mod tests {
         assert!(should_skip("payments"));
         assert!(should_skip("payments.lnd.tls"));
         assert!(should_skip("storage_dir"));
+        assert!(should_skip("cold_storage_dir"));
         assert!(should_skip("max_upload_bytes"));
         assert!(should_skip("public_url"));
         assert!(!should_skip("webhook_url"));

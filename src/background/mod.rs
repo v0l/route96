@@ -59,6 +59,8 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
 
 mod file_deleter;
 
+mod cold_storage;
+
 #[cfg(feature = "media-compression")]
 mod media_metadata;
 
@@ -169,6 +171,16 @@ pub async fn start_background_tasks(
             let task = file_deleter::FileDeleter::new(db, fs, live);
             task.process(token).await;
             info!("FileDeleter background task completed");
+        });
+    }
+
+    if file_store.has_cold_tier() {
+        let task = cold_storage::ColdStorage::new(db.clone(), file_store.clone(), settings.clone());
+        let token = shutdown.clone();
+        set.spawn(async move {
+            info!("Starting ColdStorage background task");
+            task.process(token).await;
+            info!("ColdStorage background task completed");
         });
     }
 
