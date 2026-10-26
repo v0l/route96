@@ -13,7 +13,6 @@ def mark(manifest_rows, scores, threshold):
             float(scores[r["sha256"]][m]) >= threshold for m in scores[r["sha256"]] if m != "sha256"
         ):
             r["kind"] = "suspect"
-            r["label"] = "nsfw"
             marked += 1
     return marked
 

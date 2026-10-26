@@ -19,4 +19,3 @@ def test_any_model_over_threshold_marks_negatives_only():
     s = scores(a=("0.1", "0.9"), b=("0.1", "0.2"), c=("0.9", "0.9"), d=("0.6", "0.0"))
     assert mark(r, s, 0.5) == 2
     assert [x["kind"] for x in r] == ["suspect", "normal", "positive", "suspect"]
-    assert [x.get("label") for x in r] == ["nsfw", "normal", "positive", "nsfw"]
