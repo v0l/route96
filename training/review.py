@@ -186,7 +186,14 @@ class Frame(wx.Frame):
         img = wx.Image(str(self.images / f"{sha}.jpg"), wx.BITMAP_TYPE_ANY)
         scale = min(880 / img.GetWidth(), 880 / img.GetHeight(), 3)
         img = img.Scale(int(img.GetWidth() * scale), int(img.GetHeight() * scale), wx.IMAGE_QUALITY_HIGH)
-        wx.StaticBitmap(dlg, bitmap=wx.Bitmap(img))
+        bitmap = wx.StaticBitmap(dlg, bitmap=wx.Bitmap(img))
+        close = lambda e: dlg.EndModal(wx.ID_CLOSE)
+        for widget in (dlg, bitmap):
+            widget.Bind(wx.EVT_LEFT_DOWN, close)
+            widget.Bind(wx.EVT_RIGHT_DOWN, close)
+            widget.Bind(wx.EVT_KEY_DOWN, close)
+        dlg.Bind(wx.EVT_CHAR_HOOK, close)
+        dlg.Bind(wx.EVT_CLOSE, close)
         dlg.ShowModal()
         dlg.Destroy()
 
