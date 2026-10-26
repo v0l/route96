@@ -1,0 +1,5 @@
+data/
+__pycache__/
+*.pt
+export.log
+out/
