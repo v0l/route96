@@ -21,6 +21,12 @@ def save_overrides(path, overrides):
         w.writerows(sorted(overrides.items()))
 
 
+def bind_wheel(widget, handler):
+    widget.Bind(wx.EVT_MOUSEWHEEL, handler)
+    for child in widget.GetChildren():
+        bind_wheel(child, handler)
+
+
 class Cell(wx.Panel):
     def __init__(self, parent, frame, row, size):
         super().__init__(parent)
@@ -61,6 +67,7 @@ class Cell(wx.Panel):
 class Frame(wx.Frame):
     BATCH = 60
     SCROLL_RATE = 20
+    WHEEL_LINES = 5
 
     def __init__(self, data, size):
         super().__init__(None, title="NSFW review", size=(1500, 950))
@@ -93,13 +100,19 @@ class Frame(wx.Frame):
         self.grid.SetScrollRate(0, self.SCROLL_RATE)
         self.grid.Bind(wx.EVT_SIZE, self.on_event)
         self.grid.Bind(wx.EVT_SCROLLWIN, self.on_event)
-        self.grid.Bind(wx.EVT_MOUSEWHEEL, self.on_event)
+        self.grid.Bind(wx.EVT_MOUSEWHEEL, self.on_wheel)
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(top, 0, wx.EXPAND)
         root.Add(self.grid, 1, wx.EXPAND)
         self.SetSizer(root)
         self.reset()
+
+    def on_wheel(self, event):
+        steps = event.GetWheelRotation() / max(event.GetWheelDelta(), 1)
+        x, y = self.grid.GetViewStart()
+        self.grid.Scroll(x, max(0, int(y - steps * 3 * self.WHEEL_LINES)))
+        wx.CallAfter(self.layout)
 
     def on_event(self, event):
         event.Skip()
@@ -142,6 +155,7 @@ class Frame(wx.Frame):
             for row in self.view[len(self.cells) : len(self.cells) + self.BATCH]:
                 cell = Cell(self.grid, self, row, self.size)
                 cell.SetSize(self.cell_w, self.cell_h)
+                bind_wheel(cell, self.on_wheel)
                 self.cells.append(cell)
             self.grid.SetVirtualSize((cols * self.cell_w, -(-len(self.cells) // cols) * self.cell_h))
             if len(self.cells) >= len(self.view):
