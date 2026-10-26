@@ -3,10 +3,10 @@ from mark_suspects import mark
 
 def rows():
     return [
-        {"sha256": "a", "kind": "normal"},
-        {"sha256": "b", "kind": "normal"},
-        {"sha256": "c", "kind": "positive"},
-        {"sha256": "d", "kind": "hard_negative"},
+        {"sha256": "a", "kind": "normal", "label": "normal"},
+        {"sha256": "b", "kind": "normal", "label": "normal"},
+        {"sha256": "c", "kind": "positive", "label": "positive"},
+        {"sha256": "d", "kind": "hard_negative", "label": "normal"},
     ]
 
 
@@ -19,3 +19,4 @@ def test_any_model_over_threshold_marks_negatives_only():
     s = scores(a=("0.1", "0.9"), b=("0.1", "0.2"), c=("0.9", "0.9"), d=("0.6", "0.0"))
     assert mark(r, s, 0.5) == 2
     assert [x["kind"] for x in r] == ["suspect", "normal", "positive", "suspect"]
+    assert [x.get("label") for x in r] == ["nsfw", "normal", "positive", "nsfw"]
