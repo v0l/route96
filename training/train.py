@@ -12,10 +12,20 @@ from transformers import ViTForImageClassification
 LABELS = ["normal", "nsfw"]
 
 
+def read_overrides(data_dir):
+    path = data_dir / "overrides.csv"
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return {r["sha256"]: r["label"] for r in csv.DictReader(f)}
+
+
 def read_manifest(data_dir):
+    overrides = read_overrides(data_dir)
     with open(data_dir / "manifest.csv") as f:
         return [
-            (r["sha256"], LABELS.index(r["label"]), r["kind"]) for r in csv.DictReader(f)
+            (r["sha256"], LABELS.index(overrides.get(r["sha256"], r["label"])), r["kind"])
+            for r in csv.DictReader(f)
         ]
 
 
