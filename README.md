@@ -121,7 +121,7 @@ models_dir: "./data/models"
 label_models:
   - hf_repo: "google/vit-base-patch16-224"
     name: "vit224"
-  - hf_repo: "Falconsai/nsfw_image_detection"
+  - hf_repo: "v0l/route96-nsfw-vit224"
     name: "nsfw"
     label_exclude:
       - "normal"   # suppress the "clean" class from the NSFW model

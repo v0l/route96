@@ -36,7 +36,7 @@ label_models:
     hf_repo: "google/vit-base-patch16-224"
     name: "vit224"
   - type: vit
-    hf_repo: "Falconsai/nsfw_image_detection"
+    hf_repo: "v0l/route96-nsfw-vit224"
     name: "nsfw"
     label_exclude:
       - "normal"
