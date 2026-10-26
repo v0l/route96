@@ -4,3 +4,4 @@ __pycache__/
 export.log
 out/
 compare.json
+public/

@@ -127,11 +127,13 @@ def main():
     p.add_argument("--val-fraction", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--all", action="store_true")
     p.add_argument("--out", default="compare.json")
     args = p.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    _, val_rows = split(read_manifest(Path(args.data)), args.val_fraction, args.seed)
+    rows = read_manifest(Path(args.data))
+    val_rows = rows if args.all else split(rows, args.val_fraction, args.seed)[1]
     results = {}
     for name in args.models:
         try:
