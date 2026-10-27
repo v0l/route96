@@ -93,6 +93,8 @@ def average_precision(probs, labels):
 @torch.no_grad()
 def score(name, args, rows, device):
     model, forward, size, mean, std, id2label = load(name)
+    if args.imagenet_norm:
+        mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
     model = model.to(device)
     loader = DataLoader(
         Images(Path(args.data), rows, size, mean, std),
@@ -136,6 +138,7 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--all", action="store_true")
+    p.add_argument("--imagenet-norm", action="store_true")
     p.add_argument("--val-from")
     p.add_argument("--out", default="compare.json")
     args = p.parse_args()

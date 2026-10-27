@@ -21,6 +21,25 @@ def save_overrides(path, overrides):
         w.writerows(sorted(overrides.items()))
 
 
+def load_scores(path):
+    if not path.exists():
+        return [], {}
+    with open(path) as f:
+        reader = csv.DictReader(f)
+        names = [c for c in reader.fieldnames if c != "sha256"]
+        return names, {r["sha256"]: {n: float(r[n]) for n in names} for r in reader}
+
+
+def disagree(scores, names):
+    verdicts = {scores[n] >= 0.5 for n in names}
+    return len(verdicts) > 1
+
+
+def spread(scores, names):
+    values = [scores[n] for n in names]
+    return max(values) - min(values)
+
+
 def bind_wheel(widget, handler):
     widget.Bind(wx.EVT_MOUSEWHEEL, handler)
     for child in widget.GetChildren():
@@ -51,6 +70,17 @@ class Cell(wx.Panel):
         buttons.Add(sfw, 1)
         inner = wx.BoxSizer(wx.VERTICAL)
         inner.Add(self.bitmap, 0, wx.ALIGN_CENTER | wx.ALL, 2)
+        scores = frame.scores.get(self.sha)
+        if scores:
+            grid = wx.FlexGridSizer(cols=3, vgap=0, hgap=4)
+            for name in frame.score_names:
+                value = scores[name]
+                text = wx.StaticText(self.border, label=f"{name[:3]} {round(value * 100):02d}")
+                text.SetFont(text.GetFont().Smaller())
+                text.SetForegroundColour(wx.Colour(255, 255, 255) if value >= 0.5 else wx.Colour(30, 30, 30))
+                text.SetBackgroundColour(wx.Colour(200, 40, 40) if value >= 0.5 else wx.Colour(230, 230, 230))
+                grid.Add(text, 0, wx.EXPAND)
+            inner.Add(grid, 0, wx.ALIGN_CENTER | wx.BOTTOM, 2)
         inner.Add(buttons, 0, wx.EXPAND | wx.ALL, 2)
         self.border.SetSizer(inner)
         outer = wx.BoxSizer(wx.VERTICAL)
@@ -78,21 +108,38 @@ class Frame(wx.Frame):
         self.rows = list(csv.DictReader(open(data / "manifest.csv")))
         self.original = {r["sha256"]: r["label"] for r in self.rows}
         self.size = size
+        self.score_names, self.scores = load_scores(data / "scores.csv")
+        score_rows = -(-len(self.score_names) // 3)
         self.cell_w = size + 16
-        self.cell_h = size + 56
+        self.cell_h = size + 56 + 15 * score_rows
         self.view = []
         self.cells = []
 
         top = wx.Panel(self)
         self.filter = wx.Choice(
             top,
-            choices=["suspect (model says nsfw)", "positive (nsfw)", "hard_negative", "normal", "changed by me", "all"],
+            choices=[
+                "suspect (model says nsfw)",
+                "positive (nsfw)",
+                "hard_negative",
+                "normal",
+                "changed by me",
+                "all",
+                "DIFF: any models disagree",
+                "DIFF: A vs B",
+            ],
         )
         self.filter.SetSelection(0)
         self.filter.Bind(wx.EVT_CHOICE, lambda e: self.reset())
+        self.model_a = wx.Choice(top, choices=self.score_names)
+        self.model_b = wx.Choice(top, choices=self.score_names)
+        self.model_a.SetSelection(0 if self.score_names else wx.NOT_FOUND)
+        self.model_b.SetSelection(1 if len(self.score_names) > 1 else wx.NOT_FOUND)
+        self.model_a.Bind(wx.EVT_CHOICE, lambda e: self.reset())
+        self.model_b.Bind(wx.EVT_CHOICE, lambda e: self.reset())
         self.info = wx.StaticText(top)
         bar = wx.BoxSizer(wx.HORIZONTAL)
-        for w in (self.filter, self.info):
+        for w in (self.filter, wx.StaticText(top, label="A"), self.model_a, wx.StaticText(top, label="B"), self.model_b, self.info):
             bar.Add(w, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         top.SetSizer(bar)
 
@@ -128,7 +175,17 @@ class Frame(wx.Frame):
             return [r for r in self.rows if r["kind"] == kinds[choice]]
         if choice == 4:
             return [r for r in self.rows if r["sha256"] in self.overrides]
+        if choice == 6:
+            return self.diff_rows(self.score_names)
+        if choice == 7:
+            pair = [self.model_a.GetStringSelection(), self.model_b.GetStringSelection()]
+            return self.diff_rows(pair) if all(pair) and pair[0] != pair[1] else []
         return self.rows
+
+    def diff_rows(self, names):
+        scored = [r for r in self.rows if r["sha256"] in self.scores]
+        hits = [r for r in scored if disagree(self.scores[r["sha256"]], names)]
+        return sorted(hits, key=lambda r: -spread(self.scores[r["sha256"]], names))
 
     def reset(self):
         for cell in self.cells:

@@ -9,9 +9,12 @@ from compare import NSFW_LABELS, Images, load
 from train import read_manifest
 
 MODELS = {
-    "ours": "out/model",
-    "falcon": "Falconsai/nsfw_image_detection",
+    "v3": "out_v3/model",
+    "falconsai": "Falconsai/nsfw_image_detection",
     "nostrbuild": "nostrbuild/nsfw-image-detection-large",
+    "carbon225": "carbon225/vit-base-patch16-224-hentai",
+    "giacomoarienti": "giacomoarienti/nsfw-classifier",
+    "adamcodd": "AdamCodd/vit-base-nsfw-detector",
 }
 
 
