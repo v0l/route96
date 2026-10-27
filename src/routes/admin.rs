@@ -7,6 +7,7 @@ use crate::db::{
     WhitelistEntry,
 };
 use crate::file_stats::FileStats;
+use crate::filesystem::TierUsage;
 use crate::routes::{AppState, Nip94Event, PagedResult};
 use axum::{
     Json, Router,
@@ -304,6 +305,31 @@ struct DailyStat {
 struct AdminStatsResponse {
     days: u32,
     stats: Vec<DailyStat>,
+    storage: Option<TierUsage>,
+}
+
+const TIER_USAGE_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+static TIER_USAGE_CACHE: tokio::sync::Mutex<Option<(std::time::Instant, TierUsage)>> =
+    tokio::sync::Mutex::const_new(None);
+
+async fn cached_tier_usage(state: &AppState) -> Option<TierUsage> {
+    let mut cache = TIER_USAGE_CACHE.lock().await;
+    if let Some((at, usage)) = cache.as_ref()
+        && at.elapsed() < TIER_USAGE_TTL
+    {
+        return Some(usage.clone());
+    }
+    match state.fs.tier_usage(&state.db).await {
+        Ok(usage) => {
+            *cache = Some((std::time::Instant::now(), usage.clone()));
+            Some(usage)
+        }
+        Err(e) => {
+            log::error!("Failed to compute storage tier usage: {}", e);
+            None
+        }
+    }
 }
 
 /// `GET /admin/stats` — return time series data for admin dashboard.
@@ -355,7 +381,12 @@ async fn admin_stats(
         });
     }
 
-    AdminResponse::success(AdminStatsResponse { days, stats })
+    let storage = cached_tier_usage(&state).await;
+    AdminResponse::success(AdminStatsResponse {
+        days,
+        stats,
+        storage,
+    })
 }
 
 /// `GET /admin/background-progress` — return progress of background processing

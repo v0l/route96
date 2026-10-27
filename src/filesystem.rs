@@ -69,6 +69,18 @@ pub enum StorageTier {
 }
 
 const TIER_CACHE_MAX_ENTRIES: usize = 1_000_000;
+const USAGE_PAGE_SIZE: u32 = 2000;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct TierUsage {
+    pub cold_enabled: bool,
+    pub hot_files: u64,
+    pub hot_bytes: u64,
+    pub cold_files: u64,
+    pub cold_bytes: u64,
+    pub missing_files: u64,
+    pub missing_bytes: u64,
+}
 
 #[derive(Clone)]
 pub struct FileStore {
@@ -136,6 +148,48 @@ impl FileStore {
             self.tiers.clear();
         }
         self.tiers.insert(id.to_vec(), tier);
+    }
+
+    pub fn add_usage(&self, usage: &mut TierUsage, id: &Vec<u8>, size: u64) {
+        match self.tier(id) {
+            Some(StorageTier::Hot) => {
+                usage.hot_files += 1;
+                usage.hot_bytes += size;
+            }
+            Some(StorageTier::Cold) => {
+                usage.cold_files += 1;
+                usage.cold_bytes += size;
+            }
+            None => {
+                usage.missing_files += 1;
+                usage.missing_bytes += size;
+            }
+        }
+    }
+
+    pub async fn tier_usage(&self, db: &Database) -> Result<TierUsage> {
+        let mut usage = TierUsage {
+            cold_enabled: self.has_cold_tier(),
+            ..Default::default()
+        };
+        let mut cursor: Option<Vec<u8>> = None;
+        loop {
+            let page = db
+                .get_upload_sizes_page(cursor.as_deref(), USAGE_PAGE_SIZE)
+                .await?;
+            let Some((last, _)) = page.last() else {
+                return Ok(usage);
+            };
+            cursor = Some(last.clone());
+            let store = self.clone();
+            usage = tokio::task::spawn_blocking(move || {
+                for (id, size) in &page {
+                    store.add_usage(&mut usage, id, *size);
+                }
+                usage
+            })
+            .await?;
+        }
     }
 
     pub fn has_cold_tier(&self) -> bool {
@@ -665,6 +719,38 @@ mod expected_hash_tests {
             .unwrap();
         tokio::fs::write(&path, content).await.unwrap();
         id
+    }
+
+    #[tokio::test]
+    async fn add_usage_counts_each_tier_and_missing_files() {
+        let hot = tempfile::tempdir().unwrap();
+        let cold = tempfile::tempdir().unwrap();
+        let (store, _db) = test_store_with_cold(hot.path(), Some(cold.path()));
+        let stays_hot = write_hot(&store, b"hot file").await;
+        let goes_cold = write_hot(&store, b"cold file!").await;
+        assert!(store.relocate(&goes_cold, StorageTier::Cold).await.unwrap());
+        let absent = vec![9u8; 32];
+
+        let mut usage = TierUsage {
+            cold_enabled: store.has_cold_tier(),
+            ..Default::default()
+        };
+        store.add_usage(&mut usage, &stays_hot, 8);
+        store.add_usage(&mut usage, &goes_cold, 10);
+        store.add_usage(&mut usage, &absent, 5);
+
+        assert_eq!(
+            usage,
+            TierUsage {
+                cold_enabled: true,
+                hot_files: 1,
+                hot_bytes: 8,
+                cold_files: 1,
+                cold_bytes: 10,
+                missing_files: 1,
+                missing_bytes: 5,
+            }
+        );
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Route96, DailyStat } from "../upload/admin";
+import { Route96, DailyStat, TierUsage } from "../upload/admin";
 import { FormatBytes } from "../const";
 import {
   BarChart,
@@ -48,8 +48,56 @@ function BytesTooltip({ active, payload, label }: any) {
   );
 }
 
+function StorageTiers({ usage }: { usage: TierUsage }) {
+  const total = usage.hot_bytes + usage.cold_bytes;
+  const coldPercent = total > 0 ? (usage.cold_bytes / total) * 100 : 0;
+  return (
+    <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4 space-y-3">
+      <h3 className="text-xs text-neutral-500">Storage</h3>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-xs text-neutral-500 mb-1">Hot</div>
+          <div className="text-lg font-medium text-white">
+            {FormatBytes(usage.hot_bytes, 2)}
+          </div>
+          <div className="text-xs text-neutral-500">
+            {usage.hot_files.toLocaleString()} files
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-neutral-500 mb-1">Cold</div>
+          <div className="text-lg font-medium text-white">
+            {usage.cold_enabled ? FormatBytes(usage.cold_bytes, 2) : "Disabled"}
+          </div>
+          {usage.cold_enabled && (
+            <div className="text-xs text-neutral-500">
+              {usage.cold_files.toLocaleString()} files
+            </div>
+          )}
+        </div>
+      </div>
+      {usage.cold_enabled && (
+        <div className="h-2 bg-neutral-800 rounded-sm overflow-hidden">
+          <div
+            className="h-full bg-blue-600"
+            style={{ width: `${coldPercent}%` }}
+          />
+        </div>
+      )}
+      {usage.missing_files > 0 && (
+        <div className="text-xs text-neutral-500">
+          {usage.missing_files.toLocaleString()} files (
+          {FormatBytes(usage.missing_bytes, 2)}) are in the database but on
+          neither tier
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Stats({ pub, url }: StatsProps) {
   const [stats, setStats] = useState<DailyStat[]>([]);
+  const [storage, setStorage] = useState<TierUsage | null>(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -60,6 +108,7 @@ export default function Stats({ pub, url }: StatsProps) {
       const route96 = new Route96(url, pub);
       const data = await route96.getStats(days);
       setStats(data.stats);
+      setStorage(data.storage ?? null);
       setError(undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load stats");
@@ -120,6 +169,8 @@ export default function Stats({ pub, url }: StatsProps) {
           ))}
         </div>
       </div>
+
+      {storage && <StorageTiers usage={storage} />}
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-neutral-900 border border-neutral-800 rounded-sm p-4">

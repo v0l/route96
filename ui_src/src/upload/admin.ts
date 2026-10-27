@@ -84,9 +84,20 @@ export interface DailyStat {
   bytes: number;
 }
 
+export interface TierUsage {
+  cold_enabled: boolean;
+  hot_files: number;
+  hot_bytes: number;
+  cold_files: number;
+  cold_bytes: number;
+  missing_files: number;
+  missing_bytes: number;
+}
+
 export interface AdminStatsResponse {
   days: number;
   stats: DailyStat[];
+  storage?: TierUsage | null;
 }
 
 export interface BackgroundTaskProgress {

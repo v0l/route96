@@ -1951,6 +1951,19 @@ impl Database {
         .map_err(Error::from)
     }
 
+    pub async fn get_upload_sizes_page(
+        &self,
+        after: Option<&[u8]>,
+        limit: u32,
+    ) -> Result<Vec<(Vec<u8>, u64)>, Error> {
+        sqlx::query_as("select id, size from uploads where id > ? order by id limit ?")
+            .bind(after.unwrap_or(&[]))
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Error::from)
+    }
+
     /// Fetch persisted stats for a batch of files.
     ///
     /// Returns a map keyed by file id.  Files with no stats row are absent
