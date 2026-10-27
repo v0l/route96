@@ -72,10 +72,12 @@ class Cell(wx.Panel):
         inner.Add(self.bitmap, 0, wx.ALIGN_CENTER | wx.ALL, 2)
         scores = frame.scores.get(self.sha)
         if scores:
-            grid = wx.FlexGridSizer(cols=3, vgap=0, hgap=4)
-            for name in frame.score_names:
+            shown = frame.shown_models()
+            grid = wx.FlexGridSizer(cols=3 if len(shown) > 2 else len(shown), vgap=0, hgap=4)
+            for name in shown:
                 value = scores[name]
-                text = wx.StaticText(self.border, label=f"{name[:3]} {round(value * 100):02d}")
+                short = name if len(shown) <= 2 else name[:3]
+                text = wx.StaticText(self.border, label=f"{short} {round(value * 100):02d}")
                 text.SetFont(text.GetFont().Smaller())
                 text.SetForegroundColour(wx.Colour(255, 255, 255) if value >= 0.5 else wx.Colour(30, 30, 30))
                 text.SetBackgroundColour(wx.Colour(200, 40, 40) if value >= 0.5 else wx.Colour(230, 230, 230))
@@ -181,6 +183,12 @@ class Frame(wx.Frame):
             pair = [self.model_a.GetStringSelection(), self.model_b.GetStringSelection()]
             return self.diff_rows(pair) if all(pair) and pair[0] != pair[1] else []
         return self.rows
+
+    def shown_models(self):
+        if self.filter.GetSelection() == 7:
+            pair = [self.model_a.GetStringSelection(), self.model_b.GetStringSelection()]
+            return [n for n in pair if n]
+        return self.score_names
 
     def diff_rows(self, names):
         scored = [r for r in self.rows if r["sha256"] in self.scores]
