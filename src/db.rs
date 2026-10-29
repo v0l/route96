@@ -1247,6 +1247,17 @@ impl Database {
         Ok(())
     }
 
+    pub async fn flag_file_for_review(&self, file_id: &[u8]) -> Result<(), Error> {
+        sqlx::query("update uploads set review_state = ? where id = ? and review_state = ?")
+            .bind(ReviewState::LabelFlagged)
+            .bind(file_id)
+            .bind(ReviewState::None)
+            .execute(&self.pool)
+            .await?;
+        self.forget_files([file_id]);
+        Ok(())
+    }
+
     /// Set the review state for multiple files in a single query.
     pub async fn set_files_review_state(
         &self,

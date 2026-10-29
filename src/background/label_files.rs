@@ -355,23 +355,129 @@ impl LabelFiles {
                     );
                 });
 
-            if !label_flag_terms.is_empty() && !new_labels.is_empty() {
-                let file_id = file.id.clone();
-                let new_state = Database::review_state_for_labels(&new_labels, label_flag_terms);
-                if new_state != ReviewState::None {
-                    db.set_file_review_state(&file_id, new_state)
-                        .await
-                        .unwrap_or_else(|e| {
-                            error!(
-                                "Failed to set review state for {}: {}",
-                                hex::encode(&file_id),
-                                e
-                            );
-                        });
-                }
+            if !label_flag_terms.is_empty()
+                && !new_labels.is_empty()
+                && Database::review_state_for_labels(&new_labels, label_flag_terms)
+                    == ReviewState::LabelFlagged
+            {
+                db.flag_file_for_review(&file.id).await.unwrap_or_else(|e| {
+                    error!(
+                        "Failed to set review state for {}: {}",
+                        hex::encode(&file.id),
+                        e
+                    );
+                });
             }
         }
 
         BatchResult::Processed { found, failed }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::FileUpload;
+    use crate::processing::labeling::LabelError;
+    use crate::settings::Settings;
+    use sha2::{Digest, Sha256};
+    use sqlx::Executor;
+    use std::collections::HashMap;
+    use tokio::sync::RwLock;
+
+    struct FixedLabeler(&'static str);
+
+    impl MediaLabeler for FixedLabeler {
+        fn name(&self) -> &str {
+            "nsfw"
+        }
+
+        fn label_exclude(&self) -> &[String] {
+            &[]
+        }
+
+        fn min_confidence(&self) -> f32 {
+            0.4
+        }
+
+        fn label_file(
+            &self,
+            _path: &Path,
+            _mime_type: &str,
+        ) -> Result<HashMap<String, f32>, LabelError> {
+            Ok(HashMap::from([(self.0.to_string(), 0.9)]))
+        }
+    }
+
+    async fn test_db() -> Database {
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_label_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+        db
+    }
+
+    async fn add(db: &Database, fs: &FileStore, content: &[u8], state: ReviewState) -> Vec<u8> {
+        let id = Sha256::digest(content).to_vec();
+        let path = fs.get(&id);
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, content).await.unwrap();
+        let upload = FileUpload {
+            id: id.clone(),
+            size: content.len() as u64,
+            mime_type: "image/png".to_string(),
+            review_state: state,
+            created: chrono::Utc::now(),
+            ..Default::default()
+        };
+        db.add_file(&upload, None).await.unwrap();
+        id
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn relabel_does_not_reflag_reviewed_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "storage_dir": dir.path(),
+            "database": "",
+            "max_upload_bytes": 1024,
+            "public_url": "",
+        }))
+        .unwrap();
+        let fs = FileStore::new(Arc::new(RwLock::new(settings)));
+        let db = test_db().await;
+
+        let reviewed = add(&db, &fs, b"reviewed", ReviewState::Reviewed).await;
+        let fresh = add(&db, &fs, b"fresh", ReviewState::None).await;
+
+        let labeler: Arc<Box<dyn MediaLabeler + Send + Sync>> =
+            Arc::new(Box::new(FixedLabeler("nsfw")));
+        let terms = vec!["nsfw".to_string()];
+        let result =
+            LabelFiles::run_batch(labeler, &db, &fs, &terms, &CancellationToken::new()).await;
+        assert!(matches!(
+            result,
+            BatchResult::Processed {
+                found: 2,
+                failed: 0
+            }
+        ));
+
+        let state = |id: Vec<u8>| {
+            let db = db.clone();
+            async move { db.get_file(&id).await.unwrap().unwrap().review_state }
+        };
+        assert_eq!(state(reviewed).await, ReviewState::Reviewed);
+        assert_eq!(state(fresh).await, ReviewState::LabelFlagged);
     }
 }
