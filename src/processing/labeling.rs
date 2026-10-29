@@ -183,16 +183,67 @@ struct MyVitConfig {
     pub id2label: HashMap<usize, String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct Normalization {
+    #[serde(rename = "image_mean", default = "Normalization::half")]
+    mean: [f32; 3],
+    #[serde(rename = "image_std", default = "Normalization::half")]
+    std: [f32; 3],
+}
+
+impl Default for Normalization {
+    fn default() -> Self {
+        Self {
+            mean: Self::half(),
+            std: Self::half(),
+        }
+    }
+}
+
+impl Normalization {
+    fn half() -> [f32; 3] {
+        [0.5; 3]
+    }
+
+    fn from_preprocessor_config(path: &Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .and_then(|data| serde_json::from_slice(&data).ok())
+            .unwrap_or_default()
+    }
+
+    fn apply(
+        &self,
+        rgb: Vec<u8>,
+        width: usize,
+        height: usize,
+        device: &Device,
+    ) -> candle_core::Result<Tensor> {
+        let data = Tensor::from_vec(rgb, (height, width, 3), device)?.permute((2, 0, 1))?;
+        let mean = Tensor::new(&self.mean, device)?.reshape((3, 1, 1))?;
+        let std = Tensor::new(&self.std, device)?.reshape((3, 1, 1))?;
+        (data.to_dtype(DType::F32)? / 255.)?
+            .broadcast_sub(&mean)?
+            .broadcast_div(&std)
+    }
+}
+
 /// A loaded ViT model ready for inference
 pub struct VitModel {
     model: vit::Model,
     label_config: MyVitConfig,
+    normalization: Normalization,
     device: Device,
 }
 
 impl VitModel {
     /// Load model files from explicit paths.
-    fn load(model_path: PathBuf, config_path: PathBuf, device: Device) -> Result<Self> {
+    fn load(
+        model_path: PathBuf,
+        config_path: PathBuf,
+        normalization: Normalization,
+        device: Device,
+    ) -> Result<Self> {
         candle_core::cuda::set_gemm_reduced_precision_f32(true);
         info!("Loading ViT model {:?} on {:?}", model_path, &device);
         let vb =
@@ -204,6 +255,7 @@ impl VitModel {
         Ok(Self {
             model,
             label_config,
+            normalization,
             device,
         })
     }
@@ -220,6 +272,7 @@ impl VitModel {
 
         let model_path = model_dir.join("model.safetensors");
         let config_path = model_dir.join("config.json");
+        let preprocessor_path = model_dir.join("preprocessor_config.json");
 
         if !model_path.exists() || !config_path.exists() {
             info!("Downloading ViT model '{}' into {:?}", hf_repo, model_dir);
@@ -235,7 +288,24 @@ impl VitModel {
             std::fs::copy(&dl_config, &config_path)?;
         }
 
-        Self::load(model_path, config_path, device)
+        if !preprocessor_path.exists() {
+            let fetched = ApiBuilder::new()
+                .with_cache_dir(models_dir.to_path_buf())
+                .build()
+                .and_then(|api| {
+                    api.model(hf_repo.to_string())
+                        .get("preprocessor_config.json")
+                });
+            match fetched {
+                Ok(dl_preprocessor) => {
+                    std::fs::copy(&dl_preprocessor, &preprocessor_path)?;
+                }
+                Err(e) => warn!("No preprocessor_config.json for '{}': {}", hf_repo, e),
+            }
+        }
+
+        let normalization = Normalization::from_preprocessor_config(&preprocessor_path);
+        Self::load(model_path, config_path, normalization, device)
     }
 
     /// Normalise a raw label string from the model's id2label map.
@@ -276,12 +346,12 @@ impl VitModel {
         min_confidence: f32,
     ) -> Result<HashMap<String, f32>, LabelError> {
         if mime_type.starts_with("video/") {
-            let frames = unsafe { extract_video_frames(path, &self.device) }?;
+            let frames = unsafe { extract_video_frames(path, &self.normalization, &self.device) }?;
             classify_frames(self, &frames, min_confidence).map_err(LabelError::Ffmpeg)
         } else if mime_type.starts_with("image/svg") {
             Ok(HashMap::new())
         } else {
-            let image = unsafe { load_frame_224(path, &self.device) }?;
+            let image = unsafe { load_frame_224(path, &self.normalization, &self.device) }?;
             self.classify(&image, min_confidence)
                 .map_err(LabelError::Ffmpeg)
         }
@@ -682,7 +752,11 @@ fn classify_frames(
 }
 
 /// Extract up to MAX_VIDEO_FRAMES frames from a video, spread evenly across the entire duration.
-unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tensor>, LabelError> {
+unsafe fn extract_video_frames(
+    path: &Path,
+    normalization: &Normalization,
+    device: &Device,
+) -> Result<Vec<Tensor>, LabelError> {
     let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
     let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
@@ -770,7 +844,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
             .map_err(LabelError::Ffmpeg)?;
         for (frame, _) in decoded {
             if frame_index_set.contains(&frame_index) {
-                match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
+                match unsafe { frame_to_tensor(&frame, &mut scaler, normalization, device) } {
                     Ok(tensor) => frames.push(tensor),
                     Err(e) => {
                         debug!(
@@ -789,7 +863,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
     let flushed = decoder3.decode_pkt(None).map_err(LabelError::Ffmpeg)?;
     for (frame, _) in flushed {
         if frame_index_set.contains(&frame_index) {
-            match unsafe { frame_to_tensor(&frame, &mut scaler, device) } {
+            match unsafe { frame_to_tensor(&frame, &mut scaler, normalization, device) } {
                 Ok(tensor) => frames.push(tensor),
                 Err(e) => {
                     debug!(
@@ -809,6 +883,7 @@ unsafe fn extract_video_frames(path: &Path, device: &Device) -> Result<Vec<Tenso
 unsafe fn frame_to_tensor(
     frame: &ffmpeg_rs_raw::AvFrameRef,
     scaler: &mut Scaler,
+    normalization: &Normalization,
     device: &Device,
 ) -> Result<Tensor, LabelError> {
     let scaled = scaler
@@ -825,13 +900,7 @@ unsafe fn frame_to_tensor(
         dst_vec.extend_from_slice(row_slice);
     }
 
-    let data = Tensor::from_vec(dst_vec, (224, 224, 3), device)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], device)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.229f32, 0.224, 0.225], device)?.reshape((3, 1, 1))?;
-    let res = (data.to_dtype(DType::F32)? / 255.)?
-        .broadcast_sub(&mean)?
-        .broadcast_div(&std)?;
-    Ok(res)
+    Ok(normalization.apply(dst_vec, width, height, device)?)
 }
 
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
@@ -892,16 +961,13 @@ unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec
 }
 
 // https://github.com/huggingface/candle/blob/main/candle-examples/src/imagenet.rs
-unsafe fn load_frame_224(path: &Path, device: &Device) -> Result<Tensor, LabelError> {
+unsafe fn load_frame_224(
+    path: &Path,
+    normalization: &Normalization,
+    device: &Device,
+) -> Result<Tensor, LabelError> {
     let pic = unsafe { load_image(path, 224, 224)? };
-
-    let data = Tensor::from_vec(pic, (224, 224, 3), device)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.485f32, 0.456, 0.406], device)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.229f32, 0.224, 0.225], device)?.reshape((3, 1, 1))?;
-    let res = (data.to_dtype(DType::F32)? / 255.)?
-        .broadcast_sub(&mean)?
-        .broadcast_div(&std)?;
-    Ok(res)
+    Ok(normalization.apply(pic, 224, 224, device)?)
 }
 
 #[cfg(test)]
@@ -1002,7 +1068,9 @@ mod tests {
     #[test]
     fn test_extract_frames_from_real_video() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
+        let frames = unsafe {
+            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
+        };
 
         // 5-second clip should yield up to 10 frames (one every 0.5s)
         // But the test video is very short (5s) with few frames, so we get at most 10
@@ -1023,7 +1091,9 @@ mod tests {
     #[test]
     fn test_tensor_values_normalized() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
+        let frames = unsafe {
+            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
+        };
         assert!(!frames.is_empty(), "should extract at least 1 frame");
 
         for (i, frame) in frames.iter().enumerate() {
@@ -1046,7 +1116,9 @@ mod tests {
     #[test]
     fn test_frames_differ_between_seconds() {
         let video = get_test_video();
-        let frames = unsafe { extract_video_frames(&video, &Device::Cpu).unwrap() };
+        let frames = unsafe {
+            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
+        };
         assert!(
             frames.len() >= 2,
             "need at least 2 frames to compare, got {}",
@@ -1082,6 +1154,54 @@ mod tests {
         }
 
         println!("Video labels: {:?}", labels);
+    }
+
+    #[test]
+    fn test_normalization_from_preprocessor_config() {
+        let dir = std::env::temp_dir().join(format!("route96_norm_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("preprocessor_config.json");
+
+        assert_eq!(
+            Normalization::from_preprocessor_config(&path),
+            Normalization::default()
+        );
+
+        std::fs::write(
+            &path,
+            r#"{"image_mean":[0.485,0.456,0.406],"image_std":[0.229,0.224,0.225],"size":224}"#,
+        )
+        .unwrap();
+        let n = Normalization::from_preprocessor_config(&path);
+        assert_eq!(n.mean, [0.485, 0.456, 0.406]);
+        assert_eq!(n.std, [0.229, 0.224, 0.225]);
+
+        std::fs::write(&path, r#"{"do_resize":true}"#).unwrap();
+        assert_eq!(
+            Normalization::from_preprocessor_config(&path),
+            Normalization::default()
+        );
+
+        let t = n.apply(vec![255, 0, 128], 1, 1, &Device::Cpu).unwrap();
+        let v = t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert!((v[0] - (1.0 - 0.485) / 0.229).abs() < 1e-4);
+        assert!((v[1] - (0.0 - 0.456) / 0.224).abs() < 1e-4);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_nsfw_model_does_not_flag_glass_sculpture() {
+        let image =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data/glass_sculpture.webp");
+        let labels = label_file(
+            &image,
+            "image/webp",
+            &test_models_dir(),
+            "v0l/route96-nsfw-vit224",
+        )
+        .unwrap();
+        assert!(!labels.contains_key("nsfw"), "{labels:?}");
     }
 
     #[test]
