@@ -934,6 +934,7 @@ unsafe fn load_frame_224(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     const DEFAULT_HF_REPO: &str = "google/vit-base-patch16-224";
 
     fn get_test_video() -> PathBuf {
