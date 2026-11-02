@@ -973,43 +973,11 @@ unsafe fn load_frame_224(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
-    use std::sync::Once;
-
-    const BBB_URL: &str =
-        "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4";
     const DEFAULT_HF_REPO: &str = "google/vit-base-patch16-224";
 
-    static DOWNLOAD_VIDEO: Once = Once::new();
-
-    /// Download the first 5 seconds of Big Buck Bunny (cached across tests)
     fn get_test_video() -> PathBuf {
-        let path = std::env::temp_dir().join("route96_test_bbb.mp4");
-        DOWNLOAD_VIDEO.call_once(|| {
-            if path.exists() {
-                return;
-            }
-            let status = Command::new("ffmpeg")
-                .args([
-                    "-y",
-                    "-t",
-                    "5",
-                    "-i",
-                    BBB_URL,
-                    "-c",
-                    "copy",
-                    path.to_str().unwrap(),
-                ])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .expect("ffmpeg must be installed to run labeling tests");
-            assert!(
-                status.success(),
-                "ffmpeg failed to download Big Buck Bunny clip"
-            );
-        });
-        assert!(path.exists(), "test video not found after download");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data/sample.mp4");
+        assert!(path.exists(), "test video missing: {path:?}");
         path
     }
 
