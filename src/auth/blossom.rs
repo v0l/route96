@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::prelude::*;
-use log::info;
+use log::debug;
 use nostr::{Alphabet, Event, JsonUtil, Kind, SingleLetterTag, TagKind, Timestamp};
 
 /// Decode a BUD-11 authorization token.
@@ -325,6 +325,13 @@ where
             });
         }
 
+        // Verify the signature and id hash before trusting any other event
+        // field — `from_json` only deserializes, it does not validate.
+        event.verify().map_err(|_| BlossomRejection {
+            status: StatusCode::BAD_REQUEST,
+            reason: "Event signature invalid",
+        })?;
+
         if (event.created_at.as_secs() as i64 - Timestamp::now().as_secs() as i64).unsigned_abs()
             >= 60 * 3
         {
@@ -364,12 +371,13 @@ where
             });
         }
 
-        event.verify().map_err(|_| BlossomRejection {
-            status: StatusCode::BAD_REQUEST,
-            reason: "Event signature invalid",
-        })?;
-
-        info!("{}", event.as_json());
+        // Log the minimal identifiers, not the full event: with the
+        // documented RUST_LOG=info deployment setting, per-event JSON here
+        // builds a persistent pubkey→blob activity log.
+        debug!(
+            "blossom auth ok: id={} pubkey={}",
+            event.id, event.pubkey
+        );
 
         let content_type = parts
             .headers

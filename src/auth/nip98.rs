@@ -65,6 +65,12 @@ where
             return Err(Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Wrong event kind" });
         }
 
+        // Verify the signature and id hash before trusting any other event
+        // field — `from_json` only deserializes, it does not validate.
+        event
+            .verify()
+            .map_err(|_| Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Event signature invalid" })?;
+
         // Get expiration from tag, or use default (10 minutes from created_at)
         let expiration = event
             .tags
@@ -144,11 +150,10 @@ where
         // request body. Replay resistance relies on the short 10-minute
         // expiration window enforced above.
 
-        event
-            .verify()
-            .map_err(|_| Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Event signature invalid" })?;
-
-        debug!("{}", event.as_json());
+        debug!(
+            "nip98 auth ok: id={} pubkey={}",
+            event.id, event.pubkey
+        );
 
         let content_type = parts
             .headers
