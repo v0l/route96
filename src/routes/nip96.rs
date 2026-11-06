@@ -20,6 +20,7 @@ use log::error;
 use nostr::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
 
 #[derive(Serialize, Default)]
@@ -261,11 +262,18 @@ impl Nip96Form {
     }
 }
 
+/// The multipart upload route streams to disk under `max_upload_bytes`, so it
+/// opts out of axum's default 2 MiB body limit; the rest of the API keeps the
+/// default. (GET /n96 shares the route but reads no body.)
 pub fn nip96_routes() -> Router<Arc<AppState>> {
+    let upload_routes = Router::new()
+        .route("/n96", post(upload).get(list_files))
+        .layer(RequestBodyLimitLayer::new(usize::MAX));
+
     Router::new()
         .route("/.well-known/nostr/nip96.json", get(get_info_doc))
-        .route("/n96", post(upload).get(list_files))
         .route("/n96/{sha256}", route_delete(delete))
+        .merge(upload_routes)
 }
 
 async fn get_info_doc(AxumState(state): AxumState<Arc<AppState>>) -> Json<Nip96InfoDoc> {

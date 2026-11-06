@@ -27,7 +27,6 @@ use route96::settings::{Settings, WhitelistMode};
 use route96::whitelist::Whitelist;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tower_http::limit::RequestBodyLimitLayer;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -169,9 +168,11 @@ async fn main() -> Result<(), Error> {
     {
         app = app.layer(middleware::from_fn(route96::cors::bud13_discovery_headers));
     }
-    // Disable axum's default 2 MiB body limit so upload handlers can enforce
-    // max_upload_bytes themselves. usize::MAX is effectively unlimited.
-    app = app.layer(RequestBodyLimitLayer::new(usize::MAX));
+    // Request-body limits are configured per-route: the streaming upload
+    // routers (blossom upload/media, nip96 multipart) opt out of axum's
+    // default 2 MiB limit themselves; every other route keeps it so JSON
+    // bodies (e.g. unauthenticated PUT /report) cannot buffer unbounded
+    // input in memory.
 
     let shutdown = CancellationToken::new();
     let mut jh = start_background_tasks(

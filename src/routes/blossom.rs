@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
+use tower_http::limit::RequestBodyLimitLayer;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,23 +80,32 @@ fn url_hash_from_url(url: &str) -> Option<String> {
     }
 }
 
+/// Upload endpoints stream the request body to disk under the
+/// `max_upload_bytes` cap, so they opt out of axum's default 2 MiB body
+/// limit. Every other route here (JSON bodies: /report, /mirror, /list)
+/// keeps the default limit — with it disabled globally, an unauthenticated
+/// PUT /report could buffer arbitrarily large JSON in memory.
 pub fn blossom_routes() -> Router<Arc<AppState>> {
-    let router = Router::new()
+    let upload_routes = Router::new()
         .route(
             "/{sha256}",
             delete(delete_blob)
                 .put(upload_by_hash)
                 .options(hash_options),
         )
+        .route("/upload", head(upload_head).put(upload));
+
+    #[cfg(feature = "media-compression")]
+    let upload_routes = upload_routes.route("/media", head(head_media).put(upload_media));
+
+    let upload_routes = upload_routes.layer(RequestBodyLimitLayer::new(usize::MAX));
+
+    let other_routes = Router::new()
         .route("/list/{pubkey}", get(list_files))
-        .route("/upload", head(upload_head).put(upload))
         .route("/mirror", put(mirror))
         .route("/report", put(report_file));
 
-    #[cfg(feature = "media-compression")]
-    let router = router.route("/media", head(head_media).put(upload_media));
-
-    router
+    upload_routes.merge(other_routes)
 }
 
 pub(crate) const HASH_RESOURCE_METHODS: &str = "GET, HEAD, PUT, DELETE, OPTIONS";
@@ -1255,6 +1265,27 @@ mod tests {
         }
     }
 
+    /// Build an `Authorization: Nostr <base64>` header value for a signed,
+    /// unexpired kind-24242 event carrying the given verb tag.
+    fn make_auth_header(verb: &str) -> String {
+        use base64::Engine as _;
+        use base64::prelude::BASE64_STANDARD;
+
+        let keys = Keys::generate();
+        let expiration = nostr::Timestamp::now().as_secs() + 300;
+        let event = EventBuilder::new(Kind::Custom(24242), "")
+            .tags([
+                nostr::Tag::parse(["t".to_string(), verb.to_string()]).unwrap(),
+                nostr::Tag::parse(["expiration".to_string(), expiration.to_string()]).unwrap(),
+            ])
+            .sign_with_keys(&keys)
+            .unwrap();
+        format!(
+            "Nostr {}",
+            BASE64_STANDARD.encode(event.as_json().as_bytes())
+        )
+    }
+
     fn test_state() -> (Arc<AppState>, TempDir) {
         let temp = tempfile::tempdir().unwrap();
         let settings = Settings {
@@ -1415,6 +1446,131 @@ mod tests {
         .await
         .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Regression: the unlimited request-body limit must only apply to the
+    /// streaming upload routes. PUT /report takes a JSON body with no auth
+    /// check before parsing — with the limit disabled globally (the previous
+    /// behaviour) an unauthenticated client could buffer arbitrarily large
+    /// JSON in memory.
+    #[tokio::test]
+    async fn report_body_is_limited() {
+        let (state, _temp) = test_state();
+        let app = blossom_routes().with_state(state);
+        let big_body = vec![b' '; 3 * 1024 * 1024]; // > axum's default 2 MiB
+
+        // /report rejects the oversized body at the router layer: 413 with no
+        // x-reason (the handler never ran).
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/report")
+                    .header("content-type", "application/json")
+                    .body(Body::from(big_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(
+            response.headers().get("x-reason").is_none(),
+            "handler must not have run for an over-limit report body"
+        );
+    }
+
+    /// With no database the upload pipeline fails closed at the ban check
+    /// before the body is read, so offline tests cannot exercise the
+    /// unlimited body layer end-to-end. This ignored test proves a body
+    /// larger than axum's default 2 MiB limit reaches the upload handler
+    /// and is stored, which is what the per-router `RequestBodyLimitLayer`
+    /// placement guarantees.
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399"]
+    async fn upload_accepts_bodies_over_axum_default_limit() {
+        use sqlx::Executor;
+
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_bodylimit_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+
+        let temp = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            max_upload_bytes: 10 * 1024 * 1024, // above axum's 2 MiB default
+            ..test_state_settings(&temp)
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let state = Arc::new(AppState {
+            fs: crate::filesystem::FileStore::new(settings.clone()),
+            db,
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: crate::file_stats::FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+
+        let app = blossom_routes().with_state(state);
+        let body = vec![0x42; 3 * 1024 * 1024];
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("PUT")
+                    .uri("/upload")
+                    .header("authorization", make_auth_header("upload"))
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    /// Settings with all optional knobs off, sharing `temp` for storage —
+    /// used by the DB-gated body-limit test to override `max_upload_bytes`.
+    #[cfg(test)]
+    fn test_state_settings(temp: &TempDir) -> Settings {
+        Settings {
+            listen: None,
+            storage_dir: temp.path().to_string_lossy().into_owned(),
+            database: String::new(),
+            max_upload_bytes: 1024,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            reject_sensitive_exif: None,
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
+        }
     }
 
     #[tokio::test]
