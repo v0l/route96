@@ -24,6 +24,11 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct HashMismatch;
 
+/// Upper bound for the steganography scan, which buffers the whole file into
+/// memory and scans it byte-wise. Keeps a video-server-sized max_upload_bytes
+/// from turning every enabled-check image upload into a large heap allocation.
+const STEGO_SCAN_MAX: u64 = 25 * 1024 * 1024;
+
 impl std::fmt::Display for HashMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SHA-256 hash mismatch")
@@ -40,6 +45,10 @@ pub enum FileSystemResult {
     NewFile(NewFileResult),
     /// File hash is banned and must not be re-uploaded
     Banned,
+    /// Upload rejected by an ingest-time privacy check (sensitive EXIF or
+    /// suspected steganography). The stored file has already been removed.
+    #[cfg(feature = "blossom")]
+    Rejected(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -472,6 +481,61 @@ impl FileStore {
                     }
                     Ok(Err(e)) => log::warn!("Failed to compute phash: {}", e),
                     Err(e) => log::warn!("phash task panicked: {}", e),
+                }
+            }
+
+            // Ingest-time privacy checks, applied to every upload protocol
+            // (Blossom and NIP-96 share this path). Keyed on the sniffed /
+            // probed MIME in `res`, not the client-declared type: `infer`
+            // cannot classify text formats, so a declared non-image type
+            // would otherwise bypass the checks entirely. Both validators
+            // no-op on files they cannot parse.
+            //
+            // Both validators do synchronous file I/O and byte scanning, so
+            // they run on the blocking thread pool; the steganography scan
+            // buffers the whole file and is skipped above STEGO_SCAN_MAX
+            // bytes to keep a large max_upload_bytes from becoming a heap
+            // amplifier on every image upload.
+            #[cfg(feature = "blossom")]
+            if res.mime_type.starts_with("image/") {
+                let settings = self.settings().await;
+                let check_exif = settings.reject_sensitive_exif.unwrap_or(false);
+                let stego_requested = settings.reject_steganography.unwrap_or(false);
+                if check_exif || stego_requested {
+                    let scan_len = tokio::fs::metadata(&res.path)
+                        .await
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    let scan_stego = stego_requested && scan_len <= STEGO_SCAN_MAX;
+                    if stego_requested && !scan_stego {
+                        log::warn!(
+                            "Skipping steganography scan for {} ({} bytes > {} cap)",
+                            hex::encode(&res.id),
+                            scan_len,
+                            STEGO_SCAN_MAX
+                        );
+                    }
+                    let path = res.path.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        if check_exif
+                            && let Err(e) =
+                                crate::exif_validator::check_for_sensitive_exif(&path)
+                        {
+                            return Err(e);
+                        }
+                        if scan_stego
+                            && let Err(e) =
+                                crate::steganography_detector::check_for_steganography(&path)
+                        {
+                            return Err(e);
+                        }
+                        Ok(())
+                    })
+                    .await;
+                    if let Err(e) = result.unwrap_or_else(|e| Err(Error::msg(e.to_string()))) {
+                        tokio::fs::remove_file(&res.path).await.ok();
+                        return Ok(FileSystemResult::Rejected(e.to_string()));
+                    }
                 }
             }
 

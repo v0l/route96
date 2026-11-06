@@ -970,35 +970,9 @@ where
             is_new_file = true;
             let mut ret: FileUpload = (&blob).into();
 
-            // Check for sensitive EXIF metadata if enabled
-            #[cfg(feature = "blossom")]
-            if settings.reject_sensitive_exif.unwrap_or(false) && mime_type.starts_with("image/") {
-                let file_path = state.fs.get(&ret.id);
-                if let Err(e) = crate::exif_validator::check_for_sensitive_exif(&file_path) {
-                    if let Err(cleanup_err) = state.fs.delete(&ret.id).await {
-                        log::warn!(
-                            "Failed to cleanup file with sensitive EXIF: {}",
-                            cleanup_err
-                        );
-                    }
-                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
-                }
-            }
-
-            // Check for steganography/hidden data if enabled
-            #[cfg(feature = "blossom")]
-            if settings.reject_steganography.unwrap_or(false) && mime_type.starts_with("image/") {
-                let file_path = state.fs.get(&ret.id);
-                if let Err(e) = crate::steganography_detector::check_for_steganography(&file_path) {
-                    if let Err(cleanup_err) = state.fs.delete(&ret.id).await {
-                        log::warn!(
-                            "Failed to cleanup file with steganography: {}",
-                            cleanup_err
-                        );
-                    }
-                    return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", e));
-                }
-            }
+            // EXIF / steganography privacy checks run inside fs.put so they
+            // apply to every upload protocol; a rejection arrives here as
+            // FileSystemResult::Rejected.
 
             // update file data before inserting
             ret.name = name.map(|s| s.to_string());
@@ -1036,6 +1010,10 @@ where
             }
 
             ret
+        }
+        #[cfg(feature = "blossom")]
+        FileSystemResult::Rejected(reason) => {
+            return BlossomResponse::unprocessable_content(format!("Upload rejected: {}", reason));
         }
         FileSystemResult::Banned => {
             return BlossomResponse::Generic(BlossomGenericResponse {

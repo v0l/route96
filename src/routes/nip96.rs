@@ -71,6 +71,9 @@ enum Nip96Response {
     UploadResult(Json<Nip96UploadResult>),
     FileList(Json<PagedResult<Nip94Event>>),
     Forbidden(Json<Nip96UploadResult>),
+    /// Ingest-time privacy check rejection (sensitive EXIF / steganography).
+    #[cfg(feature = "blossom")]
+    Unprocessable(Json<Nip96UploadResult>),
 }
 
 impl Nip96Response {
@@ -92,6 +95,10 @@ impl IntoResponse for Nip96Response {
             Nip96Response::UploadResult(json) => (StatusCode::OK, json).into_response(),
             Nip96Response::FileList(json) => (StatusCode::OK, json).into_response(),
             Nip96Response::Forbidden(json) => (StatusCode::FORBIDDEN, json).into_response(),
+            #[cfg(feature = "blossom")]
+            Nip96Response::Unprocessable(json) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, json).into_response()
+            }
         }
     }
 }
@@ -401,6 +408,13 @@ async fn upload(
             return Nip96Response::Forbidden(Json(Nip96UploadResult::error(
                 "File is not allowed on this server",
             )));
+        }
+        #[cfg(feature = "blossom")]
+        Ok(FileSystemResult::Rejected(reason)) => {
+            return Nip96Response::Unprocessable(Json(Nip96UploadResult::error(&format!(
+                "Upload rejected: {}",
+                reason
+            ))));
         }
         Ok(FileSystemResult::AlreadyExists(i)) => match state.db.get_file(&i).await {
             Ok(Some(f)) if !f.banned => f,
