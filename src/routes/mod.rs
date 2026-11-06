@@ -18,7 +18,7 @@ use anyhow::{Error, Result};
 use axum::{
     body::Body,
     extract::{Path, State as AxumState},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Json, Response},
 };
 use axum_extra::response::file_stream::FileStream;
@@ -330,17 +330,69 @@ const INLINE_BODY_MAX: u64 = 256 * 1024;
 
 fn inline_response(bytes: impl Into<Body>, info: &FileUpload) -> Response {
     let mut response = Response::new(bytes.into());
-    set_file_headers(&mut response, info);
+    set_file_headers(&mut response, &info);
     response
+}
+
+/// HTML/JS MIME types that browsers execute as active content and that
+/// magic-byte sniffing (`infer`) cannot detect — so a client can store them
+/// under any declared type and have them served verbatim. They are rewritten
+/// to inert `text/plain` at serve time.
+///
+/// `image/svg+xml` is deliberately NOT rewritten: it is a legitimate image
+/// type that Nostr clients embed via `<img>` tags, and rewriting it would
+/// break rendering. It is safe here because scripts never run in
+/// `<img>`-embedded SVG, and the sandboxing CSP below blocks scripts and
+/// assigns an opaque origin when an SVG is navigated to directly. The same
+/// CSP is the primary mitigation for the types that ARE rewritten — the
+/// rewrite is defense in depth (e.g. a proxy stripping the CSP header).
+const EXECUTABLE_MIME_TYPES: &[&str] = &[
+    "text/html",
+    "application/xhtml+xml",
+    "text/xml",
+    "application/xml",
+    "text/javascript",
+    "application/javascript",
+    "application/x-javascript",
+];
+
+/// Rewrite script-executable MIME types to `text/plain` before serving a
+/// blob. Base type comparison is case-insensitive and ignores parameters
+/// (`text/html; charset=utf-8` still rewrites); everything else passes
+/// through unchanged, preserving parameters like `codecs=`.
+fn safe_content_type(mime_type: &str) -> String {
+    let base = mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if EXECUTABLE_MIME_TYPES.contains(&base.as_str()) {
+        "text/plain".to_string()
+    } else {
+        mime_type.to_string()
+    }
 }
 
 /// Set common headers for file responses
 fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        info.mime_type
+        safe_content_type(&info.mime_type)
             .parse()
             .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+    );
+    // Stored content is untrusted user input: block MIME sniffing and run any
+    // document the browser does render in an opaque sandboxed origin so it
+    // cannot read this origin's storage (the admin UI keeps Nostr keys there)
+    // or make same-origin authenticated requests.
+    response.headers_mut().insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    response.headers_mut().insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("sandbox"),
     );
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -913,5 +965,77 @@ mod tests {
         // Empty file — any range is unsatisfiable
         let result = get_range_from_header("bytes=0-", 0);
         assert_eq!(result, RangeOutcome::Unsatisfiable);
+    }
+
+    /// Regression: blobs declared with script-executable MIME types must be
+    /// rewritten to inert `text/plain`, and every blob response must carry
+    /// `X-Content-Type-Options: nosniff` and a sandboxing CSP. Without this,
+    /// an attacker can host scripts on the server's origin — the same origin
+    /// as the admin UI, which keeps Nostr keys in localStorage.
+    #[tokio::test]
+    async fn blob_responses_rewrite_executable_mime_and_set_sandbox_headers() {
+        for mime in [
+            "text/html",
+            "text/html; charset=utf-8",
+            "application/xhtml+xml",
+            "text/xml",
+            "TEXT/HTML",
+        ] {
+            let info = FileUpload {
+                size: 15,
+                mime_type: mime.to_string(),
+                ..Default::default()
+            };
+            let response = inline_response(b"<h1>hello</h1>".to_vec(), &info);
+            let headers = response.headers();
+
+            assert_eq!(
+                headers[header::CONTENT_TYPE],
+                "text/plain",
+                "executable mime {mime} must be rewritten"
+            );
+            assert_eq!(
+                headers.get("x-content-type-options").map(|v| v.as_ref()),
+                Some(&b"nosniff"[..]),
+                "nosniff must be set for {mime}"
+            );
+            assert_eq!(
+                headers.get("content-security-policy").map(|v| v.as_ref()),
+                Some(&b"sandbox"[..]),
+                "sandbox CSP must be set for {mime}"
+            );
+        }
+    }
+
+    /// Safe media types pass through unchanged, including parameters.
+    /// image/svg+xml is preserved so `<img>` embedding keeps working: scripts
+    /// never run in img-embedded SVG, and the sandboxing CSP blocks scripts
+    /// with an opaque origin on direct navigation.
+    #[tokio::test]
+    async fn blob_responses_preserve_safe_content_types() {
+        for mime in [
+            "image/png",
+            "video/mp4; codecs=\"avc1\"",
+            "application/pdf",
+            "image/svg+xml",
+        ] {
+            let info = FileUpload {
+                size: 4,
+                mime_type: mime.to_string(),
+                ..Default::default()
+            };
+            let response = inline_response(b"data".to_vec(), &info);
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                mime,
+                "safe mime {mime} must not be rewritten"
+            );
+            // SVG still gets the sandboxing CSP and nosniff.
+            assert_eq!(
+                response.headers().get("content-security-policy").map(|v| v.as_ref()),
+                Some(&b"sandbox"[..]),
+                "sandbox CSP must be set for {mime}"
+            );
+        }
     }
 }
