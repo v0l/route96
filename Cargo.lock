@@ -518,7 +518,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 [[package]]
 name = "candle-core"
 version = "0.9.2"
-source = "git+https://github.com/DrJesseGlass/candle?branch=fix%2Fdisable-bf16-wmma-pre-ampere#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
+source = "git+https://github.com/DrJesseGlass/candle?rev=bb4d7025db5d6ad43d0286849d5f3dfc993c7c84#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
 dependencies = [
  "byteorder",
  "candle-kernels",
@@ -543,7 +543,7 @@ dependencies = [
 [[package]]
 name = "candle-kernels"
 version = "0.9.2"
-source = "git+https://github.com/DrJesseGlass/candle?branch=fix%2Fdisable-bf16-wmma-pre-ampere#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
+source = "git+https://github.com/DrJesseGlass/candle?rev=bb4d7025db5d6ad43d0286849d5f3dfc993c7c84#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
 dependencies = [
  "bindgen_cuda",
 ]
@@ -551,7 +551,7 @@ dependencies = [
 [[package]]
 name = "candle-nn"
 version = "0.9.2"
-source = "git+https://github.com/DrJesseGlass/candle?branch=fix%2Fdisable-bf16-wmma-pre-ampere#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
+source = "git+https://github.com/DrJesseGlass/candle?rev=bb4d7025db5d6ad43d0286849d5f3dfc993c7c84#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
 dependencies = [
  "candle-core",
  "half",
@@ -566,7 +566,7 @@ dependencies = [
 [[package]]
 name = "candle-transformers"
 version = "0.9.2"
-source = "git+https://github.com/DrJesseGlass/candle?branch=fix%2Fdisable-bf16-wmma-pre-ampere#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
+source = "git+https://github.com/DrJesseGlass/candle?rev=bb4d7025db5d6ad43d0286849d5f3dfc993c7c84#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
 dependencies = [
  "byteorder",
  "candle-core",
@@ -584,7 +584,7 @@ dependencies = [
 [[package]]
 name = "candle-ug"
 version = "0.9.2"
-source = "git+https://github.com/DrJesseGlass/candle?branch=fix%2Fdisable-bf16-wmma-pre-ampere#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
+source = "git+https://github.com/DrJesseGlass/candle?rev=bb4d7025db5d6ad43d0286849d5f3dfc993c7c84#bb4d7025db5d6ad43d0286849d5f3dfc993c7c84"
 dependencies = [
  "ug",
  "ug-cuda",
