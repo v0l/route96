@@ -456,9 +456,13 @@ impl GenericLlmLabeler {
             std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
         let temp_str = temp_path.to_str().ok_or(LabelError::InvalidPath)?;
 
+        crate::processing::reject_playlist_media(path).map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
+
         unsafe {
             let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
             let probe = demux.probe_input().map_err(LabelError::Ffmpeg)?;
+            crate::processing::check_demuxer_format(&probe.format)
+                .map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
 
             let stream = probe
                 .streams
@@ -760,8 +764,10 @@ unsafe fn extract_video_frames(
     use ffmpeg_rs_raw::ffmpeg_sys_the_third::{AVSEEK_FLAG_BACKWARD, av_seek_frame};
 
     let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
+    crate::processing::reject_playlist_media(path).map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
     let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
+    crate::processing::check_demuxer_format(&info.format).map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
     let video_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
 
     check_dimensions(video_stream.width as u32, video_stream.height as u32)?;
@@ -867,8 +873,10 @@ unsafe fn frame_to_tensor(
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
 unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>, LabelError> {
     let path_str = path_buf.to_str().ok_or(LabelError::InvalidPath)?;
+    crate::processing::reject_playlist_media(path_buf).map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
     let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
+    crate::processing::check_demuxer_format(&info.format).map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
     let image_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
 
     check_dimensions(image_stream.width as u32, image_stream.height as u32)?;

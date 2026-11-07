@@ -5,4 +5,4 @@ data/
 ui_src/dist/
 ui_src/node_modules/
 ui_src/package-lock.json
-ui_src/*.tsbuildinfo
+ui_src/*.tsbuildinfo.cicache/
