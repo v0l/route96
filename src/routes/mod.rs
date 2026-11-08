@@ -238,7 +238,7 @@ pub struct MediaProcessingPolicy {
 #[derive(Serialize)]
 pub struct LabelingPolicy {
     pub enabled: bool,
-    pub models: Vec<LabelModelInfo>
+    pub models: Vec<LabelModelInfo>,
 }
 
 #[cfg(feature = "labels")]
@@ -297,7 +297,7 @@ pub async fn get_props(
                             model_type: Some("llm".to_string()),
                         },
                     })
-                    .collect()
+                    .collect(),
             }
         },
         #[cfg(feature = "payments")]
@@ -318,7 +318,7 @@ const INLINE_BODY_MAX: u64 = 256 * 1024;
 
 fn inline_response(bytes: impl Into<Body>, info: &FileUpload) -> Response {
     let mut response = Response::new(bytes.into());
-    set_file_headers(&mut response, &info);
+    set_file_headers(&mut response, info);
     response
 }
 
@@ -362,6 +362,15 @@ fn safe_content_type(mime_type: &str) -> String {
     }
 }
 
+fn sandbox_csp_applies(mime_type: &str) -> bool {
+    !mime_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("application/pdf")
+}
+
 /// Set common headers for file responses
 fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response.headers_mut().insert(
@@ -378,10 +387,12 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
-    response.headers_mut().insert(
-        HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static("sandbox"),
-    );
+    if sandbox_csp_applies(&info.mime_type) {
+        response.headers_mut().insert(
+            HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static("sandbox"),
+        );
+    }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("max-age=31536000, immutable"),
@@ -496,7 +507,9 @@ pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
 
     match tokio::fs::read(index).await {
         Ok(contents) => Ok(Html(contents)),
-        Err(_) => Ok(Html("<html><body>route96</body></html>".to_string().into_bytes())),
+        Err(_) => Ok(Html(
+            "<html><body>route96</body></html>".to_string().into_bytes(),
+        )),
     }
 }
 
@@ -541,9 +554,7 @@ fn get_range_from_header(range_header: &str, file_size: u64) -> RangeOutcome {
 
     let end = match single_range.end {
         EndPosition::Index(i) => i.min(file_size.saturating_sub(1)),
-        EndPosition::LastByte => file_size
-            .saturating_sub(1)
-            .min(start + MAX_UNBOUNDED_RANGE),
+        EndPosition::LastByte => file_size.saturating_sub(1).min(start + MAX_UNBOUNDED_RANGE),
     };
 
     // Well-formed but outside the file: this is the genuine 416 case.
@@ -1018,11 +1029,177 @@ mod tests {
                 mime,
                 "safe mime {mime} must not be rewritten"
             );
+            if mime == "application/pdf" {
+                continue;
+            }
             // SVG still gets the sandboxing CSP and nosniff.
             assert_eq!(
-                response.headers().get("content-security-policy").map(|v| v.as_ref()),
+                response
+                    .headers()
+                    .get("content-security-policy")
+                    .map(|v| v.as_ref()),
                 Some(&b"sandbox"[..]),
                 "sandbox CSP must be set for {mime}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pdf_blobs_skip_sandbox_csp_so_the_viewer_renders_inline() {
+        for mime in ["application/pdf", "Application/PDF; name=x"] {
+            let info = FileUpload {
+                size: 4,
+                mime_type: mime.to_string(),
+                ..Default::default()
+            };
+            let response = inline_response(b"%PDF".to_vec(), &info);
+            let headers = response.headers();
+            assert_eq!(headers[header::CONTENT_TYPE], mime);
+            assert!(headers.get(header::CONTENT_SECURITY_POLICY).is_none());
+            assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        }
+    }
+
+    #[tokio::test]
+    async fn octet_stream_blobs_keep_type_and_sandbox() {
+        let info = FileUpload {
+            size: 4,
+            mime_type: "application/octet-stream".to_string(),
+            ..Default::default()
+        };
+        let response = inline_response(b"data".to_vec(), &info);
+        let headers = response.headers();
+        assert_eq!(headers[header::CONTENT_TYPE], "application/octet-stream");
+        assert_eq!(headers[header::CONTENT_SECURITY_POLICY], "sandbox");
+        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    }
+
+    async fn test_db() -> Database {
+        use sqlx::Executor;
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_routes_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+        db
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn cross_origin_blob_get_keeps_wildcard_cors_and_hardening_headers() {
+        use crate::cors::cors_layer;
+        use crate::file_stats::FileStatsTracker;
+        use crate::whitelist::Whitelist;
+        use axum::{Router, routing::get};
+        use sha2::{Digest, Sha256};
+        use tokio::sync::RwLock;
+        use tower::ServiceExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let settings: crate::settings::Settings = serde_json::from_value(serde_json::json!({
+            "storage_dir": temp.path(),
+            "database": "",
+            "max_upload_bytes": 1024,
+            "public_url": "https://cdn.example.com",
+        }))
+        .unwrap();
+        let settings = Arc::new(RwLock::new(settings));
+        let db = test_db().await;
+        let fs = FileStore::new(settings.clone());
+
+        let mut ids = Vec::new();
+        for (content, mime) in [
+            (&b"%PDF-1.4 test"[..], "application/pdf"),
+            (&b"\x00\x01binary"[..], "application/octet-stream"),
+            (&b"<script>x</script>"[..], "text/html"),
+        ] {
+            let id = Sha256::digest(content).to_vec();
+            let path = fs.get(&id);
+            tokio::fs::create_dir_all(path.parent().unwrap())
+                .await
+                .unwrap();
+            tokio::fs::write(&path, content).await.unwrap();
+            db.add_file(
+                &FileUpload {
+                    id: id.clone(),
+                    size: content.len() as u64,
+                    mime_type: mime.to_string(),
+                    created: Utc::now(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .unwrap();
+            ids.push((hex::encode(&id), mime));
+        }
+
+        let state = Arc::new(AppState {
+            fs,
+            db,
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        let app = Router::new()
+            .route("/{sha256}", get(get_blob).head(head_blob))
+            .layer(cors_layer())
+            .with_state(state);
+
+        for (hash, mime) in ids {
+            let res = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!("/{hash}"))
+                        .header(header::ORIGIN, "https://client.example")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{mime}");
+            let h = res.headers();
+            assert_eq!(h[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*", "{mime}");
+            assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff", "{mime}");
+            let expected_type = if mime == "text/html" {
+                "text/plain"
+            } else {
+                mime
+            };
+            assert_eq!(h[header::CONTENT_TYPE], expected_type);
+            assert_eq!(
+                h.get(header::CONTENT_SECURITY_POLICY).is_some(),
+                mime != "application/pdf",
+                "{mime}"
+            );
+
+            let preflight = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("OPTIONS")
+                        .uri(format!("/{hash}"))
+                        .header(header::ORIGIN, "https://client.example")
+                        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "range")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                preflight.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+                "*"
             );
         }
     }
