@@ -41,6 +41,9 @@ Decentralized blob storage server with Nostr integration, supporting multiple pr
 - **CORS Support** - Full cross-origin resource sharing compliance
 - **EXIF Privacy Protection** - Optional rejection of images with sensitive metadata (GPS, device info)
 
+### NIP-98 HTTP auth
+Admin, NIP-96 and payment endpoints use NIP-98 (kind 27235). The `u` tag must have the same scheme, host and port as `public_url` and the path of the request (a query string is ignored), and `created_at` must be within 60 seconds of server time whatever the `expiration` tag says. The request `Host` header is deliberately not accepted as an alternative: a client controls it, so a signed event captured by another site could be replayed here by sending that site's name as `Host`. If the web UI is served from an alias (www., a second domain, localhost), set `public_url` to the address clients use and point the UI at it with `VITE_API_URL`; a mismatch is rejected with `x-reason: U tag does not match public_url and request path, set public_url to the address clients use`.
+
 ### Payment System
 - **Lightning Network** - Bitcoin payments via LND integration
 - **Fiat Tracking** - Multi-currency support (USD/EUR/GBP/JPY/etc.)

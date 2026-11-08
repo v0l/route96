@@ -127,7 +127,7 @@ impl FromRequestParts<Arc<AppState>> for Nip98Auth {
         if !url_matched {
             return Err(Nip98Rejection {
                 status: StatusCode::UNAUTHORIZED,
-                reason: "U tag does not match request URL",
+                reason: "U tag does not match public_url and request path, set public_url to the address clients use",
             });
         }
 
@@ -188,6 +188,171 @@ impl FromRequestParts<Arc<AppState>> for Nip98Auth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::Database;
+    use crate::file_stats::FileStatsTracker;
+    use crate::filesystem::FileStore;
+    use crate::settings::Settings;
+    use crate::whitelist::Whitelist;
+    use axum::{Router, body::Body, routing::get};
+    use nostr::{EventBuilder, Keys, Tag, TagKind};
+    use sqlx::mysql::MySqlPoolOptions;
+    use tokio::sync::RwLock;
+    use tower::ServiceExt;
+
+    fn test_state() -> (Arc<AppState>, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            listen: None,
+            storage_dir: temp.path().to_string_lossy().into_owned(),
+            database: "mysql://user:pass@127.0.0.1:1/route96".to_string(),
+            max_upload_bytes: 1024,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            #[cfg(feature = "blossom")]
+            reject_sensitive_exif: None,
+            #[cfg(feature = "blossom")]
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let pool = MySqlPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
+            .unwrap();
+        let state = Arc::new(AppState {
+            fs: FileStore::new(settings.clone()),
+            db: Database::from_pool(pool),
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        (state, temp)
+    }
+
+    async fn handler(_auth: Nip98Auth) -> &'static str {
+        "ok"
+    }
+
+    async fn status_for(
+        u: &str,
+        created_at: u64,
+        expiration: Option<u64>,
+        host: &str,
+    ) -> StatusCode {
+        let (state, _temp) = test_state();
+        let keys = Keys::generate();
+        let mut tags = vec![
+            Tag::custom(TagKind::u(), [u.to_string()]),
+            Tag::custom(TagKind::Method, ["GET"]),
+        ];
+        if let Some(e) = expiration {
+            tags.push(Tag::custom(TagKind::Expiration, [e.to_string()]));
+        }
+        let event = EventBuilder::new(Kind::HttpAuth, "")
+            .tags(tags)
+            .custom_created_at(Timestamp::from_secs(created_at))
+            .sign_with_keys(&keys)
+            .unwrap();
+        let header = format!("Nostr {}", BASE64_STANDARD.encode(event.as_json()));
+        let app = Router::new()
+            .route("/admin/self", get(handler))
+            .with_state(state);
+        app.oneshot(
+            axum::http::Request::builder()
+                .uri("/admin/self")
+                .header("authorization", header)
+                .header("host", host)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+    }
+
+    fn now() -> u64 {
+        Timestamp::now().as_secs()
+    }
+
+    const OWN: &str = "https://example.com/admin/self";
+
+    #[tokio::test]
+    async fn extractor_accepts_valid_event() {
+        assert_eq!(status_for(OWN, now(), None, "example.com").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_u_tag_on_another_host() {
+        assert_eq!(
+            status_for("https://other.example/admin/self", now(), None, "example.com").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_forged_host_header_matching_u_tag() {
+        assert_eq!(
+            status_for("https://other.example/admin/self", now(), None, "other.example").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_61s_old_event_with_year_long_expiration() {
+        let n = now();
+        assert_eq!(
+            status_for(OWN, n - 61, Some(n + 365 * 86400), "example.com").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn extractor_rejects_30_day_old_event() {
+        let n = now();
+        assert_eq!(
+            status_for(OWN, n - 30 * 86400, Some(n + 365 * 86400), "example.com").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn extractor_accepts_query_string_on_u_tag() {
+        assert_eq!(
+            status_for("https://example.com/admin/self?a=1", now(), None, "example.com").await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn extractor_accepts_uppercase_host_and_explicit_default_port() {
+        assert_eq!(
+            status_for("https://Example.COM:443/admin/self", now(), None, "example.com").await,
+            StatusCode::OK
+        );
+    }
 
     #[test]
     fn url_tag_for_other_host_is_rejected() {
