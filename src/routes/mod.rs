@@ -400,24 +400,14 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    if let Some(name) = &info.name {
-        // Sanitize the filename: strip characters that could break out of the
-        // quoted-string (", \, CR, LF and other control chars).
-        let safe: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii() && !c.is_ascii_control() && c != '"' && c != '\\' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        if let Ok(disposition) = format!("inline; filename=\"{}\"", safe).parse() {
-            response
-                .headers_mut()
-                .insert(header::CONTENT_DISPOSITION, disposition);
-        }
+    let ext = mime2ext::mime2ext(&info.mime_type)
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+    let filename = format!("{}{}", hex::encode(&info.id), ext);
+    if let Ok(disposition) = format!("inline; filename=\"{}\"", filename).parse() {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, disposition);
     }
 }
 
@@ -858,6 +848,26 @@ pub async fn get_blob_thumb(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn file_headers_do_not_expose_uploader_name() {
+        let info = FileUpload {
+            id: vec![0xab; 32],
+            name: Some("alice-passport-scan.png".to_string()),
+            mime_type: "image/png".to_string(),
+            ..Default::default()
+        };
+        let mut response = Response::new(Body::empty());
+        set_file_headers(&mut response, &info);
+        let disposition = response.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap();
+        assert!(!disposition.contains("alice"));
+        assert_eq!(
+            disposition,
+            format!("inline; filename=\"{}.png\"", "ab".repeat(32))
+        );
+    }
+
     #[tokio::test]
     async fn inline_response_sets_headers_and_body() {
         let info = FileUpload {
