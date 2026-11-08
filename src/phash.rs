@@ -13,9 +13,7 @@ use image_hasher::{HashAlg, HasherConfig, ImageHash};
 use std::path::Path;
 use std::slice;
 
-use ffmpeg_rs_raw::{
-    Decoder, Scaler, ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24,
-};
+use ffmpeg_rs_raw::{Decoder, Scaler, ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24};
 
 /// Maximum Hamming distance (inclusive) for two images to be "similar".
 pub const MAX_HAMMING_DISTANCE: u32 = 10;
