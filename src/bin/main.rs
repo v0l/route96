@@ -3,7 +3,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use anyhow::Error;
-#[cfg(feature = "blossom")]
 use axum::middleware;
 use axum::{
     Router,

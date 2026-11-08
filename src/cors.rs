@@ -5,10 +5,8 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use url::Url;
 
-#[cfg(feature = "blossom")]
 use axum::{extract::Request, middleware::Next, response::IntoResponse as _, response::Response};
 
-#[cfg(feature = "blossom")]
 use crate::routes::AppState;
 
 /// Request paths that carry privileged or user-private JSON APIs. Unlike the
@@ -243,7 +241,13 @@ pub async fn bud13_discovery_headers(request: Request, next: Next) -> Response {
 mod tests {
     use super::{cors_layer, scope_admin_cors_inner};
     use axum::middleware::Next;
-    use axum::{Router, body::Body, http::{Request, StatusCode}, middleware, routing::get};
+    use axum::{
+        Router,
+        body::Body,
+        http::{Request, StatusCode},
+        middleware,
+        routing::get,
+    };
     use tower::ServiceExt;
 
     /// BUD-01: "servers MUST also set, at minimum, the
@@ -337,7 +341,9 @@ mod tests {
         }
         builder = builder.header("host", host);
         builder = builder.header("access-control-request-method", "GET");
-        app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap()
+        app.oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
     }
 
     /// Privileged endpoints (/admin, /user, /setup) are not readable by
@@ -347,8 +353,18 @@ mod tests {
     async fn admin_preflight_rejects_foreign_origins() {
         let app = admin_app();
 
-        let res = preflight(app.clone(), "/admin/stats", Some("https://evil.example"), "cdn.example.com").await;
-        assert_eq!(res.status(), StatusCode::FORBIDDEN, "foreign preflight must 403");
+        let res = preflight(
+            app.clone(),
+            "/admin/stats",
+            Some("https://evil.example"),
+            "cdn.example.com",
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "foreign preflight must 403"
+        );
         assert_eq!(
             res.headers().get("access-control-allow-origin"),
             None,
@@ -356,15 +372,29 @@ mod tests {
         );
 
         // Same origin (host matches the Host header) is allowed.
-        let res = preflight(app.clone(), "/admin/stats", Some("https://cdn.example.com"), "cdn.example.com").await;
+        let res = preflight(
+            app.clone(),
+            "/admin/stats",
+            Some("https://cdn.example.com"),
+            "cdn.example.com",
+        )
+        .await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
-            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap()),
+            res.headers()
+                .get("access-control-allow-origin")
+                .map(|v| v.to_str().unwrap()),
             Some("*")
         );
 
         // Same host, different port is a different origin.
-        let res = preflight(app.clone(), "/admin/stats", Some("https://cdn.example.com:8443"), "cdn.example.com").await;
+        let res = preflight(
+            app.clone(),
+            "/admin/stats",
+            Some("https://cdn.example.com:8443"),
+            "cdn.example.com",
+        )
+        .await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN);
         assert_eq!(res.headers().get("access-control-allow-origin"), None);
 
@@ -372,7 +402,9 @@ mod tests {
         let res = preflight(app.clone(), "/admin/stats", None, "cdn.example.com").await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
-            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap()),
+            res.headers()
+                .get("access-control-allow-origin")
+                .map(|v| v.to_str().unwrap()),
             Some("*")
         );
     }
@@ -381,10 +413,18 @@ mod tests {
     #[tokio::test]
     async fn blob_preflight_keeps_wildcard_origin() {
         let app = admin_app();
-        let res = preflight(app, "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Some("https://evil.example"), "cdn.example.com").await;
+        let res = preflight(
+            app,
+            "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Some("https://evil.example"),
+            "cdn.example.com",
+        )
+        .await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
-            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap()),
+            res.headers()
+                .get("access-control-allow-origin")
+                .map(|v| v.to_str().unwrap()),
             Some("*")
         );
     }
@@ -532,7 +572,9 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
-            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap()),
+            res.headers()
+                .get("access-control-allow-origin")
+                .map(|v| v.to_str().unwrap()),
             Some("*")
         );
     }
@@ -557,7 +599,9 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(
-            res.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap()),
+            res.headers()
+                .get("access-control-allow-origin")
+                .map(|v| v.to_str().unwrap()),
             Some("*")
         );
     }
