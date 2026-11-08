@@ -1509,7 +1509,7 @@ mod tests {
 
         // Self-listing behaves the same way offline.
         let self_auth = test_auth_with_verb("list");
-        let own_pubkey = hex::encode(self_auth.event.pubkey.to_bytes().to_vec());
+        let own_pubkey = hex::encode(self_auth.event.pubkey.to_bytes());
         let response = list_files(
             Path(own_pubkey),
             self_auth,
