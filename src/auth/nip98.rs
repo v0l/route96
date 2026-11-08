@@ -318,6 +318,41 @@ mod tests {
         Timestamp::now().as_secs()
     }
 
+    #[tokio::test]
+    async fn extractor_checks_signature_before_timestamp() {
+        let (state, _temp) = test_state();
+        let event = EventBuilder::new(Kind::HttpAuth, "")
+            .tags([
+                Tag::custom(TagKind::u(), [OWN.to_string()]),
+                Tag::custom(TagKind::Method, ["GET"]),
+            ])
+            .custom_created_at(Timestamp::from_secs(now() - 86_400))
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let tampered = event
+            .as_json()
+            .replace("\"content\":\"\"", "\"content\":\"x\"");
+        let app = Router::new()
+            .route("/admin/self", get(handler))
+            .with_state(state);
+        let res = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/admin/self")
+                    .header(
+                        "authorization",
+                        format!("Nostr {}", BASE64_STANDARD.encode(tampered)),
+                    )
+                    .header("host", "example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(res.headers()["x-reason"], "Event signature invalid");
+    }
+
     const OWN: &str = "https://example.com/admin/self";
 
     #[tokio::test]

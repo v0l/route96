@@ -374,10 +374,7 @@ where
         // Log the minimal identifiers, not the full event: with the
         // documented RUST_LOG=info deployment setting, per-event JSON here
         // builds a persistent pubkey→blob activity log.
-        debug!(
-            "blossom auth ok: id={} pubkey={}",
-            event.id, event.pubkey
-        );
+        debug!("blossom auth ok: id={} pubkey={}", event.id, event.pubkey);
 
         let content_type = parts
             .headers
