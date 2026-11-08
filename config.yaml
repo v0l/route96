@@ -72,6 +72,13 @@ label_flag_terms:
 # Default: false
 # reject_sensitive_exif: true
 
+# (Optional) Reject JPEG uploads with signs of hidden data. Default: false
+# reject_steganography: true
+
+# (Optional) Largest image the steganography check scans. With reject_steganography
+# on, bigger images are rejected. Default: 26214400 (25 MiB)
+# steganography_scan_max_bytes: 26214400
+
 # (Optional) Payment system config
 # Remove this entire section to disable storage quotas and enable unlimited uploads
 payments:

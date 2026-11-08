@@ -1296,6 +1296,7 @@ mod tests {
             webhook_url: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
+            steganography_scan_max_bytes: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
@@ -1522,6 +1523,7 @@ mod tests {
             label_flag_terms: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
+            steganography_scan_max_bytes: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]

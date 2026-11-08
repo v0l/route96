@@ -67,6 +67,14 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "steganography_scan_max_bytes",
+    label: "Suspicious image scan limit",
+    description:
+      "Largest image the hidden data check scans. When that check is on, bigger images are refused. Default 25 MB.",
+    type: "bytes",
+    optional: true,
+  },
+  {
     key: "whitelist",
     label: "Whitelist",
     description:

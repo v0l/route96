@@ -24,10 +24,8 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct HashMismatch;
 
-/// Upper bound for the steganography scan, which buffers the whole file into
-/// memory and scans it byte-wise. Keeps a video-server-sized max_upload_bytes
-/// from turning every enabled-check image upload into a large heap allocation.
-const STEGO_SCAN_MAX: u64 = 25 * 1024 * 1024;
+/// Default for `steganography_scan_max_bytes`.
+pub const DEFAULT_STEGO_SCAN_MAX: u64 = 25 * 1024 * 1024;
 
 impl std::fmt::Display for HashMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -493,33 +491,29 @@ impl FileStore {
             //
             // Both validators do synchronous file I/O and byte scanning, so
             // they run on the blocking thread pool; the steganography scan
-            // buffers the whole file and is skipped above STEGO_SCAN_MAX
-            // bytes to keep a large max_upload_bytes from becoming a heap
-            // amplifier on every image upload.
+            // buffers the whole file, so images above
+            // steganography_scan_max_bytes are rejected instead of scanned.
             #[cfg(feature = "blossom")]
             if res.mime_type.starts_with("image/") {
                 let settings = self.settings().await;
                 let check_exif = settings.reject_sensitive_exif.unwrap_or(false);
-                let stego_requested = settings.reject_steganography.unwrap_or(false);
-                if check_exif || stego_requested {
-                    let scan_len = tokio::fs::metadata(&res.path)
-                        .await
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    let scan_stego = stego_requested && scan_len <= STEGO_SCAN_MAX;
-                    if stego_requested && !scan_stego {
-                        log::warn!(
-                            "Skipping steganography scan for {} ({} bytes > {} cap)",
-                            hex::encode(&res.id),
-                            scan_len,
-                            STEGO_SCAN_MAX
-                        );
+                let scan_stego = settings.reject_steganography.unwrap_or(false);
+                if check_exif || scan_stego {
+                    let stego_max = settings
+                        .steganography_scan_max_bytes
+                        .unwrap_or(DEFAULT_STEGO_SCAN_MAX);
+                    let scan_len = tokio::fs::metadata(&res.path).await?.len();
+                    if scan_stego && scan_len > stego_max {
+                        tokio::fs::remove_file(&res.path).await.ok();
+                        return Ok(FileSystemResult::Rejected(format!(
+                            "Image too large for steganography scan ({} bytes > {})",
+                            scan_len, stego_max
+                        )));
                     }
                     let path = res.path.clone();
                     let result = tokio::task::spawn_blocking(move || {
                         if check_exif
-                            && let Err(e) =
-                                crate::exif_validator::check_for_sensitive_exif(&path)
+                            && let Err(e) = crate::exif_validator::check_for_sensitive_exif(&path)
                         {
                             return Err(e);
                         }
@@ -750,6 +744,7 @@ mod expected_hash_tests {
             webhook_url: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
+            steganography_scan_max_bytes: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
@@ -1022,6 +1017,113 @@ mod expected_hash_tests {
     }
 }
 
+#[cfg(all(test, feature = "blossom", feature = "media-compression"))]
+mod stego_cap_tests {
+    use super::*;
+    use sqlx::Executor;
+
+    async fn test_db() -> Database {
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_stego_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+        db
+    }
+
+    fn store(dir: &Path, stego_max: Option<u64>) -> FileStore {
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "storage_dir": dir,
+            "database": "",
+            "max_upload_bytes": 64u64 * 1024 * 1024,
+            "public_url": "",
+            "reject_steganography": true,
+            "steganography_scan_max_bytes": stego_max,
+        }))
+        .unwrap();
+        FileStore::new(Arc::new(RwLock::new(settings)))
+    }
+
+    fn jpeg() -> Vec<u8> {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("a.jpg");
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .args(["testsrc=size=64x64", "-frames:v", "1"])
+            .arg(&out)
+            .status()
+            .expect("ffmpeg must be in PATH");
+        assert!(status.success());
+        std::fs::read(out).unwrap()
+    }
+
+    async fn put(store: &FileStore, db: &Database, body: Vec<u8>, mime: &str) -> FileSystemResult {
+        store
+            .put(db, std::io::Cursor::new(body), mime, false)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn jpeg_padded_past_stego_cap_is_rejected_not_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path(), None);
+        let db = test_db().await;
+        for mime in ["image/jpeg", "application/octet-stream"] {
+            let mut body = jpeg();
+            body.extend(std::iter::repeat_n(mime.len() as u8, 26 * 1024 * 1024));
+            match put(&store, &db, body, mime).await {
+                FileSystemResult::Rejected(reason) => {
+                    assert!(reason.contains("too large"), "{mime}: {reason}")
+                }
+                _ => panic!("{mime}: padded JPEG over the cap must be rejected"),
+            }
+        }
+        assert_eq!(files_under(dir.path()), Vec::<PathBuf>::new());
+    }
+
+    fn files_under(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                out.extend(files_under(&p));
+            } else {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn stego_cap_setting_is_honoured() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = test_db().await;
+        let body = jpeg();
+        let len = body.len() as u64;
+
+        let tight = store(dir.path(), Some(len - 1));
+        assert!(matches!(
+            put(&tight, &db, body.clone(), "image/jpeg").await,
+            FileSystemResult::Rejected(_)
+        ));
+
+        let roomy = store(dir.path(), Some(len));
+        assert!(matches!(
+            put(&roomy, &db, body, "image/jpeg").await,
+            FileSystemResult::NewFile(_)
+        ));
+    }
+}
+
 #[cfg(all(test, feature = "labels"))]
 mod tests {
     use super::*;
@@ -1040,6 +1142,7 @@ mod tests {
             webhook_url: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
+            steganography_scan_max_bytes: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]

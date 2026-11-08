@@ -138,6 +138,13 @@ pub struct Settings {
     /// Defaults to `false` when absent.
     pub reject_steganography: Option<bool>,
 
+    /// Largest image in bytes the steganography check will scan. The scan reads
+    /// the whole file into memory, so when `reject_steganography` is on, image
+    /// uploads larger than this are rejected rather than stored unscanned.
+    ///
+    /// Defaults to 25 MiB (`26214400`) when absent.
+    pub steganography_scan_max_bytes: Option<u64>,
+
     /// Enable BUD-12 identical media deduplication.
     ///
     /// When set to `true`, image uploads are checked against existing blobs using
