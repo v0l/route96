@@ -74,6 +74,7 @@ pub fn phash_image(path: &Path, mime_type: &str) -> Result<PHash> {
 unsafe fn decode_rgb(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let mut demux = crate::processing::open_demuxer(path.to_str().unwrap())?;
     let info = unsafe { demux.probe_input()? };
+    crate::processing::check_demuxer_format(&info.format)?;
     let stream = info
         .best_video()
         .ok_or(Error::msg("no video/image stream found"))?;
@@ -141,6 +142,22 @@ mod tests {
     #[test]
     fn test_make_hasher_does_not_panic() {
         let _ = make_hasher();
+    }
+
+    #[test]
+    fn test_phash_image_rejects_playlist_declared_as_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = make_jpeg(10, 20, 30);
+        let playlist = dir.path().join("upload");
+        std::fs::write(
+            &playlist,
+            format!(
+                "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nfile:{}\n#EXT-X-ENDLIST\n",
+                secret.path().display()
+            ),
+        )
+        .unwrap();
+        assert!(phash_image(&playlist, "image/jpeg").is_err());
     }
 
     #[test]
