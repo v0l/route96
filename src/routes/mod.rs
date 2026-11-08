@@ -10,8 +10,6 @@ pub use crate::routes::blossom::blossom_routes;
 pub use crate::routes::nip96::nip96_routes;
 #[cfg(feature = "payments")]
 pub mod payment;
-#[cfg(feature = "payments")]
-use crate::payments::{Currency, PaymentInterval};
 use crate::settings::Settings;
 use crate::whitelist::Whitelist;
 use anyhow::{Error, Result};
@@ -305,12 +303,8 @@ pub async fn get_props(
         #[cfg(feature = "payments")]
         payments: settings.payments.as_ref().map(|p| PaymentPolicy {
             enabled: true,
-            currency: format!("{:?}", p.cost.currency),
-            intervals: vec![match p.interval {
-                PaymentInterval::Day(n) => format!("{n} day"),
-                PaymentInterval::Month(n) => format!("{n} month"),
-                PaymentInterval::Year(n) => format!("{n} year"),
-            }],
+            currency: p.cost.currency.to_string(),
+            intervals: vec![p.interval.label()],
         }),
     };
 

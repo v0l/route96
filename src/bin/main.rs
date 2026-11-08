@@ -91,9 +91,8 @@ async fn main() -> Result<(), Error> {
     #[cfg(feature = "payments")]
     let lnd = {
         if let Some(lnd) = settings.payments.as_ref().map(|p| &p.lnd) {
-            let node =
-                payments_rs::lightning::LndNode::new(&lnd.endpoint, &lnd.tls, &lnd.macaroon)
-                    .await?;
+            let node = payments_rs::lightning::LndNode::new(&lnd.endpoint, &lnd.tls, &lnd.macaroon)
+                .await?;
             let lnd = node.client();
 
             let info = {
@@ -179,7 +178,8 @@ async fn main() -> Result<(), Error> {
         shutdown.clone(),
         file_stats.clone(),
         #[cfg(feature = "payments")]
-        lnd.as_ref().map(|(_, n)| n.clone() as std::sync::Arc<dyn payments_rs::lightning::LightningNode>),
+        lnd.as_ref()
+            .map(|(_, n)| n.clone() as std::sync::Arc<dyn payments_rs::lightning::LightningNode>),
     )
     .await;
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {
