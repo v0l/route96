@@ -65,9 +65,9 @@ image_hasher = "3"
 
 libc = { version = "0.2", optional = true }
 ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "2594eceddf216807a254b87cff5df3e672c4a25b", optional = true }
-candle-core = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }
-candle-nn = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }
-candle-transformers = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }
+candle-core = { git = "https://github.com/DrJesseGlass/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }
+candle-nn = { git = "https://github.com/DrJesseGlass/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }
+candle-transformers = { git = "https://github.com/DrJesseGlass/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }
 hf-hub = { version = "0.5", optional = true }
 walkdir = { version = "2.5", optional = true }
 indicatif = { version = "0.18", optional = true }
