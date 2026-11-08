@@ -19,7 +19,6 @@ jobs:
           - "blossom,nip96"
           - "blossom,nip96,payments"
           - "blossom,nip96,react-ui,payments,media-compression"
-          - "nip96,blossom,react-ui,r96util,labels"
 
     steps:
       - uses: actions/checkout@v4
