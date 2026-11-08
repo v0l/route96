@@ -12,6 +12,7 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src/bin && \
     echo "fn main() {}" > src/bin/main.rs && \
+    echo "fn main() {}" > src/bin/r96util.rs && \
     echo "" > src/lib.rs
 ARG FEATURES
 RUN cargo build --release --no-default-features --features "${FEATURES}" && \
@@ -26,7 +27,7 @@ COPY src ./src
 COPY migrations ./migrations
 COPY docs ./docs
 # Touch entry points so Cargo sees them as changed vs. the stubs above.
-RUN touch src/lib.rs src/bin/main.rs
+RUN touch src/lib.rs src/bin/main.rs src/bin/r96util.rs
 ARG FEATURES
 RUN cargo build --release --no-default-features --features "${FEATURES}" && \
     mkdir -p /app/bin && \
