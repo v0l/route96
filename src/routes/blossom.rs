@@ -55,6 +55,16 @@ impl BlobDescriptor {
             nip94: Some(Nip94Event::from_upload(settings, value).tags),
         }
     }
+
+    /// Minimal descriptor (the BUD-02/BUD-12 type: url, sha256, size, type,
+    /// uploaded) for listings of another user's blobs. Strips the NIP-94
+    /// metadata - which carries the original filename in `content` and
+    /// AI-generated labels in `t` tags - that self-listings include.
+    pub fn public_from_upload(settings: &Settings, value: &FileUpload) -> Self {
+        let mut descriptor = Self::from_upload(settings, value);
+        descriptor.nip94 = None;
+        descriptor
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,26 +435,44 @@ async fn list_files(
     axum::extract::Query(params): axum::extract::Query<ListFilesParams>,
 ) -> BlossomResponse {
     let settings = state.settings().await;
-    
+
+    // BUD-11: when a token is presented, its t tag MUST match the endpoint
+    // verb - "the t tag MUST contain a verb matching the intended action".
+    if !check_method(&auth.event, "list") {
+        return BlossomResponse::bad_request("Invalid auth method tag");
+    }
+
     // BUD-11: validate server tag for list endpoint
     if let Some(e) = check_server_tag(&auth, &settings.public_url) {
         return e;
     }
-    
+
     let id = if let Ok(i) = hex::decode(&pubkey) {
         i
     } else {
         return BlossomResponse::bad_request("invalid pubkey");
     };
-    
+
+    // Self-listings return the full descriptor with NIP-94 metadata (original
+    // filename, dimensions, AI labels). Listings of another user's blobs are a
+    // legitimate Blossom workflow (public galleries), but they only get the
+    // minimal descriptor type: url, sha256, size, type, uploaded.
+    let own_listing = auth.event.pubkey.to_bytes().to_vec() == id;
+
     let limit = params.limit.unwrap_or(50).min(5000); // Max 5000 per BUD-12
     let cursor = params.cursor.as_deref();
-    
+
     match state.db.list_files_cursor(&id, cursor, limit).await {
         Ok(files) => BlossomResponse::BlobDescriptorList(Json(
             files
                 .iter()
-                .map(|f| BlobDescriptor::from_upload(&settings, f))
+                .map(|f| {
+                    if own_listing {
+                        BlobDescriptor::from_upload(&settings, f)
+                    } else {
+                        BlobDescriptor::public_from_upload(&settings, f)
+                    }
+                })
                 .collect(),
         )),
         Err(e) => BlossomResponse::service_unavailable(format!("Could not list files: {}", e)),
@@ -1232,7 +1260,7 @@ mod tests {
     use super::*;
     use crate::file_stats::FileStatsTracker;
     use crate::filesystem::FileStore;
-    use axum::extract::{Path, RawQuery, State};
+    use axum::extract::{Path, Query, RawQuery, State};
     use nostr::{EventBuilder, Keys, Kind};
     use sha2::Digest;
     use sqlx::mysql::MySqlPoolOptions;
@@ -1247,6 +1275,23 @@ mod tests {
             .unwrap();
         BlossomAuth {
             content_type: Some("application/octet-stream".to_string()),
+            x_content_type: None,
+            x_sha_256: None,
+            x_content_length: None,
+            x_identical_media: None,
+            event,
+        }
+    }
+
+    /// Auth event carrying a `t` tag, for endpoints that check the verb.
+    fn test_auth_with_verb(verb: &str) -> BlossomAuth {
+        let keys = Keys::generate();
+        let event = EventBuilder::new(Kind::Custom(24242), "")
+            .tags([nostr::Tag::parse(["t", verb]).unwrap()])
+            .sign_with_keys(&keys)
+            .unwrap();
+        BlossomAuth {
+            content_type: None,
             x_content_type: None,
             x_sha_256: None,
             x_content_length: None,
@@ -1415,6 +1460,123 @@ mod tests {
         .await
         .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// BUD-11 requires the t tag to match the endpoint verb whenever a token
+    /// is presented. Before the fix, /list accepted any kind-24242 event with
+    /// any t tag or none. /list is server-policy territory (BUD-02/12: auth
+    /// optional, "servers may reject a list for any reason"), so foreign
+    /// listings stay allowed - but they must only receive the minimal
+    /// descriptor type, without the owner's NIP-94 metadata.
+    #[tokio::test]
+    async fn list_requires_list_verb_and_passes_foreign_listings_through_auth() {
+        let (state, _temp) = test_state();
+        let other_pubkey = "aa".repeat(32); // 64 hex chars = 32 bytes
+
+        // No `t` tag at all → rejected (BUD-11 MUST).
+        let response = list_files(
+            Path(other_pubkey.clone()),
+            test_auth(),
+            State(state.clone()),
+            Query(ListFilesParams {
+                cursor: None,
+                limit: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get("x-reason").unwrap(),
+            "Invalid auth method tag"
+        );
+
+        // `t=list` on a foreign pubkey passes authorization (policy decision
+        // belongs to the server, per BUD-02) and fails later at the
+        // (unavailable) database - proving the verb check doesn't over-block.
+        let response = list_files(
+            Path(other_pubkey),
+            test_auth_with_verb("list"),
+            State(state.clone()),
+            Query(ListFilesParams {
+                cursor: None,
+                limit: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        // Self-listing behaves the same way offline.
+        let self_auth = test_auth_with_verb("list");
+        let own_pubkey = hex::encode(self_auth.event.pubkey.to_bytes().to_vec());
+        let response = list_files(
+            Path(own_pubkey),
+            self_auth,
+            State(state),
+            Query(ListFilesParams {
+                cursor: None,
+                limit: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    /// Foreign listings must receive only the minimal descriptor type
+    /// (url, sha256, size, type, uploaded) - no NIP-94 metadata carrying the
+    /// original filename or AI labels.
+    #[test]
+    fn public_descriptor_strips_nip94_metadata() {
+        let settings = Settings {
+            listen: None,
+            storage_dir: String::new(),
+            database: String::new(),
+            max_upload_bytes: 1024,
+            public_url: "https://example.com".to_string(),
+            webhook_url: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            reject_sensitive_exif: None,
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
+            whitelist: None,
+        };
+        let upload = FileUpload {
+            id: vec![7u8; 32],
+            size: 2048,
+            mime_type: "image/png".to_string(),
+            ..Default::default()
+        };
+
+        let full = BlobDescriptor::from_upload(&settings, &upload);
+        assert!(full.nip94.is_some());
+
+        let public = BlobDescriptor::public_from_upload(&settings, &upload);
+        assert!(public.nip94.is_none(), "nip94 metadata must be stripped");
+        assert_eq!(public.sha256, full.sha256);
+        assert_eq!(public.size, full.size);
+        assert_eq!(public.uploaded, full.uploaded);
+        assert_eq!(public.url, full.url);
+        assert_eq!(public.mime_type, full.mime_type);
     }
 
     #[tokio::test]
