@@ -141,6 +141,10 @@ async fn main() -> Result<(), Error> {
                         FileSystemResult::NewFile(_) => {
                             p.set_message(format!("Imported: {}", &entry.display()));
                         }
+                        #[cfg(feature = "blossom")]
+                        FileSystemResult::Rejected(reason) => {
+                            p.set_message(format!("Rejected: {}", reason));
+                        }
                     }
                     Ok(())
                 })
