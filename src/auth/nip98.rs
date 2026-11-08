@@ -57,27 +57,47 @@ impl IntoResponse for Nip98Rejection {
 impl FromRequestParts<Arc<AppState>> for Nip98Auth {
     type Rejection = Nip98Rejection;
 
-    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         let auth = parts
             .headers
             .get("authorization")
-            .ok_or(Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Auth header not found" })?
+            .ok_or(Nip98Rejection {
+                status: StatusCode::FORBIDDEN,
+                reason: "Auth header not found",
+            })?
             .to_str()
-            .map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid auth header" })?;
+            .map_err(|_| Nip98Rejection {
+                status: StatusCode::FORBIDDEN,
+                reason: "Invalid auth header",
+            })?;
 
         if !auth.starts_with("Nostr ") {
-            return Err(Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Auth scheme must be Nostr" });
+            return Err(Nip98Rejection {
+                status: StatusCode::FORBIDDEN,
+                reason: "Auth scheme must be Nostr",
+            });
         }
 
         let event = BASE64_STANDARD
             .decode(&auth[6..])
-            .map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid auth string" })?;
+            .map_err(|_| Nip98Rejection {
+                status: StatusCode::FORBIDDEN,
+                reason: "Invalid auth string",
+            })?;
 
-        let event =
-            Event::from_json(event).map_err(|_| Nip98Rejection { status: StatusCode::FORBIDDEN, reason: "Invalid nostr event" })?;
+        let event = Event::from_json(event).map_err(|_| Nip98Rejection {
+            status: StatusCode::FORBIDDEN,
+            reason: "Invalid nostr event",
+        })?;
 
         if event.kind != Kind::HttpAuth {
-            return Err(Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Wrong event kind" });
+            return Err(Nip98Rejection {
+                status: StatusCode::UNAUTHORIZED,
+                reason: "Wrong event kind",
+            });
         }
 
         let now = Timestamp::now().as_secs();
@@ -159,9 +179,10 @@ impl FromRequestParts<Arc<AppState>> for Nip98Auth {
         // request body. Replay resistance relies on the short 10-minute
         // expiration window enforced above.
 
-        event
-            .verify()
-            .map_err(|_| Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Event signature invalid" })?;
+        event.verify().map_err(|_| Nip98Rejection {
+            status: StatusCode::UNAUTHORIZED,
+            reason: "Event signature invalid",
+        })?;
 
         debug!("{}", event.as_json());
 
@@ -301,13 +322,22 @@ mod tests {
 
     #[tokio::test]
     async fn extractor_accepts_valid_event() {
-        assert_eq!(status_for(OWN, now(), None, "example.com").await, StatusCode::OK);
+        assert_eq!(
+            status_for(OWN, now(), None, "example.com").await,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]
     async fn extractor_rejects_u_tag_on_another_host() {
         assert_eq!(
-            status_for("https://other.example/admin/self", now(), None, "example.com").await,
+            status_for(
+                "https://other.example/admin/self",
+                now(),
+                None,
+                "example.com"
+            )
+            .await,
             StatusCode::UNAUTHORIZED
         );
     }
@@ -315,7 +345,13 @@ mod tests {
     #[tokio::test]
     async fn extractor_rejects_forged_host_header_matching_u_tag() {
         assert_eq!(
-            status_for("https://other.example/admin/self", now(), None, "other.example").await,
+            status_for(
+                "https://other.example/admin/self",
+                now(),
+                None,
+                "other.example"
+            )
+            .await,
             StatusCode::UNAUTHORIZED
         );
     }
@@ -341,7 +377,13 @@ mod tests {
     #[tokio::test]
     async fn extractor_accepts_query_string_on_u_tag() {
         assert_eq!(
-            status_for("https://example.com/admin/self?a=1", now(), None, "example.com").await,
+            status_for(
+                "https://example.com/admin/self?a=1",
+                now(),
+                None,
+                "example.com"
+            )
+            .await,
             StatusCode::OK
         );
     }
@@ -349,26 +391,52 @@ mod tests {
     #[tokio::test]
     async fn extractor_accepts_uppercase_host_and_explicit_default_port() {
         assert_eq!(
-            status_for("https://Example.COM:443/admin/self", now(), None, "example.com").await,
+            status_for(
+                "https://Example.COM:443/admin/self",
+                now(),
+                None,
+                "example.com"
+            )
+            .await,
             StatusCode::OK
         );
     }
 
     #[test]
     fn url_tag_for_other_host_is_rejected() {
-        assert!(!url_matches("https://other.example/admin/self", "https://example.com", "/admin/self"));
+        assert!(!url_matches(
+            "https://other.example/admin/self",
+            "https://example.com",
+            "/admin/self"
+        ));
     }
 
     #[test]
     fn url_tag_for_own_host_is_accepted() {
-        assert!(url_matches("https://example.com/admin/self", "https://example.com", "/admin/self"));
-        assert!(url_matches("https://example.com/admin/self?x=1", "https://example.com/", "/admin/self"));
+        assert!(url_matches(
+            "https://example.com/admin/self",
+            "https://example.com",
+            "/admin/self"
+        ));
+        assert!(url_matches(
+            "https://example.com/admin/self?x=1",
+            "https://example.com/",
+            "/admin/self"
+        ));
     }
 
     #[test]
     fn url_tag_with_other_scheme_or_path_is_rejected() {
-        assert!(!url_matches("http://example.com/admin/self", "https://example.com", "/admin/self"));
-        assert!(!url_matches("https://example.com/admin/other", "https://example.com", "/admin/self"));
+        assert!(!url_matches(
+            "http://example.com/admin/self",
+            "https://example.com",
+            "/admin/self"
+        ));
+        assert!(!url_matches(
+            "https://example.com/admin/other",
+            "https://example.com",
+            "/admin/self"
+        ));
     }
 
     #[test]
