@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaymentAmount {
     pub currency: Currency,
     pub amount: f32,
 }
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Currency {
     BTC,
     USD,
@@ -21,7 +21,7 @@ pub enum Currency {
 }
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaymentUnit {
     GBSpace,
     GBEgress,
@@ -44,7 +44,7 @@ impl Display for PaymentUnit {
 }
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PaymentInterval {
     Day(u16),

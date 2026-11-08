@@ -79,7 +79,7 @@ pub async fn start_background_tasks(
     settings: Arc<RwLock<Settings>>,
     shutdown: CancellationToken,
     file_stats: FileStatsTracker,
-    #[cfg(feature = "payments")] client: Option<fedimint_tonic_lnd::Client>,
+    #[cfg(feature = "payments")] client: Option<std::sync::Arc<dyn payments_rs::lightning::LightningNode>>,
 ) -> JoinSet<()> {
     let settings_snap = settings.read().await.clone();
 

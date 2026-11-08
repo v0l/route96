@@ -91,12 +91,10 @@ async fn main() -> Result<(), Error> {
     #[cfg(feature = "payments")]
     let lnd = {
         if let Some(lnd) = settings.payments.as_ref().map(|p| &p.lnd) {
-            let lnd = fedimint_tonic_lnd::connect(
-                lnd.endpoint.clone(),
-                lnd.tls.clone(),
-                lnd.macaroon.clone(),
-            )
-            .await?;
+            let node =
+                payments_rs::lightning::LndNode::new(&lnd.endpoint, &lnd.tls, &lnd.macaroon)
+                    .await?;
+            let lnd = node.client();
 
             let info = {
                 let mut lnd = lnd.clone();
@@ -108,7 +106,7 @@ async fn main() -> Result<(), Error> {
                 info.get_ref().alias,
                 info.get_ref().version
             );
-            Some(lnd)
+            Some((lnd, std::sync::Arc::new(node)))
         } else {
             None
         }
@@ -159,7 +157,7 @@ async fn main() -> Result<(), Error> {
         wl: live_wl.clone(),
         file_stats: file_stats.clone(),
         #[cfg(feature = "payments")]
-        lnd: lnd.clone(),
+        lnd: lnd.as_ref().map(|(c, _)| c.clone()),
     }));
 
     // Add middleware layers
@@ -181,7 +179,7 @@ async fn main() -> Result<(), Error> {
         shutdown.clone(),
         file_stats.clone(),
         #[cfg(feature = "payments")]
-        lnd.clone(),
+        lnd.as_ref().map(|(_, n)| n.clone() as std::sync::Arc<dyn payments_rs::lightning::LightningNode>),
     )
     .await;
     if let Some(WhitelistMode::File(path)) = settings.whitelist.clone() {

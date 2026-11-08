@@ -1928,9 +1928,7 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
-             #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
-            #[cfg(feature = "blossom")]
             reject_steganography: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,

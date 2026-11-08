@@ -49,7 +49,8 @@ async fn get_payment(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> Result<Json<PaymentInfo>, StatusCode> {
     state
-        .settings
+        .settings()
+        .await
         .payments
         .as_ref()
         .map(|p| {

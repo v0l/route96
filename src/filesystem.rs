@@ -684,9 +684,7 @@ mod expected_hash_tests {
             #[cfg(feature = "labels")]
             label_flag_terms: None,
             webhook_url: None,
-            #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
-            #[cfg(feature = "blossom")]
             reject_steganography: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
@@ -976,9 +974,7 @@ mod tests {
             label_models: None,
             label_flag_terms: None,
             webhook_url: None,
-            #[cfg(feature = "blossom")]
             reject_sensitive_exif: None,
-            #[cfg(feature = "blossom")]
             reject_steganography: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,

@@ -42,8 +42,6 @@ mod admin;
 pub(crate) mod blossom;
 #[cfg(feature = "nip96")]
 mod nip96;
-#[cfg(feature = "payments")]
-pub mod payment;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -307,16 +305,12 @@ pub async fn get_props(
         #[cfg(feature = "payments")]
         payments: settings.payments.as_ref().map(|p| PaymentPolicy {
             enabled: true,
-            currency: p.currency.to_string(),
-            intervals: p
-                .intervals
-                .iter()
-                .map(|i| match i {
-                    PaymentInterval::Monthly => "monthly".to_string(),
-                    PaymentInterval::Yearly => "yearly".to_string(),
-                    PaymentInterval::Lifetime => "lifetime".to_string(),
-                })
-                .collect(),
+            currency: format!("{:?}", p.cost.currency),
+            intervals: vec![match p.interval {
+                PaymentInterval::Day(n) => format!("{n} day"),
+                PaymentInterval::Month(n) => format!("{n} month"),
+                PaymentInterval::Year(n) => format!("{n} year"),
+            }],
         }),
     };
 

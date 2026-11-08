@@ -3957,6 +3957,7 @@ dependencies = [
  "clap",
  "config",
  "dashmap",
+ "fedimint-tonic-lnd",
  "ffmpeg-rs-raw",
  "futures-util",
  "hex",

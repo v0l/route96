@@ -125,7 +125,6 @@ pub struct Settings {
     pub webhook_url: Option<String>,
 
     /// Reject image uploads containing sensitive EXIF metadata (GPS, device info)
-    #[cfg(feature = "blossom")]
     pub reject_sensitive_exif: Option<bool>,
 
     /// Reject image uploads suspected of containing steganography or hidden data.
@@ -137,7 +136,6 @@ pub struct Settings {
     /// - Malformed MPF directories in gain maps
     ///
     /// Defaults to `false` when absent.
-    #[cfg(feature = "blossom")]
     pub reject_steganography: Option<bool>,
 
     /// Enable BUD-12 identical media deduplication.
@@ -274,7 +272,7 @@ pub enum LabelerType {
 }
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaymentConfig {
     /// LND connection details
     pub lnd: LndConfig,
@@ -296,7 +294,7 @@ pub struct PaymentConfig {
 }
 
 #[cfg(feature = "payments")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LndConfig {
     pub endpoint: String,
     pub tls: PathBuf,
