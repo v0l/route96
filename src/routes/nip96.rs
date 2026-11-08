@@ -264,7 +264,12 @@ impl Nip96Form {
 pub fn nip96_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/.well-known/nostr/nip96.json", get(get_info_doc))
-        .route("/n96", post(upload).get(list_files))
+        .route(
+            "/n96",
+            post(upload)
+                .get(list_files)
+                .layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/n96/{sha256}", route_delete(delete))
 }
 
@@ -506,5 +511,118 @@ async fn list_files(
             }))
         }
         Err(e) => Nip96Response::error(&format!("Could not list files: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use crate::file_stats::FileStatsTracker;
+    use crate::filesystem::FileStore;
+    use crate::whitelist::Whitelist;
+    use axum::body::Body;
+    use base64::Engine;
+    use base64::prelude::BASE64_STANDARD;
+    use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, TagKind};
+    use sqlx::mysql::MySqlPoolOptions;
+    use tokio::sync::RwLock;
+    use tower::ServiceExt;
+
+    fn test_state(max_upload_bytes: u64) -> (Arc<AppState>, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            listen: None,
+            storage_dir: temp.path().to_string_lossy().into_owned(),
+            database: "mysql://user:pass@127.0.0.1:1/route96".to_string(),
+            max_upload_bytes,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            reject_sensitive_exif: None,
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let pool = MySqlPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(50))
+            .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
+            .unwrap();
+        let state = Arc::new(AppState {
+            fs: FileStore::new(settings.clone()),
+            db: Database::from_pool(pool),
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        (state, temp)
+    }
+
+    fn auth_header() -> String {
+        let keys = Keys::generate();
+        let event = EventBuilder::new(Kind::HttpAuth, "")
+            .tags([
+                Tag::custom(TagKind::u(), ["http://localhost/n96"]),
+                Tag::custom(TagKind::Method, ["POST"]),
+            ])
+            .sign_with_keys(&keys)
+            .unwrap();
+        format!("Nostr {}", BASE64_STANDARD.encode(event.as_json()))
+    }
+
+    #[tokio::test]
+    async fn upload_over_default_body_limit_is_parsed() {
+        let (state, _temp) = test_state(10 * 1024 * 1024);
+        let boundary = "XBOUNDARYX";
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend(vec![7u8; 3 * 1024 * 1024]);
+        body.extend(format!("\r\n--{boundary}--\r\n").into_bytes());
+
+        let response = nip96_routes()
+            .with_state(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/n96")
+                    .header("authorization", auth_header())
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("Could not parse form"), "{text}");
     }
 }
