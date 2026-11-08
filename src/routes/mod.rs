@@ -400,7 +400,7 @@ fn set_file_headers(response: &mut Response, info: &FileUpload) {
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    let ext = mime2ext::mime2ext(&info.mime_type)
+    let ext = mime2ext::mime2ext(safe_content_type(&info.mime_type))
         .map(|e| format!(".{e}"))
         .unwrap_or_default();
     let filename = format!("{}{}", hex::encode(&info.id), ext);
@@ -1067,7 +1067,28 @@ mod tests {
             assert_eq!(headers[header::CONTENT_TYPE], mime);
             assert!(headers.get(header::CONTENT_SECURITY_POLICY).is_none());
             assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+            assert!(
+                headers[header::CONTENT_DISPOSITION]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("inline")
+            );
         }
+    }
+
+    #[test]
+    fn rewritten_blobs_get_the_served_type_extension() {
+        let info = FileUpload {
+            id: vec![0xcd; 32],
+            mime_type: "text/html".to_string(),
+            ..Default::default()
+        };
+        let mut response = Response::new(Body::empty());
+        set_file_headers(&mut response, &info);
+        assert_eq!(
+            response.headers()[header::CONTENT_DISPOSITION],
+            format!("inline; filename=\"{}.txt\"", "cd".repeat(32)).as_str()
+        );
     }
 
     #[tokio::test]
