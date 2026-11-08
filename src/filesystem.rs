@@ -601,6 +601,31 @@ impl FileStore {
         if let Ok(Some(i)) = infer::get_from_path(out_path) {
             i.mime_type().to_string()
         } else {
+            // `infer` cannot identify text formats, so the declared type is
+            // kept for them. Exception: application/pdf gets a special,
+            // unsandboxed inline treatment when served (see routes::
+            // sandbox_csp_applies), so never honor a client-declared pdf
+            // without positive %PDF- magic bytes - a mismatch would hand
+            // arbitrary non-PDF content to the browser's PDF viewer path.
+            // Downgrade it to the inert default instead (which also picks up
+            // the sandboxing CSP at serve time).
+            if mime_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .eq_ignore_ascii_case("application/pdf")
+            {
+                use std::io::Read;
+                let mut magic = [0u8; 5];
+                let is_pdf = std::fs::File::open(out_path)
+                    .and_then(|mut f| f.read_exact(&mut magic))
+                    .is_ok()
+                    && &magic == b"%PDF-";
+                if !is_pdf {
+                    return "application/octet-stream".to_string();
+                }
+            }
             mime_type.to_string()
         }
     }
@@ -963,6 +988,49 @@ mod expected_hash_tests {
             .store_hash_temp_file(std::io::Cursor::new(vec![2u8; 10]))
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn declared_pdf_without_pdf_magic_is_downgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("fake.pdf");
+
+        // Unclassifiable bytes declared as application/pdf: infer has no
+        // matcher, so the magic-byte gate downgrades to the inert default
+        // instead of trusting the declaration.
+        std::fs::write(&fake, [0xDEu8, 0xAD, 0xBE, 0xEF, 0x00, 0x01]).unwrap();
+        assert_eq!(
+            FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
+            "application/octet-stream"
+        );
+
+        // HTML bytes: infer DOES classify text/html, and the sniffed type
+        // wins over the declaration (serving rewrites text/html to inert
+        // text/plain anyway).
+        std::fs::write(&fake, b"<html><body>x</body></html>").unwrap();
+        assert_eq!(
+            FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
+            "text/html"
+        );
+        assert_eq!(
+            FileStore::infer_mime_type("text/html", &fake.to_path_buf()),
+            "text/html"
+        );
+
+        // Real %PDF- magic keeps the pdf type (via infer's own matcher).
+        std::fs::write(&fake, b"%PDF-1.7\n1 0 obj\nendobj\n").unwrap();
+        assert_eq!(
+            FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
+            "application/pdf"
+        );
+
+        // Truncated file (< 5 bytes) declared as pdf: cannot confirm magic,
+        // downgrade.
+        std::fs::write(&fake, b"%PD").unwrap();
+        assert_eq!(
+            FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
+            "application/octet-stream"
+        );
     }
 
     #[tokio::test]
