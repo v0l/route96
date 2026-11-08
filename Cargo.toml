@@ -59,7 +59,7 @@ image = { version = "0.25", default-features = false, features = ["webp", "jpeg"
 image_hasher = "3"
 
 libc = { version = "0.2", optional = true }
-ffmpeg-rs-raw = { path = "/home/kieran/git/ffmpeg-rs-raw", optional = true }
+ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "2594eceddf216807a254b87cff5df3e672c4a25b", optional = true }
 candle-core = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }
 candle-nn = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }
 candle-transformers = { git = "https://github.com/DrJesseGlass/candle", branch = "fix/disable-bf16-wmma-pre-ampere", optional = true }

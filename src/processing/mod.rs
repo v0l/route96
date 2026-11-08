@@ -12,7 +12,10 @@ pub const ALLOWED_INPUT_FORMATS: &str = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,a
 
 pub fn input_open_options() -> HashMap<String, String> {
     HashMap::from([
-        ("format_whitelist".to_string(), ALLOWED_INPUT_FORMATS.to_string()),
+        (
+            "format_whitelist".to_string(),
+            ALLOWED_INPUT_FORMATS.to_string(),
+        ),
         ("protocol_whitelist".to_string(), "file".to_string()),
     ])
 }
@@ -129,11 +132,12 @@ impl WebpProcessor {
                     continue;
                 }
                 if let Ok(results) = decoder.decode_pkt(pkt.as_ref())
-                    && let Some((frame, _)) = results.into_iter().next() {
-                        let frame_save = sws.process_frame(&frame, w, h, AV_PIX_FMT_YUV420P)?;
-                        enc.save_picture(&frame_save, out_path.to_str().unwrap())?;
-                        return Ok(());
-                    }
+                    && let Some((frame, _)) = results.into_iter().next()
+                {
+                    let frame_save = sws.process_frame(&frame, w, h, AV_PIX_FMT_YUV420P)?;
+                    enc.save_picture(&frame_save, out_path.to_str().unwrap())?;
+                    return Ok(());
+                }
             }
 
             Ok(())
@@ -183,33 +187,60 @@ mod tests {
         f
     }
 
-    fn opens(f: &tempfile::NamedTempFile) -> bool {
-        let mut d = open_demuxer(f.path().to_str().unwrap()).unwrap();
+    fn media_dir_with_manifest(name: &str, manifest: &str) -> (tempfile::TempDir, String) {
+        let dir = generate("secret.wav", &["-f", "lavfi", "-i", "sine=duration=1"])
+            .expect("ffmpeg could not make secret.wav");
+        let video = generate("secret.mp4", &with(VIDEO, &["-c:v", "mpeg4"]))
+            .expect("ffmpeg could not make secret.mp4");
+        std::fs::copy(
+            video.path().join("secret.mp4"),
+            dir.path().join("secret.mp4"),
+        )
+        .unwrap();
+        let path = dir.path().join(name);
+        std::fs::write(&path, manifest).unwrap();
+        (dir, path.to_str().unwrap().to_string())
+    }
+
+    fn opens_path(path: &str, options: HashMap<String, String>) -> bool {
+        let mut d = Demuxer::new(path).unwrap().with_open_options(options);
         unsafe { d.probe_input() }.is_ok()
+    }
+
+    const DASH: &str = "<?xml version=\"1.0\"?><MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\" mediaPresentationDuration=\"PT1S\" minBufferTime=\"PT1S\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\"><Period><AdaptationSet mimeType=\"video/mp4\"><Representation id=\"1\" bandwidth=\"1000\"><SegmentList duration=\"1\"><SegmentURL media=\"secret.mp4\"/></SegmentList></Representation></AdaptationSet></Period></MPD>";
+    const CONCAT: &str = "ffconcat version 1.0\nfile secret.wav\n";
+    const HLS: &str = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nsecret.wav\n#EXT-X-ENDLIST\n";
+
+    fn assert_blocked(manifest: &str) {
+        let (_dir, path) = media_dir_with_manifest("upload.mp4", manifest);
+        assert!(!opens_path(&path, input_open_options()));
     }
 
     #[test]
     fn dash_manifest_fails_to_open() {
-        let f = write_temp(
-            ".mp4",
-            "<?xml version=\"1.0\"?><MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\" mediaPresentationDuration=\"PT1S\"><Period><AdaptationSet><Representation id=\"1\" bandwidth=\"1\"><BaseURL>/etc/hostname</BaseURL></Representation></AdaptationSet></Period></MPD>",
-        );
-        assert!(!opens(&f));
+        assert_blocked(DASH);
     }
 
     #[test]
     fn concat_script_fails_to_open() {
-        let f = write_temp(".mp4", "ffconcat version 1.0\nfile /etc/hostname\n");
-        assert!(!opens(&f));
+        assert_blocked(CONCAT);
     }
 
     #[test]
     fn hls_playlist_fails_to_open() {
-        let f = write_temp(
-            ".mp4",
-            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n/etc/hostname\n#EXT-X-ENDLIST\n",
-        );
-        assert!(!opens(&f));
+        assert_blocked(HLS);
+    }
+
+    #[test]
+    fn dash_manifest_opens_without_whitelist() {
+        let (_dir, path) = media_dir_with_manifest("upload.mp4", DASH);
+        assert!(opens_path(&path, HashMap::new()));
+    }
+
+    #[test]
+    fn concat_script_opens_without_whitelist() {
+        let (_dir, path) = media_dir_with_manifest("upload.mp4", CONCAT);
+        assert!(opens_path(&path, HashMap::new()));
     }
 
     #[test]
@@ -218,5 +249,88 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let r = WebpProcessor::new().compress(f.path(), "video/mp4", out.path());
         assert!(r.is_err());
+    }
+
+    fn generate(name: &str, args: &[&str]) -> Option<tempfile::TempDir> {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join(name);
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y"])
+            .args(args)
+            .arg(&out)
+            .status()
+            .ok()?;
+        status.success().then_some(dir)
+    }
+
+    fn assert_legit_opens(name: &str, args: &[&str]) {
+        let dir = generate(name, args).unwrap_or_else(|| panic!("ffmpeg could not make {name}"));
+        let path = dir.path().join(name);
+        let mut d = open_demuxer(path.to_str().unwrap()).unwrap();
+        let info = unsafe { d.probe_input() }.unwrap_or_else(|e| panic!("{name} failed: {e}"));
+        assert!(!info.streams.is_empty(), "{name} has no streams");
+    }
+
+    const VIDEO: &[&str] = &["-f", "lavfi", "-i", "testsrc=size=64x64:rate=5:duration=1"];
+    const AUDIO: &[&str] = &["-f", "lavfi", "-i", "sine=duration=1"];
+    const IMAGE: &[&str] = &["-f", "lavfi", "-i", "testsrc=size=64x64", "-frames:v", "1"];
+
+    fn with(base: &[&'static str], extra: &[&'static str]) -> Vec<&'static str> {
+        base.iter().chain(extra.iter()).copied().collect()
+    }
+
+    #[test]
+    fn legit_mp4_opens() {
+        assert_legit_opens("a.mp4", &with(VIDEO, &["-c:v", "mpeg4"]));
+    }
+
+    #[test]
+    fn legit_webm_opens() {
+        assert_legit_opens("a.webm", &with(VIDEO, &["-c:v", "libvpx"]));
+    }
+
+    #[test]
+    fn legit_mkv_opens() {
+        assert_legit_opens("a.mkv", &with(VIDEO, &["-c:v", "mpeg4"]));
+    }
+
+    #[test]
+    fn legit_mp3_opens() {
+        assert_legit_opens("a.mp3", &with(AUDIO, &["-c:a", "libmp3lame"]));
+    }
+
+    #[test]
+    fn legit_ogg_opens() {
+        assert_legit_opens("a.ogg", &with(AUDIO, &["-c:a", "libvorbis"]));
+    }
+
+    #[test]
+    fn legit_wav_opens() {
+        assert_legit_opens("a.wav", AUDIO);
+    }
+
+    #[test]
+    fn legit_gif_opens() {
+        assert_legit_opens("a.gif", VIDEO);
+    }
+
+    #[test]
+    fn legit_png_opens() {
+        assert_legit_opens("a.png", IMAGE);
+    }
+
+    #[test]
+    fn legit_jpeg_opens() {
+        assert_legit_opens("a.jpg", IMAGE);
+    }
+
+    #[test]
+    fn legit_webp_opens() {
+        assert_legit_opens("a.webp", IMAGE);
+    }
+
+    #[test]
+    fn legit_animated_webp_opens() {
+        assert_legit_opens("a.webp", &with(VIDEO, &["-loop", "0"]));
     }
 }

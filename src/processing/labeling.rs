@@ -457,7 +457,8 @@ impl GenericLlmLabeler {
         let temp_str = temp_path.to_str().ok_or(LabelError::InvalidPath)?;
 
         unsafe {
-            let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
+            let mut demux =
+                crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
             let probe = demux.probe_input().map_err(LabelError::Ffmpeg)?;
 
             let stream = probe
@@ -767,7 +768,10 @@ unsafe fn extract_video_frames(
     check_dimensions(video_stream.width as u32, video_stream.height as u32)?;
 
     let stream_index = video_stream.index as i32;
-    let (tb_num, tb_den) = (video_stream.timebase.0 as f64, video_stream.timebase.1 as f64);
+    let (tb_num, tb_den) = (
+        video_stream.timebase.0 as f64,
+        video_stream.timebase.1 as f64,
+    );
     let start_secs = if video_stream.start_time.is_finite() {
         video_stream.start_time as f64
     } else {
@@ -785,9 +789,8 @@ unsafe fn extract_video_frames(
     for target_secs in video_sample_times(duration, MAX_VIDEO_FRAMES) {
         let target_secs = target_secs + start_secs;
         let seek_ts = (target_secs * tb_den / tb_num) as i64;
-        let ret = unsafe {
-            av_seek_frame(demux.context(), stream_index, seek_ts, AVSEEK_FLAG_BACKWARD)
-        };
+        let ret =
+            unsafe { av_seek_frame(demux.context(), stream_index, seek_ts, AVSEEK_FLAG_BACKWARD) };
         if ret < 0 {
             debug!("Seek to {:.2}s failed: {}", target_secs, ret);
             continue;
@@ -823,7 +826,10 @@ unsafe fn extract_video_frames(
         if let Some(frame) = picked {
             match unsafe { frame_to_tensor(&frame, &mut scaler, normalization, device) } {
                 Ok(tensor) => frames.push(tensor),
-                Err(e) => debug!("Failed to convert video frame at {:.2}s: {}", target_secs, e),
+                Err(e) => debug!(
+                    "Failed to convert video frame at {:.2}s: {}",
+                    target_secs, e
+                ),
             }
         }
     }
@@ -957,8 +963,15 @@ mod tests {
         let path = std::env::temp_dir().join("route96_test_synthetic.mp4");
         let status = Command::new("ffmpeg")
             .args([
-                "-y", "-f", "lavfi", "-i", "testsrc=duration=20:size=320x240:rate=25",
-                "-c:v", "libx264", "-g", "25",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=20:size=320x240:rate=25",
+                "-c:v",
+                "libx264",
+                "-g",
+                "25",
             ])
             .arg(&path)
             .stdout(std::process::Stdio::null())
@@ -971,7 +984,11 @@ mod tests {
         };
         assert_eq!(frames.len(), MAX_VIDEO_FRAMES);
         let a = frames[0].flatten_all().unwrap().to_vec1::<f32>().unwrap();
-        let b = frames[MAX_VIDEO_FRAMES - 1].flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let b = frames[MAX_VIDEO_FRAMES - 1]
+            .flatten_all()
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap();
         assert_ne!(a, b);
     }
 
