@@ -7,9 +7,27 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use log::debug;
 use nostr::{Event, JsonUtil, Kind, TagKind, Timestamp};
+use std::sync::Arc;
 use url::Url;
 
-const DEFAULT_EXPIRATION_SECS: u64 = 60 * 10; // 10 minutes
+use crate::routes::AppState;
+
+const MAX_EVENT_AGE_SECS: u64 = 60;
+
+pub fn created_at_in_window(created_at: u64, now: u64) -> bool {
+    created_at <= now + MAX_EVENT_AGE_SECS && now <= created_at + MAX_EVENT_AGE_SECS
+}
+
+pub fn url_matches(tag_url: &str, public_url: &str, request_path: &str) -> bool {
+    let (Ok(tag), Ok(base)) = (tag_url.parse::<Url>(), public_url.parse::<Url>()) else {
+        return false;
+    };
+    tag.scheme() == base.scheme()
+        && tag.host_str().is_some()
+        && tag.host_str() == base.host_str()
+        && tag.port_or_known_default() == base.port_or_known_default()
+        && tag.path() == request_path
+}
 
 pub struct Nip98Auth {
     pub content_type: Option<String>,
@@ -36,13 +54,10 @@ impl IntoResponse for Nip98Rejection {
     }
 }
 
-impl<S> FromRequestParts<S> for Nip98Auth
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<Arc<AppState>> for Nip98Auth {
     type Rejection = Nip98Rejection;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
         let auth = parts
             .headers
             .get("authorization")
@@ -65,31 +80,32 @@ where
             return Err(Nip98Rejection { status: StatusCode::UNAUTHORIZED, reason: "Wrong event kind" });
         }
 
-        // Get expiration from tag, or use default (10 minutes from created_at)
-        let expiration = event
-            .tags
-            .find(TagKind::Expiration)
-            .and_then(|t| t.content())
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or_else(|| event.created_at.as_secs() + DEFAULT_EXPIRATION_SECS);
-
         let now = Timestamp::now().as_secs();
+        let created_at = event.created_at.as_secs();
 
-        // Check "not before" - created_at should be in the past or very near future (allow 60s clock skew)
-        if event.created_at.as_secs() > now + 60 {
+        if created_at > now + MAX_EVENT_AGE_SECS {
             return Err(Nip98Rejection {
                 status: StatusCode::UNAUTHORIZED,
                 reason: "Event created_at is in the future",
             });
         }
 
-        // Check "not after" - expiration should be in the future
-        if now > expiration {
+        let expired_by_tag = event
+            .tags
+            .find(TagKind::Expiration)
+            .and_then(|t| t.content())
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|exp| now > exp)
+            .unwrap_or(false);
+
+        if expired_by_tag || !created_at_in_window(created_at, now) {
             return Err(Nip98Rejection {
                 status: StatusCode::UNAUTHORIZED,
                 reason: "Event has expired",
             });
         }
+
+        let public_url = state.settings().await.public_url;
 
         // Check url tag - match any 'u' tag against the full URL (excluding query args)
         let request_path = parts.uri.path();
@@ -104,8 +120,7 @@ where
 
         let url_matched = url_tags.iter().any(|tag| {
             tag.content()
-                .and_then(|s| s.parse::<Url>().ok())
-                .map(|u| u.path() == request_path)
+                .map(|s| url_matches(s, &public_url, request_path))
                 .unwrap_or(false)
         });
 
@@ -167,5 +182,37 @@ where
             content_type,
             content_length,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_tag_for_other_host_is_rejected() {
+        assert!(!url_matches("https://other.example/admin/self", "https://example.com", "/admin/self"));
+    }
+
+    #[test]
+    fn url_tag_for_own_host_is_accepted() {
+        assert!(url_matches("https://example.com/admin/self", "https://example.com", "/admin/self"));
+        assert!(url_matches("https://example.com/admin/self?x=1", "https://example.com/", "/admin/self"));
+    }
+
+    #[test]
+    fn url_tag_with_other_scheme_or_path_is_rejected() {
+        assert!(!url_matches("http://example.com/admin/self", "https://example.com", "/admin/self"));
+        assert!(!url_matches("https://example.com/admin/other", "https://example.com", "/admin/self"));
+    }
+
+    #[test]
+    fn old_created_at_is_rejected_whatever_expiration_says() {
+        let now = 10_000_000;
+        assert!(!created_at_in_window(now - 30 * 86400, now));
+        assert!(!created_at_in_window(now - 61, now));
+        assert!(!created_at_in_window(now + 61, now));
+        assert!(created_at_in_window(now - 60, now));
+        assert!(created_at_in_window(now + 60, now));
     }
 }
