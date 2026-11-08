@@ -147,8 +147,8 @@ async fn main() -> Result<(), Error> {
         }
     }
 
-    // Add state
-    let mut app = app.with_state(Arc::new(routes::AppState {
+    // Add state (hoisted so CORS middleware can share the same instance)
+    let app_state = Arc::new(routes::AppState {
         fs: fs.clone(),
         db: db.clone(),
         config_path: config_path.clone(),
@@ -157,7 +157,8 @@ async fn main() -> Result<(), Error> {
         file_stats: file_stats.clone(),
         #[cfg(feature = "payments")]
         lnd: lnd.as_ref().map(|(c, _)| c.clone()),
-    }));
+    });
+    let mut app = app.with_state(app_state.clone());
 
     // Add middleware layers
     app = app.layer(ResponseLogLayer);
@@ -166,6 +167,15 @@ async fn main() -> Result<(), Error> {
     {
         app = app.layer(middleware::from_fn(route96::cors::bud13_discovery_headers));
     }
+    // Privileged API paths (/admin, /user, /setup) answer only same-origin
+    // CORS: the BUD-01 wildcard stays for blob endpoints, but a website must
+    // not be able to pair a NIP-07 extension's auto-approved signing with
+    // cross-origin reads of admin API responses. Layered after cors_layer so
+    // the filter sees (and strips) its headers for cross-origin requests.
+    app = app.layer(middleware::from_fn_with_state(
+        app_state.clone(),
+        route96::cors::scope_admin_cors,
+    ));
     // Disable axum's default 2 MiB body limit so upload handlers can enforce
     // max_upload_bytes themselves. usize::MAX is effectively unlimited.
     app = app.layer(RequestBodyLimitLayer::new(usize::MAX));
