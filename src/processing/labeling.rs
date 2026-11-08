@@ -457,7 +457,7 @@ impl GenericLlmLabeler {
         let temp_str = temp_path.to_str().ok_or(LabelError::InvalidPath)?;
 
         unsafe {
-            let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+            let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
             let probe = demux.probe_input().map_err(LabelError::Ffmpeg)?;
 
             let stream = probe
@@ -760,7 +760,7 @@ unsafe fn extract_video_frames(
     use ffmpeg_rs_raw::ffmpeg_sys_the_third::{AVSEEK_FLAG_BACKWARD, av_seek_frame};
 
     let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
-    let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let video_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
 
@@ -867,7 +867,7 @@ unsafe fn frame_to_tensor(
 /// Load an image from disk, decode and scale it to `width × height` RGB pixels.
 unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>, LabelError> {
     let path_str = path_buf.to_str().ok_or(LabelError::InvalidPath)?;
-    let mut demux = Demuxer::new(path_str).map_err(LabelError::Ffmpeg)?;
+    let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
     let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
     let image_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
 

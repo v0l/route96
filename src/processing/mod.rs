@@ -1,11 +1,25 @@
 use anyhow::{Error, Result, bail};
 use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_YUV420P;
 use ffmpeg_rs_raw::{Decoder, Demuxer, DemuxerInfo, Encoder, Scaler, StreamType, Transcoder};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 #[cfg(feature = "labels")]
 pub mod labeling;
+
+pub const ALLOWED_INPUT_FORMATS: &str = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,mpeg,flv,ogg,wav,mp3,gif,apng,image2,image2pipe,jpeg_pipe,png_pipe,webp_pipe,bmp_pipe,tiff_pipe,jpegxl_pipe,avif_pipe,heif";
+
+pub fn input_open_options() -> HashMap<String, String> {
+    HashMap::from([
+        ("format_whitelist".to_string(), ALLOWED_INPUT_FORMATS.to_string()),
+        ("protocol_whitelist".to_string(), "file".to_string()),
+    ])
+}
+
+pub fn open_demuxer(path: &str) -> Result<Demuxer> {
+    Ok(Demuxer::new(path)?.with_open_options(input_open_options()))
+}
 
 pub struct WebpProcessor;
 
@@ -41,7 +55,11 @@ impl WebpProcessor {
         out_path.set_extension("webp");
 
         unsafe {
-            let mut trans = Transcoder::new(input.to_str().unwrap(), out_path.to_str().unwrap())?;
+            let mut trans = Transcoder::new_with_open_options(
+                input.to_str().unwrap(),
+                out_path.to_str().unwrap(),
+                input_open_options(),
+            )?;
 
             let probe = trans.prepare()?;
             let image_stream = probe
@@ -78,7 +96,7 @@ impl WebpProcessor {
         use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_WEBP;
 
         unsafe {
-            let mut input = Demuxer::new(input.to_str().unwrap())?;
+            let mut input = open_demuxer(input.to_str().unwrap())?;
 
             let probe = input.probe_input()?;
 
@@ -149,6 +167,56 @@ pub fn compress_file(
 }
 
 pub fn probe_file(path: &Path) -> Result<DemuxerInfo> {
-    let mut demuxer = Demuxer::new(path.to_str().unwrap())?;
+    let mut demuxer = open_demuxer(path.to_str().unwrap())?;
     unsafe { demuxer.probe_input() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp(ext: &str, body: &str) -> tempfile::NamedTempFile {
+        let mut f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    fn opens(f: &tempfile::NamedTempFile) -> bool {
+        let mut d = open_demuxer(f.path().to_str().unwrap()).unwrap();
+        unsafe { d.probe_input() }.is_ok()
+    }
+
+    #[test]
+    fn dash_manifest_fails_to_open() {
+        let f = write_temp(
+            ".mp4",
+            "<?xml version=\"1.0\"?><MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\" mediaPresentationDuration=\"PT1S\"><Period><AdaptationSet><Representation id=\"1\" bandwidth=\"1\"><BaseURL>/etc/hostname</BaseURL></Representation></AdaptationSet></Period></MPD>",
+        );
+        assert!(!opens(&f));
+    }
+
+    #[test]
+    fn concat_script_fails_to_open() {
+        let f = write_temp(".mp4", "ffconcat version 1.0\nfile /etc/hostname\n");
+        assert!(!opens(&f));
+    }
+
+    #[test]
+    fn hls_playlist_fails_to_open() {
+        let f = write_temp(
+            ".mp4",
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n/etc/hostname\n#EXT-X-ENDLIST\n",
+        );
+        assert!(!opens(&f));
+    }
+
+    #[test]
+    fn transcoder_rejects_concat_script() {
+        let f = write_temp(".mp4", "ffconcat version 1.0\nfile /etc/hostname\n");
+        let out = tempfile::tempdir().unwrap();
+        let r = WebpProcessor::new().compress(f.path(), "video/mp4", out.path());
+        assert!(r.is_err());
+    }
 }

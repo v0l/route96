@@ -74,7 +74,7 @@ pub fn phash_image(path: &Path, mime_type: &str) -> Result<PHash> {
 }
 
 unsafe fn decode_rgb(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let mut demux = Demuxer::new(path.to_str().unwrap())?;
+    let mut demux = crate::processing::open_demuxer(path.to_str().unwrap())?;
     let info = unsafe { demux.probe_input()? };
     let stream = info
         .best_video()
