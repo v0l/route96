@@ -2,6 +2,24 @@ import { base64, base64urlnopad } from "@scure/base";
 import { throwIfOffline, unixNow } from "@snort/shared";
 import { EventKind, EventPublisher } from "@snort/system";
 
+export interface LabelDeleteConfig {
+  terms: string[];
+  min_confidence: number;
+  dry_run: boolean;
+}
+
+export interface LabelDeletion {
+  file: string;
+  pubkeys: string;
+  term: string;
+  label: string;
+  model: string;
+  confidence: number;
+  reason: string;
+  dry_run: boolean;
+  created?: string;
+}
+
 export interface AdminSelf {
   is_admin: boolean;
   setup_mode: boolean;
@@ -449,7 +467,8 @@ export class Route96 {
 
   async getLabelDeleteTerms() {
     const rsp = await this.#req("admin/label-delete-terms", "GET");
-    const data = await this.#handleResponse<AdminResponse<string[] | null>>(rsp);
+    const data =
+      await this.#handleResponse<AdminResponse<LabelDeleteConfig>>(rsp);
     return data.data;
   }
 
@@ -467,12 +486,13 @@ export class Route96 {
     return this.#handleResponse<AdminResponse<void>>(rsp);
   }
 
-  async listLabelDeletions(dryRun?: boolean) {
+  async listLabelDeletions(dryRun: boolean, offset = 0, limit = 20) {
     const rsp = await this.#req(
-      `admin/label-deletions${dryRun === undefined ? "" : `?dry_run=${dryRun}`}`,
+      `admin/label-deletions?dry_run=${dryRun}&offset=${offset}&limit=${limit}`,
       "GET",
     );
-    const data = await this.#handleResponse<AdminResponse<unknown[]>>(rsp);
+    const data =
+      await this.#handleResponse<AdminResponse<LabelDeletion[]>>(rsp);
     return data.data ?? [];
   }
 

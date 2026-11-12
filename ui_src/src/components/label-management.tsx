@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Route96 } from "../upload/admin";
+import { Route96, LabelDeletion } from "../upload/admin";
 import { EventPublisher } from "@snort/system";
 
 interface LabelModel {
@@ -204,6 +204,329 @@ function LabelFlagTerms({
               Revert to Default
             </BtnSmall>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Label Delete Terms Section ──────────────────────────────────────────────
+
+function LabelDeleteTerms({
+  pub,
+  url,
+}: {
+  pub: EventPublisher;
+  url: string;
+}) {
+  const [terms, setTerms] = useState<string[]>([]);
+  const [minConfidence, setMinConfidence] = useState(0.8);
+  const [dryRun, setDryRun] = useState(true);
+  const [inputTerm, setInputTerm] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+  const [dirty, setDirty] = useState(false);
+
+  const loadTerms = useCallback(async () => {
+    try {
+      const route96 = new Route96(url, pub);
+      const result = await route96.getLabelDeleteTerms();
+      setTerms(result?.terms ?? []);
+      setMinConfidence(result?.min_confidence ?? 0.8);
+      setDryRun(result?.dry_run ?? true);
+      setError(undefined);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Failed to load label delete terms",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [pub, url]);
+
+  useEffect(() => {
+    loadTerms();
+  }, [loadTerms]);
+
+  const handleAddTerm = () => {
+    const trimmed = inputTerm.trim();
+    if (trimmed && !terms.includes(trimmed)) {
+      setTerms([...terms, trimmed]);
+      setInputTerm("");
+      setDirty(true);
+    }
+  };
+
+  const handleRemoveTerm = (term: string) => {
+    setTerms(terms.filter((t) => t !== term));
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    if (terms.length === 0) {
+      setError("Please add at least one term");
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.setLabelDeleteTerms(terms);
+      setDirty(false);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Failed to save label delete terms",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClear = async () => {
+    try {
+      setSaving(true);
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.deleteLabelDeleteTerms();
+      setTerms([]);
+      setDirty(false);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Failed to clear label delete terms",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-sm text-neutral-500 py-4">Loading...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-medium text-neutral-300 mb-2">
+          Delete terms
+        </h3>
+        <p className="text-xs text-neutral-500 mb-3">
+          Files whose AI labels contain one of these terms at or above the
+          minimum confidence are deleted and their hash is banned. Reviewed
+          files are never deleted.
+        </p>
+
+        <div className="flex gap-3 mb-3 text-xs">
+          <span className="bg-neutral-800 border border-neutral-700 rounded-sm px-2 py-1 text-neutral-300">
+            Min confidence: {minConfidence}
+          </span>
+          <span
+            className={`rounded-sm px-2 py-1 border ${
+              dryRun
+                ? "bg-yellow-900/30 text-yellow-400 border-yellow-800"
+                : "bg-red-900/30 text-red-400 border-red-800"
+            }`}
+          >
+            {dryRun ? "Dry run on (nothing is deleted)" : "Dry run off (deleting)"}
+          </span>
+        </div>
+
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={inputTerm}
+            onChange={(e) => setInputTerm(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddTerm()}
+            placeholder="Add a term"
+            className={inputCls("flex-1")}
+          />
+          <BtnSmall onClick={handleAddTerm} disabled={!inputTerm.trim()}>
+            Add
+          </BtnSmall>
+        </div>
+
+        {terms.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {terms.map((term) => (
+              <span
+                key={term}
+                className="inline-flex items-center gap-1 bg-neutral-800 border border-neutral-700 rounded-sm px-2 py-1 text-xs text-neutral-300"
+              >
+                {term}
+                <button
+                  onClick={() => handleRemoveTerm(term)}
+                  className="text-neutral-500 hover:text-red-400"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {error && <div className="text-xs text-red-400 mb-3">{error}</div>}
+
+        <div className="flex gap-2">
+          {dirty && (
+            <BtnSmall
+              onClick={handleSave}
+              disabled={saving || terms.length === 0}
+            >
+              {saving ? "Saving…" : "Save"}
+            </BtnSmall>
+          )}
+          {terms.length > 0 && (
+            <BtnSmall onClick={handleClear} danger disabled={saving}>
+              Clear
+            </BtnSmall>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Label Deletions Section ─────────────────────────────────────────────────
+
+const DELETIONS_PAGE_SIZE = 20;
+
+function LabelDeletions({
+  pub,
+  url,
+}: {
+  pub: EventPublisher;
+  url: string;
+}) {
+  const [dryRun, setDryRun] = useState(true);
+  const [page, setPage] = useState(0);
+  const [rows, setRows] = useState<LabelDeletion[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const route96 = new Route96(url, pub);
+    route96
+      .listLabelDeletions(
+        dryRun,
+        page * DELETIONS_PAGE_SIZE,
+        DELETIONS_PAGE_SIZE + 1,
+      )
+      .then((result) => {
+        if (cancelled) return;
+        setHasMore(result.length > DELETIONS_PAGE_SIZE);
+        setRows(result.slice(0, DELETIONS_PAGE_SIZE));
+        setError(undefined);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(
+          e instanceof Error ? e.message : "Failed to load label deletions",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pub, url, dryRun, page]);
+
+  const choose = (value: boolean) => {
+    setDryRun(value);
+    setPage(0);
+  };
+
+  const tabCls = (active: boolean) =>
+    `px-3 py-1 text-xs rounded-sm ${
+      active
+        ? "bg-blue-900/30 text-blue-400 border border-blue-800"
+        : "bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-200"
+    }`;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-medium text-neutral-300 mb-2">
+          Label deletions
+        </h3>
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => choose(true)} className={tabCls(dryRun)}>
+            Would delete (dry run)
+          </button>
+          <button onClick={() => choose(false)} className={tabCls(!dryRun)}>
+            Deleted
+          </button>
+        </div>
+
+        {error && <div className="text-xs text-red-400 mb-3">{error}</div>}
+
+        {loading ? (
+          <div className="text-sm text-neutral-500 py-4">Loading...</div>
+        ) : rows.length === 0 ? (
+          <div className="text-xs text-neutral-500">Nothing here yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="text-neutral-500">
+                <tr>
+                  <th className="py-1 pr-3">Hash</th>
+                  <th className="py-1 pr-3">Term</th>
+                  <th className="py-1 pr-3">Label</th>
+                  <th className="py-1 pr-3">Model</th>
+                  <th className="py-1 pr-3">Confidence</th>
+                  <th className="py-1 pr-3">Uploader</th>
+                  <th className="py-1">Time</th>
+                </tr>
+              </thead>
+              <tbody className="text-neutral-300">
+                {rows.map((r, i) => (
+                  <tr
+                    key={`${r.file}-${r.created}-${i}`}
+                    className="border-t border-neutral-800"
+                  >
+                    <td className="py-1 pr-3 font-mono">
+                      <a
+                        href={`${url.replace(/\/$/, "")}/${r.file}`}
+                        target="_blank"
+                        className="text-blue-400 hover:underline"
+                        title={r.file}
+                      >
+                        {r.file.slice(0, 12)}…
+                      </a>
+                    </td>
+                    <td className="py-1 pr-3">{r.term}</td>
+                    <td className="py-1 pr-3">{r.label}</td>
+                    <td className="py-1 pr-3">{r.model}</td>
+                    <td className="py-1 pr-3">{r.confidence.toFixed(2)}</td>
+                    <td className="py-1 pr-3 font-mono">
+                      {r.pubkeys
+                        ? r.pubkeys
+                            .split(",")
+                            .map((p) => `${p.slice(0, 8)}…`)
+                            .join(", ")
+                        : "-"}
+                    </td>
+                    <td className="py-1">
+                      {r.created ? new Date(r.created).toLocaleString() : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mt-3">
+          <BtnSmall onClick={() => setPage(page - 1)} disabled={page === 0}>
+            Previous
+          </BtnSmall>
+          <span className="text-xs text-neutral-500">Page {page + 1}</span>
+          <BtnSmall onClick={() => setPage(page + 1)} disabled={!hasMore}>
+            Next
+          </BtnSmall>
         </div>
       </div>
     </div>
@@ -528,7 +851,7 @@ function LabelModels({
 
 // ── Main Label Management Component ─────────────────────────────────────────
 
-type Tab = "flag-terms" | "models";
+type Tab = "flag-terms" | "delete-terms" | "deletions" | "models";
 
 export default function LabelManagement({
   pub,
@@ -539,34 +862,42 @@ export default function LabelManagement({
 }) {
   const [tab, setTab] = useState<Tab>("flag-terms");
 
+  const tabCls = (t: Tab) =>
+    `px-3 py-1 text-xs rounded-sm ${
+      tab === t
+        ? "bg-blue-900/30 text-blue-400 border border-blue-800"
+        : "bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-200"
+    }`;
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2 border-b border-neutral-800 pb-2">
         <button
           onClick={() => setTab("flag-terms")}
-          className={`px-3 py-1 text-xs rounded-sm ${
-            tab === "flag-terms"
-              ? "bg-blue-900/30 text-blue-400 border border-blue-800"
-              : "bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-200"
-          }`}
+          className={tabCls("flag-terms")}
         >
           Flag Terms
         </button>
         <button
-          onClick={() => setTab("models")}
-          className={`px-3 py-1 text-xs rounded-sm ${
-            tab === "models"
-              ? "bg-blue-900/30 text-blue-400 border border-blue-800"
-              : "bg-neutral-800 text-neutral-400 border border-neutral-700 hover:text-neutral-200"
-          }`}
+          onClick={() => setTab("delete-terms")}
+          className={tabCls("delete-terms")}
         >
+          Delete terms
+        </button>
+        <button
+          onClick={() => setTab("deletions")}
+          className={tabCls("deletions")}
+        >
+          Label deletions
+        </button>
+        <button onClick={() => setTab("models")} className={tabCls("models")}>
           Label Models
         </button>
       </div>
 
-      {tab === "flag-terms" && (
-        <LabelFlagTerms pub={pub} url={url} />
-      )}
+      {tab === "flag-terms" && <LabelFlagTerms pub={pub} url={url} />}
+      {tab === "delete-terms" && <LabelDeleteTerms pub={pub} url={url} />}
+      {tab === "deletions" && <LabelDeletions pub={pub} url={url} />}
       {tab === "models" && <LabelModels pub={pub} url={url} />}
     </div>
   );

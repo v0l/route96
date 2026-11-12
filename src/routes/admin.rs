@@ -1893,12 +1893,16 @@ async fn admin_get_label_delete_terms(
     }
 
     let settings = state.settings().await;
-    let terms = settings
-        .label_delete_terms
-        .map(|terms| serde_json::to_value(terms).unwrap_or(serde_json::Value::Null))
-        .unwrap_or(serde_json::Value::Null);
+    AdminResponse::success(label_delete_config(&settings))
+}
 
-    AdminResponse::success(terms)
+#[cfg(feature = "labels")]
+fn label_delete_config(settings: &crate::settings::Settings) -> serde_json::Value {
+    serde_json::json!({
+        "terms": settings.label_delete_terms.clone().unwrap_or_default(),
+        "min_confidence": (settings.label_delete_min_confidence.unwrap_or(0.8) as f64 * 1e4).round() / 1e4,
+        "dry_run": settings.label_delete_dry_run.unwrap_or(true),
+    })
 }
 
 /// `PUT /admin/label-delete-terms` — set the label delete terms.
@@ -2025,6 +2029,25 @@ mod tests {
             last_accessed: Some(DateTime::from_timestamp(1_700_001_000, 0).unwrap()),
             egress_bytes: egress,
         }
+    }
+
+    #[cfg(feature = "labels")]
+    #[test]
+    fn label_delete_config_reports_defaults_and_overrides() {
+        let defaults = label_delete_config(&default_settings());
+        assert_eq!(
+            defaults,
+            serde_json::json!({"terms": [], "min_confidence": 0.8, "dry_run": true})
+        );
+
+        let mut s = default_settings();
+        s.label_delete_terms = Some(vec!["gore".to_string()]);
+        s.label_delete_min_confidence = Some(0.5);
+        s.label_delete_dry_run = Some(false);
+        let v = label_delete_config(&s);
+        assert_eq!(v["terms"], serde_json::json!(["gore"]));
+        assert_eq!(v["min_confidence"], serde_json::json!(0.5));
+        assert_eq!(v["dry_run"], serde_json::json!(false));
     }
 
     fn default_settings() -> Settings {
