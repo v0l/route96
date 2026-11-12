@@ -1,20 +1,48 @@
 use super::{BatchResult, next_sleep};
-use crate::db::{Database, FileLabel, ReviewState};
+use crate::db::{Database, FileLabel, LabelDeletion, ReviewState};
 use crate::filesystem::FileStore;
 use crate::processing::labeling::{GenericLlmLabeler, MediaLabeler, VitLabeler};
-use crate::settings::{LabelModelConfig, LabelerType};
+use crate::settings::{LabelModelConfig, LabelerType, Settings};
 use candle_core::Device;
 use log::{error, info, warn};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+
+const DEFAULT_DELETE_MIN_CONFIDENCE: f32 = 0.8;
+
+#[derive(Clone, Debug, Default)]
+pub struct DeletePolicy {
+    pub terms: Vec<String>,
+    pub min_confidence: f32,
+    pub dry_run: bool,
+}
+
+impl DeletePolicy {
+    pub fn from_settings(s: &Settings) -> Self {
+        Self {
+            terms: s.label_delete_terms.clone().unwrap_or_default(),
+            min_confidence: s
+                .label_delete_min_confidence
+                .unwrap_or(DEFAULT_DELETE_MIN_CONFIDENCE),
+            dry_run: s.label_delete_dry_run.unwrap_or(true),
+        }
+    }
+}
+
+struct DeleteMatch {
+    term: String,
+    label: String,
+    confidence: f32,
+}
 
 pub struct LabelFiles {
     db: Database,
     fs: FileStore,
     models_dir: PathBuf,
     label_models: Vec<LabelModelConfig>,
-    label_flag_terms: Vec<String>,
+    settings: Arc<RwLock<Settings>>,
 }
 
 impl LabelFiles {
@@ -23,14 +51,14 @@ impl LabelFiles {
         fs: FileStore,
         models_dir: PathBuf,
         label_models: Vec<LabelModelConfig>,
-        label_flag_terms: Vec<String>,
+        settings: Arc<RwLock<Settings>>,
     ) -> Self {
         Self {
             db,
             fs,
             models_dir,
             label_models,
-            label_flag_terms,
+            settings,
         }
     }
 
@@ -38,7 +66,7 @@ impl LabelFiles {
     /// in parallel. Each task owns its labeler (and any CUDA state it holds).
     pub async fn process(self, shutdown: CancellationToken) {
         let models_dir = self.models_dir.clone();
-        let label_flag_terms = self.label_flag_terms.clone();
+        let settings = self.settings.clone();
 
         let mut handles = vec![];
 
@@ -46,7 +74,7 @@ impl LabelFiles {
             let db = self.db.clone();
             let fs = self.fs.clone();
             let models_dir = models_dir.clone();
-            let flag_terms = label_flag_terms.clone();
+            let settings = settings.clone();
             let token = shutdown.clone();
             let cfg_clone = cfg.clone();
 
@@ -77,7 +105,13 @@ impl LabelFiles {
                     let sleep_dur;
 
                     tokio::select! {
-                        batch_result = Self::run_batch(labeler.clone(), &db, &fs, &flag_terms, &token) => {
+                        batch_result = async {
+                            let (flag_terms, delete) = {
+                                let s = settings.read().await;
+                                (s.label_flag_terms.clone().unwrap_or_default(), DeletePolicy::from_settings(&s))
+                            };
+                            Self::run_batch(labeler.clone(), &db, &fs, &flag_terms, &delete, &token).await
+                        } => {
                             sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                             if let BatchResult::Processed { found, failed } = batch_result
                                 && stall_rounds > 0
@@ -180,6 +214,7 @@ impl LabelFiles {
         db: &Database,
         fs: &FileStore,
         label_flag_terms: &[String],
+        delete: &DeletePolicy,
         shutdown: &CancellationToken,
     ) -> BatchResult {
         let model_name = labeler.name().to_string();
@@ -256,7 +291,7 @@ impl LabelFiles {
                                 score,
                                 elapsed,
                             );
-                            FileLabel::new(label, model_name.clone())
+                            (FileLabel::new(label, model_name.clone()), score)
                         })
                         .collect::<Vec<_>>()
                 }
@@ -331,7 +366,7 @@ impl LabelFiles {
                 }
             };
 
-            for label in &new_labels {
+            for (label, _) in &new_labels {
                 db.add_file_label(&file.id, label)
                     .await
                     .unwrap_or_else(|e| {
@@ -355,11 +390,15 @@ impl LabelFiles {
                     );
                 });
 
-            if !label_flag_terms.is_empty()
-                && !new_labels.is_empty()
-                && Database::review_state_for_labels(&new_labels, label_flag_terms)
+            let labels_only: Vec<FileLabel> = new_labels.iter().map(|(l, _)| l.clone()).collect();
+            let delete_hit = Self::delete_match(&new_labels, delete);
+            let flagged = !labels_only.is_empty()
+                && (Database::review_state_for_labels(&labels_only, label_flag_terms)
                     == ReviewState::LabelFlagged
-            {
+                    || new_labels
+                        .iter()
+                        .any(|(l, _)| Database::matching_term(&l.label, &delete.terms).is_some()));
+            if flagged {
                 db.flag_file_for_review(&file.id).await.unwrap_or_else(|e| {
                     error!(
                         "Failed to set review state for {}: {}",
@@ -368,9 +407,90 @@ impl LabelFiles {
                     );
                 });
             }
+
+            if let Some(hit) = delete_hit
+                && file.review_state != ReviewState::Reviewed
+            {
+                Self::auto_delete(db, fs, &file.id, &model_name, &hit, delete.dry_run).await;
+            }
         }
 
         BatchResult::Processed { found, failed }
+    }
+
+    fn delete_match(labels: &[(FileLabel, f32)], delete: &DeletePolicy) -> Option<DeleteMatch> {
+        labels
+            .iter()
+            .filter(|(_, score)| *score >= delete.min_confidence)
+            .filter_map(|(l, score)| {
+                Database::matching_term(&l.label, &delete.terms).map(|t| DeleteMatch {
+                    term: t.clone(),
+                    label: l.label.clone(),
+                    confidence: *score,
+                })
+            })
+            .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+    }
+
+    async fn auto_delete(
+        db: &Database,
+        fs: &FileStore,
+        id: &Vec<u8>,
+        model: &str,
+        hit: &DeleteMatch,
+        dry_run: bool,
+    ) {
+        let hash = hex::encode(id);
+        let pubkeys = match db.get_file_owners(id).await {
+            Ok(owners) => owners
+                .iter()
+                .map(|u| hex::encode(&u.pubkey))
+                .collect::<Vec<_>>()
+                .join(","),
+            Err(e) => {
+                error!("Label delete: failed to read owners of {}: {}", hash, e);
+                return;
+            }
+        };
+        let reason = format!("label:{} ({} {:.2})", hit.term, model, hit.confidence);
+        let record = LabelDeletion {
+            file: id.clone(),
+            pubkeys: pubkeys.clone(),
+            term: hit.term.clone(),
+            label: hit.label.clone(),
+            model: model.to_string(),
+            confidence: hit.confidence,
+            reason: reason.clone(),
+            dry_run,
+            created: None,
+        };
+        if let Err(e) = db.record_label_deletion(&record).await {
+            error!(
+                "Label delete: failed to write audit row for {}: {}",
+                hash, e
+            );
+            return;
+        }
+        if dry_run {
+            info!(
+                "Label delete (dry run): would delete file={} owners=[{}] label={} model={} confidence={:.2} reason={}",
+                hash, pubkeys, hit.label, model, hit.confidence, reason
+            );
+            return;
+        }
+        warn!(
+            "Label delete: deleting file={} owners=[{}] label={} model={} confidence={:.2} reason={}",
+            hash, pubkeys, hit.label, model, hit.confidence, reason
+        );
+        if let Err(e) = db.ban_file(id).await {
+            error!("Label delete: failed to ban {}: {}", hash, e);
+            return;
+        }
+        if let Err(e) = fs.delete(id).await
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            error!("Label delete: failed to remove {} from disk: {}", hash, e);
+        }
     }
 }
 
@@ -407,6 +527,156 @@ mod tests {
         ) -> Result<HashMap<String, f32>, LabelError> {
             Ok(HashMap::from([(self.0.to_string(), 0.9)]))
         }
+    }
+
+    struct ScoredLabeler(&'static str, f32);
+
+    impl MediaLabeler for ScoredLabeler {
+        fn name(&self) -> &str {
+            "nsfw"
+        }
+
+        fn label_exclude(&self) -> &[String] {
+            &[]
+        }
+
+        fn min_confidence(&self) -> f32 {
+            0.1
+        }
+
+        fn label_file(
+            &self,
+            _path: &Path,
+            _mime_type: &str,
+        ) -> Result<HashMap<String, f32>, LabelError> {
+            Ok(HashMap::from([(self.0.to_string(), self.1)]))
+        }
+    }
+
+    fn policy(dry_run: bool) -> DeletePolicy {
+        DeletePolicy {
+            terms: vec!["gore".to_string()],
+            min_confidence: 0.8,
+            dry_run,
+        }
+    }
+
+    fn test_store(dir: &Path) -> FileStore {
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "storage_dir": dir,
+            "database": "",
+            "max_upload_bytes": 1024,
+            "public_url": "",
+        }))
+        .unwrap();
+        FileStore::new(Arc::new(RwLock::new(settings)))
+    }
+
+    async fn run(db: &Database, fs: &FileStore, score: f32, policy: &DeletePolicy) {
+        let labeler: Arc<Box<dyn MediaLabeler + Send + Sync>> =
+            Arc::new(Box::new(ScoredLabeler("graphic gore", score)));
+        LabelFiles::run_batch(labeler, db, fs, &[], policy, &CancellationToken::new()).await;
+    }
+
+    async fn add_owned(db: &Database, fs: &FileStore, content: &[u8], state: ReviewState) -> Vec<u8> {
+        let id = add(db, fs, content, state).await;
+        let user = db.upsert_user(&vec![7u8; 32]).await.unwrap();
+        sqlx::query("insert into user_uploads(file, user_id) values(?, ?)")
+            .bind(&id)
+            .bind(user)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        id
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn delete_term_match_removes_file_and_writes_audit() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"bad", ReviewState::None).await;
+
+        run(&db, &fs, 0.95, &policy(false)).await;
+
+        assert!(!fs.get(&id).exists());
+        let row = db.get_file(&id).await.unwrap();
+        assert!(row.map(|f| f.banned).unwrap_or(true));
+        let audit = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
+        assert_eq!(audit.len(), 1);
+        assert_eq!(audit[0].file, id);
+        assert_eq!(audit[0].reason, "label:gore (nsfw 0.95)");
+        assert_eq!(audit[0].pubkeys, hex::encode(vec![7u8; 32]));
+        assert!(db.get_file_owners(&id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn deleted_hash_cannot_be_reuploaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"bad", ReviewState::None).await;
+
+        run(&db, &fs, 0.95, &policy(false)).await;
+
+        assert!(db.is_file_banned(&id).await.unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn delete_match_below_confidence_only_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"weak", ReviewState::None).await;
+
+        run(&db, &fs, 0.5, &policy(false)).await;
+
+        assert!(fs.get(&id).exists());
+        let f = db.get_file(&id).await.unwrap().unwrap();
+        assert!(!f.banned);
+        assert_eq!(f.review_state, ReviewState::LabelFlagged);
+        assert!(db.list_label_deletions(None, 0, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn reviewed_file_is_never_auto_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"ok", ReviewState::Reviewed).await;
+
+        run(&db, &fs, 0.99, &policy(false)).await;
+
+        assert!(fs.get(&id).exists());
+        let f = db.get_file(&id).await.unwrap().unwrap();
+        assert!(!f.banned);
+        assert_eq!(f.review_state, ReviewState::Reviewed);
+        assert!(db.list_label_deletions(None, 0, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn dry_run_keeps_file_flags_and_records_would_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"dry", ReviewState::None).await;
+
+        run(&db, &fs, 0.95, &policy(true)).await;
+
+        assert!(fs.get(&id).exists());
+        let f = db.get_file(&id).await.unwrap().unwrap();
+        assert!(!f.banned);
+        assert_eq!(f.review_state, ReviewState::LabelFlagged);
+        assert_eq!(db.get_file_owners(&id).await.unwrap().len(), 1);
+        let would = db.list_label_deletions(Some(true), 0, 10).await.unwrap();
+        assert_eq!(would.len(), 1);
+        assert_eq!(would[0].file, id);
+        assert!(db.list_label_deletions(Some(false), 0, 10).await.unwrap().is_empty());
     }
 
     async fn test_db() -> Database {
@@ -463,8 +733,15 @@ mod tests {
         let labeler: Arc<Box<dyn MediaLabeler + Send + Sync>> =
             Arc::new(Box::new(FixedLabeler("nsfw")));
         let terms = vec!["nsfw".to_string()];
-        let result =
-            LabelFiles::run_batch(labeler, &db, &fs, &terms, &CancellationToken::new()).await;
+        let result = LabelFiles::run_batch(
+            labeler,
+            &db,
+            &fs,
+            &terms,
+            &DeletePolicy::default(),
+            &CancellationToken::new(),
+        )
+        .await;
         assert!(matches!(
             result,
             BatchResult::Processed {

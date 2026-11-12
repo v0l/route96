@@ -447,6 +447,35 @@ export class Route96 {
     return this.#handleResponse<AdminResponse<void>>(rsp);
   }
 
+  async getLabelDeleteTerms() {
+    const rsp = await this.#req("admin/label-delete-terms", "GET");
+    const data = await this.#handleResponse<AdminResponse<string[] | null>>(rsp);
+    return data.data;
+  }
+
+  async setLabelDeleteTerms(terms: string[]) {
+    const rsp = await this.#req(
+      "admin/label-delete-terms",
+      "PUT",
+      JSON.stringify({ terms }),
+    );
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async deleteLabelDeleteTerms() {
+    const rsp = await this.#req("admin/label-delete-terms", "DELETE");
+    return this.#handleResponse<AdminResponse<void>>(rsp);
+  }
+
+  async listLabelDeletions(dryRun?: boolean) {
+    const rsp = await this.#req(
+      `admin/label-deletions${dryRun === undefined ? "" : `?dry_run=${dryRun}`}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponse<unknown[]>>(rsp);
+    return data.data ?? [];
+  }
+
   async getStats(days: number = 30) {
     const rsp = await this.#req(`admin/stats?days=${days}`, "GET");
     const data = await this.#handleResponse<AdminResponse<AdminStatsResponse>>(rsp);

@@ -169,6 +169,23 @@ impl FileLabel {
     }
 }
 
+#[cfg(feature = "labels")]
+#[derive(Clone, FromRow, Serialize)]
+pub struct LabelDeletion {
+    #[serde(with = "hex")]
+    pub file: Vec<u8>,
+    pub pubkeys: String,
+    pub term: String,
+    pub label: String,
+    pub model: String,
+    pub confidence: f32,
+    pub reason: String,
+    pub dry_run: bool,
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<DateTime<Utc>>,
+}
+
 #[derive(Clone, FromRow, Serialize)]
 pub struct UserStats {
     pub file_count: u64,
@@ -551,6 +568,14 @@ impl Database {
             }
         }
         ReviewState::None
+    }
+
+    #[cfg(feature = "labels")]
+    pub fn matching_term<'a>(label: &str, terms: &'a [String]) -> Option<&'a String> {
+        let lower = label.to_lowercase();
+        terms
+            .iter()
+            .find(|t| !t.is_empty() && lower.contains(&t.to_lowercase()))
     }
 
     pub async fn get_file(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
@@ -1381,6 +1406,45 @@ impl Database {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "labels")]
+    pub async fn record_label_deletion(&self, d: &LabelDeletion) -> Result<(), Error> {
+        sqlx::query(
+            "insert into label_deletions(file, pubkeys, term, label, model, confidence, reason, dry_run) \
+             values(?,?,?,?,?,?,?,?)",
+        )
+        .bind(&d.file)
+        .bind(&d.pubkeys)
+        .bind(&d.term)
+        .bind(&d.label)
+        .bind(&d.model)
+        .bind(d.confidence)
+        .bind(&d.reason)
+        .bind(d.dry_run)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "labels")]
+    pub async fn list_label_deletions(
+        &self,
+        dry_run: Option<bool>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<LabelDeletion>, Error> {
+        sqlx::query_as(
+            "select file, pubkeys, term, label, model, confidence, reason, dry_run, created \
+             from label_deletions where (? is null or dry_run = ?) \
+             order by id desc limit ? offset ?",
+        )
+        .bind(dry_run)
+        .bind(dry_run)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
     }
 
     /// Get all configured label models from the database.

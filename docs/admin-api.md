@@ -451,6 +451,16 @@ next reload.
 
 ---
 
+## Label auto-delete
+
+### `GET|PUT|DELETE /admin/label-delete-terms`
+
+Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Reviewed files are never deleted and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.
+
+### `GET /admin/label-deletions`
+
+Audit rows (file hash, uploader pubkeys, term, label, model, confidence, reason). Query: `dry_run=true` lists files that would be deleted, `dry_run=false` the real deletions, `offset`, `limit` (max 500).
+
 ## Error responses
 
 All endpoints return a consistent error envelope on failure:

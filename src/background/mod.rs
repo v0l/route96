@@ -128,12 +128,12 @@ pub async fn start_background_tasks(
                 .models_dir
                 .clone()
                 .unwrap_or_else(|| fs.storage_dir().join("models"));
-            let flag_terms = settings_snap.label_flag_terms.clone().unwrap_or_default();
+            let live = settings.clone();
             let token = shutdown.clone();
             set.spawn(async move {
                 info!("Starting LabelFiles background task");
                 let task =
-                    label_files::LabelFiles::new(db, fs, models_dir, label_models, flag_terms);
+                    label_files::LabelFiles::new(db, fs, models_dir, label_models, live);
                 task.process(token).await;
                 info!("LabelFiles background task completed");
             });

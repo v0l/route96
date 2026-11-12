@@ -91,7 +91,14 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
             .route(
                 "/admin/label-flag-terms",
                 delete(admin_delete_label_flag_terms),
-            );
+            )
+            .route(
+                "/admin/label-delete-terms",
+                get(admin_get_label_delete_terms)
+                    .put(admin_set_label_delete_terms)
+                    .delete(admin_delete_label_delete_terms),
+            )
+            .route("/admin/label-deletions", get(admin_list_label_deletions));
     }
 
     #[cfg(feature = "media-compression")]
@@ -1875,6 +1882,113 @@ async fn admin_delete_label_flag_terms(
     }
 }
 
+/// `GET /admin/label-delete-terms` — get the label delete terms.
+#[cfg(feature = "labels")]
+async fn admin_get_label_delete_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<serde_json::Value> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    let settings = state.settings().await;
+    let terms = settings
+        .label_delete_terms
+        .map(|terms| serde_json::to_value(terms).unwrap_or(serde_json::Value::Null))
+        .unwrap_or(serde_json::Value::Null);
+
+    AdminResponse::success(terms)
+}
+
+/// `PUT /admin/label-delete-terms` — set the label delete terms.
+#[cfg(feature = "labels")]
+async fn admin_set_label_delete_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<SetLabelFlagTermsBody>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    if body.terms.is_empty() || body.terms.iter().any(|t| t.trim().is_empty()) {
+        return AdminResponse::error("Terms must be a non-empty list of non-empty strings");
+    }
+
+    let terms_json = match serde_json::to_string(&body.terms) {
+        Ok(json) => json,
+        Err(e) => return AdminResponse::error(&format!("Failed to serialize terms: {}", e)),
+    };
+
+    match state
+        .db
+        .config_set("label_delete_terms", &terms_json)
+        .await
+    {
+        Ok(()) => {
+            log::info!("Updated label delete terms: {} terms", body.terms.len());
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to save label delete terms: {}", e)),
+    }
+}
+
+/// `DELETE /admin/label-delete-terms` — clear the label delete terms.
+#[cfg(feature = "labels")]
+async fn admin_delete_label_delete_terms(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<()> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state.db.config_delete("label_delete_terms").await {
+        Ok(()) => {
+            log::info!("Deleted label delete terms");
+            state.reload_config().await;
+            AdminResponse::success(())
+        }
+        Err(e) => AdminResponse::error(&format!("Failed to delete label delete terms: {}", e)),
+    }
+}
+
+#[cfg(feature = "labels")]
+#[derive(Deserialize)]
+struct LabelDeletionsQuery {
+    dry_run: Option<bool>,
+    offset: Option<u32>,
+    limit: Option<u32>,
+}
+
+/// `GET /admin/label-deletions` — audit of automatic label deletions.
+/// `?dry_run=true` lists the files that would be deleted, `?dry_run=false` the real deletions.
+#[cfg(feature = "labels")]
+async fn admin_list_label_deletions(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Query(q): Query<LabelDeletionsQuery>,
+) -> AdminResponse<Vec<crate::db::LabelDeletion>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state
+        .db
+        .list_label_deletions(
+            q.dry_run,
+            q.offset.unwrap_or(0),
+            q.limit.unwrap_or(50).min(500),
+        )
+        .await
+    {
+        Ok(rows) => AdminResponse::success(rows),
+        Err(e) => AdminResponse::error(&format!("Failed to list label deletions: {}", e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1928,6 +2042,12 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_min_confidence: None,
+            #[cfg(feature = "labels")]
+            label_delete_dry_run: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
             steganography_scan_max_bytes: None,

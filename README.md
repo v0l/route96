@@ -137,6 +137,17 @@ label_flag_terms:
   - "porn"
   - "sexy"
   - "hentai"
+
+# Delete automatically instead of only flagging. Same case-insensitive substring
+# match. A hit needs a score of at least label_delete_min_confidence (default 0.8);
+# weaker hits are only flagged. Reviewed files are never deleted. The hash is banned,
+# so the same file cannot be uploaded again.
+label_delete_terms:
+  - "gore"
+label_delete_min_confidence: 0.8
+# Defaults to true: matches are only logged, recorded in label_deletions and flagged.
+# Review them with GET /admin/label-deletions?dry_run=true, then set to false.
+label_delete_dry_run: true
 ```
 
 Models are downloaded once and cached under `models_dir/<org>--<repo>/`. A background

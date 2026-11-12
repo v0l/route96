@@ -1306,6 +1306,12 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_min_confidence: None,
+            #[cfg(feature = "labels")]
+            label_delete_dry_run: None,
             webhook_url: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
@@ -1535,6 +1541,12 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_min_confidence: None,
+            #[cfg(feature = "labels")]
+            label_delete_dry_run: None,
             reject_sensitive_exif: None,
             reject_steganography: None,
             steganography_scan_max_bytes: None,
@@ -1673,6 +1685,12 @@ mod tests {
             label_models: None,
             #[cfg(feature = "labels")]
             label_flag_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_terms: None,
+            #[cfg(feature = "labels")]
+            label_delete_min_confidence: None,
+            #[cfg(feature = "labels")]
+            label_delete_dry_run: None,
             webhook_url: None,
             reject_sensitive_exif: None,
             reject_steganography: None,

@@ -121,6 +121,20 @@ pub struct Settings {
     #[cfg(feature = "labels")]
     pub label_flag_terms: Option<Vec<String>>,
 
+    /// Label terms (same case-insensitive substring match as `label_flag_terms`)
+    /// that delete a file when the labeler applies a matching label at or above
+    /// `label_delete_min_confidence`. The hash is tombstoned so it cannot be re-uploaded.
+    #[cfg(feature = "labels")]
+    pub label_delete_terms: Option<Vec<String>>,
+
+    /// Minimum label confidence for an automatic delete. Default 0.8.
+    #[cfg(feature = "labels")]
+    pub label_delete_min_confidence: Option<f32>,
+
+    /// When true (the default) matches are only logged, recorded and flagged.
+    #[cfg(feature = "labels")]
+    pub label_delete_dry_run: Option<bool>,
+
     /// Webhook api endpoint
     pub webhook_url: Option<String>,
 
