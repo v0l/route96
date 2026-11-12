@@ -8,7 +8,7 @@ use crate::whitelist::Whitelist;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, RawQuery, State as AxumState},
+    extract::{Path, Query, RawQuery, State as AxumState},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, head, put},
@@ -75,13 +75,10 @@ struct MirrorRequest {
 /// Extract SHA-256 hash from a URL path (last segment before optional extension)
 fn url_hash_from_url(url: &str) -> Option<String> {
     use url::Url;
-    
+
     let parsed = Url::parse(url).ok()?;
-    let hash = parsed
-        .path_segments()?.next_back()?
-        .split('.')
-        .next()?;
-    
+    let hash = parsed.path_segments()?.next_back()?.split('.').next()?;
+
     if hash.len() == 64 {
         Some(hash.to_lowercase())
     } else {
@@ -165,13 +162,15 @@ impl IntoResponse for BlossomGenericResponse {
         // Add payment headers if present
         if let Some(payment) = self.payment_headers {
             if let Some(lightning) = payment.lightning
-                && let Ok(v) = lightning.parse() {
-                    headers.insert("x-lightning", v);
-                }
+                && let Ok(v) = lightning.parse()
+            {
+                headers.insert("x-lightning", v);
+            }
             if let Some(cashu) = payment.cashu
-                && let Ok(v) = cashu.parse() {
-                    headers.insert("x-cashu", v);
-                }
+                && let Ok(v) = cashu.parse()
+            {
+                headers.insert("x-cashu", v);
+            }
         }
         (self.status, headers).into_response()
     }
@@ -390,7 +389,9 @@ async fn check_whitelist(
 /// Validate server tag against the server's domain
 fn check_server_tag(auth: &BlossomAuth, server_domain: &str) -> Option<BlossomResponse> {
     if auth.validate_server_tag(server_domain).is_err() {
-        return Some(BlossomResponse::unauthorized("Server not in authorization token scope"));
+        return Some(BlossomResponse::unauthorized(
+            "Server not in authorization token scope",
+        ));
     }
     None
 }
@@ -401,17 +402,17 @@ async fn delete_blob(
     AxumState(state): AxumState<Arc<AppState>>,
 ) -> BlossomResponse {
     let settings = state.settings().await;
-    
+
     // BUD-11: validate x tag for DELETE endpoint
     if auth.validate_x_tag(&sha256).is_err() {
         return BlossomResponse::unauthorized("Missing or mismatched x tag");
     }
-    
+
     // BUD-11: validate server tag
     if let Some(e) = check_server_tag(&auth, &settings.public_url) {
         return e;
     }
-    
+
     match delete_file(&sha256, &auth.event, &state.fs, &state.db).await {
         Ok(()) => BlossomResponse::Generic(BlossomGenericResponse {
             status: StatusCode::NO_CONTENT,
@@ -440,6 +441,12 @@ async fn list_files(
     // verb - "the t tag MUST contain a verb matching the intended action".
     if !check_method(&auth.event, "list") {
         return BlossomResponse::bad_request("Invalid auth method tag");
+    }
+
+    // The token signer must be the pubkey being listed: a signed event is a
+    // claim about its own author, not a licence to read someone else's files.
+    if auth.event.pubkey.to_hex() != pubkey.to_lowercase() {
+        return BlossomResponse::forbidden("Auth event pubkey does not match listed pubkey");
     }
 
     // BUD-11: validate server tag for list endpoint
@@ -479,7 +486,7 @@ async fn list_files(
     }
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(Debug, Clone, serde::Deserialize)]
 struct ListFilesParams {
     cursor: Option<String>,
     limit: Option<u32>,
@@ -534,23 +541,24 @@ async fn mirror(
         Err(_) => return BlossomResponse::bad_request("Invalid request body"),
     };
     let settings = state.settings().await;
-    
+
     if !check_method(&auth.event, "upload") {
         return BlossomResponse::bad_request("Invalid request method tag");
     }
-    
+
     // BUD-11: validate x tag for mirror endpoint
     // Extract expected hash from URL and validate against x tags
     if let Some(url_hash) = url_hash_from_url(&req.url)
-        && auth.validate_x_tag(&url_hash).is_err() {
-            return BlossomResponse::unauthorized("Missing or mismatched x tag");
-        }
-    
+        && auth.validate_x_tag(&url_hash).is_err()
+    {
+        return BlossomResponse::unauthorized("Missing or mismatched x tag");
+    }
+
     // BUD-11: validate server tag
     if let Some(e) = check_server_tag(&auth, &settings.public_url) {
         return e;
     }
-    
+
     if let Some(e) = check_whitelist(&auth, &state.wl().await, &state.db).await {
         return e;
     }
@@ -669,7 +677,9 @@ async fn fetch_mirror_origin(
             "Failed to fetch blob from origin URL",
         ));
     }
-    Err(BlossomResponse::bad_gateway("Too many redirects from origin URL"))
+    Err(BlossomResponse::bad_gateway(
+        "Too many redirects from origin URL",
+    ))
 }
 
 #[cfg(feature = "media-compression")]
@@ -764,7 +774,10 @@ async fn check_head_media(
         };
     }
 
-    BlossomHead { msg: None, status: StatusCode::OK }
+    BlossomHead {
+        msg: None,
+        status: StatusCode::OK,
+    }
 }
 
 #[cfg(feature = "media-compression")]
@@ -854,7 +867,10 @@ async fn check_head(
         };
     }
 
-    BlossomHead { msg: None, status: StatusCode::OK }
+    BlossomHead {
+        msg: None,
+        status: StatusCode::OK,
+    }
 }
 
 async fn process_upload(
@@ -1066,7 +1082,10 @@ where
     let user_id = match state.db.upsert_user(pubkey).await {
         Ok(u) => u,
         Err(e) => {
-            return BlossomResponse::service_unavailable(format!("Failed to save file (db): {}", e));
+            return BlossomResponse::service_unavailable(format!(
+                "Failed to save file (db): {}",
+                e
+            ));
         }
     };
 
@@ -1106,7 +1125,9 @@ where
 
     // Return 201 for new files, 200 for existing
     if is_new_file {
-        BlossomResponse::BlobDescriptorCreated(Json(BlobDescriptor::from_upload(&settings, &upload)))
+        BlossomResponse::BlobDescriptorCreated(Json(BlobDescriptor::from_upload(
+            &settings, &upload,
+        )))
     } else {
         BlossomResponse::BlobDescriptorOk(Json(BlobDescriptor::from_upload(&settings, &upload)))
     }
@@ -1149,10 +1170,7 @@ async fn report_file(
     }
 
     // Only consider 32-byte hashes (SHA-256); shorter values are invalid.
-    let file_hashes: Vec<Vec<u8>> = file_hashes
-        .into_iter()
-        .filter(|h| h.len() == 32)
-        .collect();
+    let file_hashes: Vec<Vec<u8>> = file_hashes.into_iter().filter(|h| h.len() == 32).collect();
     if file_hashes.is_empty() {
         return BlossomResponse::bad_request("No valid file hashes in x tags");
     }
@@ -1162,13 +1180,11 @@ async fn report_file(
     }
 
     // Get or create the reporter user from the report event pubkey
-    let reporter_id = match state
-        .db
-        .upsert_user(&data.pubkey.to_bytes().to_vec())
-        .await
-    {
+    let reporter_id = match state.db.upsert_user(&data.pubkey.to_bytes().to_vec()).await {
         Ok(user_id) => user_id,
-        Err(e) => return BlossomResponse::service_unavailable(format!("Failed to get user: {}", e)),
+        Err(e) => {
+            return BlossomResponse::service_unavailable(format!("Failed to get user: {}", e));
+        }
     };
 
     let event_json = data.as_json();
@@ -1179,10 +1195,7 @@ async fn report_file(
         match state.db.get_file(file_sha256).await {
             Ok(Some(_)) => {} // File exists, continue
             Ok(None) => {
-                errors.push(format!(
-                    "File {} not found",
-                    hex::encode(file_sha256)
-                ));
+                errors.push(format!("File {} not found", hex::encode(file_sha256)));
                 continue;
             }
             Err(e) => {
@@ -1360,13 +1373,15 @@ mod tests {
             response.headers().get(header::ALLOW).unwrap(),
             HASH_RESOURCE_METHODS
         );
-        assert!(!response
-            .headers()
-            .get(header::ALLOW)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("POST"));
+        assert!(
+            !response
+                .headers()
+                .get(header::ALLOW)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("POST")
+        );
 
         let response = hash_options(Path("A".repeat(64))).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -1429,24 +1444,17 @@ mod tests {
         let reason = response.headers().get("x-reason").unwrap();
         assert_eq!(reason, "Invalid request method tag");
 
-        let response = process_upload(
-            "upload",
-            false,
-            test_auth(),
-            test_state().0,
-            Body::empty(),
-        )
-        .await
-        .into_response();
+        let response = process_upload("upload", false, test_auth(), test_state().0, Body::empty())
+            .await
+            .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     /// BUD-11 requires the t tag to match the endpoint verb whenever a token
     /// is presented. Before the fix, /list accepted any kind-24242 event with
-    /// any t tag or none. /list is server-policy territory (BUD-02/12: auth
-    /// optional, "servers may reject a list for any reason"), so foreign
-    /// listings stay allowed - but they must only receive the minimal
-    /// descriptor type, without the owner's NIP-94 metadata.
+    /// any t tag or none. A token is only valid for its own signer's listing:
+    /// a foreign pubkey is rejected 403 even with the right verb, so the
+    /// signer must equal the listed pubkey to reach the database.
     #[tokio::test]
     async fn list_requires_list_verb_and_passes_foreign_listings_through_auth() {
         let (state, _temp) = test_state();
@@ -1470,9 +1478,8 @@ mod tests {
             "Invalid auth method tag"
         );
 
-        // `t=list` on a foreign pubkey passes authorization (policy decision
-        // belongs to the server, per BUD-02) and fails later at the
-        // (unavailable) database - proving the verb check doesn't over-block.
+        // `t=list` on a foreign pubkey is rejected: the token signer must be
+        // the pubkey being listed.
         let response = list_files(
             Path(other_pubkey),
             test_auth_with_verb("list"),
@@ -1484,7 +1491,14 @@ mod tests {
         )
         .await
         .into_response();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.headers().get("x-reason").unwrap(),
+            "Auth event pubkey does not match listed pubkey"
+        );
+
+        // Self-listing passes the pubkey check and fails later at the
+        // (unavailable) database.
 
         // Self-listing behaves the same way offline.
         let self_auth = test_auth_with_verb("list");
@@ -1623,5 +1637,144 @@ mod tests {
         .await
         .into_response();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    use sqlx::Executor;
+
+    async fn test_db_state() -> (Arc<AppState>, TempDir, Database) {
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_blossom_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+        let (state, temp) = test_state_with_db(db.clone());
+        (state, temp, db)
+    }
+
+    fn test_state_with_db(db: Database) -> (Arc<AppState>, TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = Settings {
+            listen: None,
+            storage_dir: temp.path().to_string_lossy().into_owned(),
+            database: "unused".to_string(),
+            max_upload_bytes: 1024,
+            public_url: "https://example.com".to_string(),
+            whitelist: None,
+            steganography_scan_max_bytes: None,
+            #[cfg(feature = "labels")]
+            models_dir: None,
+            #[cfg(feature = "labels")]
+            label_models: None,
+            #[cfg(feature = "labels")]
+            label_flag_terms: None,
+            webhook_url: None,
+            reject_sensitive_exif: None,
+            reject_steganography: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_distance: None,
+            #[cfg(feature = "media-compression")]
+            identical_media_dedup_allow_override: None,
+            #[cfg(feature = "payments")]
+            payments: None,
+            delete_unaccessed_days: None,
+            delete_after_days: None,
+            delete_zero_egress_days: None,
+            cold_storage_dir: None,
+            cold_storage_min_downloads: None,
+            cold_storage_after_days: None,
+        };
+        let settings = Arc::new(RwLock::new(settings));
+        let state = Arc::new(AppState {
+            fs: FileStore::new(settings.clone()),
+            db,
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        (state, temp)
+    }
+
+    fn signed_auth(keys: &Keys, term: &str) -> BlossomAuth {
+        let event = EventBuilder::new(Kind::Custom(24242), "")
+            .tag(nostr::Tag::custom(nostr::TagKind::custom("t"), [term]))
+            .tag(nostr::Tag::custom(
+                nostr::TagKind::Expiration,
+                [(nostr::Timestamp::now().as_secs() + 60).to_string()],
+            ))
+            .sign_with_keys(keys)
+            .unwrap();
+        BlossomAuth {
+            content_type: None,
+            x_content_type: None,
+            x_sha_256: None,
+            x_content_length: None,
+            x_identical_media: None,
+            event,
+        }
+    }
+
+    /// A valid token signed by one key must not authorize listing another
+    /// pubkey's files: the path pubkey has to match the auth event pubkey.
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn list_files_rejects_pubkey_mismatch() {
+        let (state, _temp, db) = test_db_state().await;
+        let owner = Keys::generate();
+        let stranger = Keys::generate();
+
+        let owner_id = db
+            .upsert_user(&owner.public_key().to_bytes().to_vec())
+            .await
+            .unwrap();
+        let file_id = sha2::Sha256::digest(b"owner file").to_vec();
+        db.add_file(
+            &FileUpload {
+                id: file_id,
+                size: 10,
+                mime_type: "text/plain".to_string(),
+                created: chrono::Utc::now(),
+                ..Default::default()
+            },
+            Some(owner_id),
+        )
+        .await
+        .unwrap();
+
+        let owner_hex = hex::encode(owner.public_key().to_bytes());
+        let params = ListFilesParams {
+            cursor: None,
+            limit: None,
+        };
+
+        let rsp = list_files(
+            Path(owner_hex.clone()),
+            signed_auth(&stranger, "list"),
+            State(state.clone()),
+            Query(params.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(rsp.status(), StatusCode::FORBIDDEN);
+
+        let rsp = list_files(
+            Path(owner_hex),
+            signed_auth(&owner, "list"),
+            State(state),
+            Query(params),
+        )
+        .await
+        .into_response();
+        assert_eq!(rsp.status(), StatusCode::OK);
     }
 }
