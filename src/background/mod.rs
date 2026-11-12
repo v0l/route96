@@ -19,7 +19,7 @@ const BATCH_SLEEP: Duration = Duration::from_secs(2);
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
 
 /// Outcome of a single batch-processing invocation used by background workers.
-enum BatchResult {
+pub(crate) enum BatchResult {
     /// The query returned zero files — nothing to do.
     Idle,
     /// The batch found (and attempted to process) `found` files,
@@ -68,7 +68,7 @@ mod media_metadata;
 mod phash_files;
 
 #[cfg(feature = "labels")]
-mod label_files;
+pub(crate) mod label_files;
 
 #[cfg(feature = "payments")]
 mod payments;

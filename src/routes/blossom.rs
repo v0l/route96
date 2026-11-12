@@ -1742,6 +1742,102 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "labels")]
+    struct GoreLabeler;
+
+    #[cfg(feature = "labels")]
+    impl crate::processing::labeling::MediaLabeler for GoreLabeler {
+        fn name(&self) -> &str {
+            "nsfw"
+        }
+
+        fn label_exclude(&self) -> &[String] {
+            &[]
+        }
+
+        fn min_confidence(&self) -> f32 {
+            0.1
+        }
+
+        fn label_file(
+            &self,
+            _path: &std::path::Path,
+            _mime_type: &str,
+        ) -> Result<
+            std::collections::HashMap<String, f32>,
+            crate::processing::labeling::LabelError,
+        > {
+            Ok(std::collections::HashMap::from([(
+                "graphic gore".to_string(),
+                0.95,
+            )]))
+        }
+    }
+
+    #[cfg(feature = "labels")]
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn upload_of_label_deleted_file_is_refused() {
+        use crate::background::label_files::{DeletePolicy, LabelFiles};
+        use crate::processing::labeling::MediaLabeler;
+
+        let (state, _temp, db) = test_db_state().await;
+        let bytes = b"bytes of a file the labeler will delete".to_vec();
+        let id = sha2::Sha256::digest(&bytes).to_vec();
+        let path = state.fs.get(&id);
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, &bytes).await.unwrap();
+        let owner = Keys::generate();
+        let owner_id = db
+            .upsert_user(&owner.public_key().to_bytes().to_vec())
+            .await
+            .unwrap();
+        db.add_file(
+            &FileUpload {
+                id: id.clone(),
+                size: bytes.len() as u64,
+                mime_type: "image/png".to_string(),
+                created: chrono::Utc::now(),
+                ..Default::default()
+            },
+            Some(owner_id),
+        )
+        .await
+        .unwrap();
+
+        let labeler: Arc<Box<dyn MediaLabeler + Send + Sync>> = Arc::new(Box::new(GoreLabeler));
+        let policy = DeletePolicy {
+            terms: vec!["gore".to_string()],
+            min_confidence: 0.8,
+            dry_run: false,
+        };
+        LabelFiles::run_batch(
+            labeler,
+            &db,
+            &state.fs,
+            &[],
+            &policy,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+        assert!(!state.fs.get(&id).exists());
+
+        let uploader = Keys::generate();
+        let mut auth = signed_auth(&uploader, "upload");
+        auth.content_type = Some("image/png".to_string());
+        let rsp = upload(auth, State(state.clone()), Body::from(bytes))
+            .await
+            .into_response();
+        assert_eq!(rsp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            rsp.headers().get("x-reason").unwrap(),
+            "File is not allowed on this server"
+        );
+        assert!(!state.fs.get(&id).exists());
+    }
+
     /// A valid token signed by one key must not authorize listing another
     /// pubkey's files: the path pubkey has to match the auth event pubkey.
     #[tokio::test]

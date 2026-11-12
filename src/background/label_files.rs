@@ -209,7 +209,7 @@ impl LabelFiles {
         }
     }
 
-    async fn run_batch(
+    pub(crate) async fn run_batch(
         labeler: Arc<Box<dyn MediaLabeler + Send + Sync>>,
         db: &Database,
         fs: &FileStore,
