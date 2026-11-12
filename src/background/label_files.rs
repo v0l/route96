@@ -648,14 +648,18 @@ mod tests {
         let fs = test_store(dir.path());
         let db = test_db().await;
         let id = add_owned(&db, &fs, b"ok", ReviewState::Reviewed).await;
+        let fresh = add_owned(&db, &fs, b"not reviewed", ReviewState::None).await;
 
         run(&db, &fs, 0.99, &policy(false)).await;
 
+        assert!(!fs.get(&fresh).exists());
+        assert!(db.is_file_banned(&fresh).await.unwrap());
         assert!(fs.get(&id).exists());
         let f = db.get_file(&id).await.unwrap().unwrap();
         assert!(!f.banned);
         assert_eq!(f.review_state, ReviewState::Reviewed);
-        assert!(db.list_label_deletions(None, 0, 10).await.unwrap().is_empty());
+        let rows = db.list_label_deletions(None, 0, 10).await.unwrap();
+        assert!(rows.iter().all(|r| r.file != id));
     }
 
     #[tokio::test]
