@@ -461,6 +461,10 @@ Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file wh
 
 Audit rows (file hash, uploader pubkeys, term, label, model, confidence, reason). Query: `dry_run=true` lists files that would be deleted, `dry_run=false` the real deletions, `offset`, `limit` (max 500).
 
+### `GET|POST /admin/label-deletions/purge`
+
+Delete every existing file whose label contains a term, without waiting for the labeler. `GET ?term=gore` returns how many files would be deleted; `POST {"term": "gore"}` deletes them in the background (hashes banned, `Reviewed` files skipped, audit rows reason `label:<term> (admin purge)`). Ignores dry run: it is an explicit admin action. The admin UI shows a "Delete existing files" button on each delete term.
+
 ## Error responses
 
 All endpoints return a consistent error envelope on failure:

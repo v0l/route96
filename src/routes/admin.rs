@@ -98,7 +98,11 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                     .put(admin_set_label_delete_terms)
                     .delete(admin_delete_label_delete_terms),
             )
-            .route("/admin/label-deletions", get(admin_list_label_deletions));
+            .route("/admin/label-deletions", get(admin_list_label_deletions))
+            .route(
+                "/admin/label-deletions/purge",
+                get(admin_count_label_purge).post(admin_purge_label),
+            );
     }
 
     #[cfg(feature = "media-compression")]
@@ -1991,6 +1995,77 @@ async fn admin_list_label_deletions(
         Ok(rows) => AdminResponse::success(rows),
         Err(e) => AdminResponse::error(&format!("Failed to list label deletions: {}", e)),
     }
+}
+
+#[cfg(feature = "labels")]
+#[derive(Deserialize)]
+struct LabelPurgeBody {
+    term: String,
+}
+
+#[cfg(feature = "labels")]
+#[derive(Deserialize)]
+struct LabelPurgeQuery {
+    term: String,
+}
+
+/// `GET /admin/label-deletions/purge?term=x` — count files a purge of `term` would delete.
+#[cfg(feature = "labels")]
+async fn admin_count_label_purge(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Query(q): Query<LabelPurgeQuery>,
+) -> AdminResponse<usize> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+    if q.term.trim().is_empty() {
+        return AdminResponse::error("Term cannot be empty");
+    }
+    match state.db.files_with_label_matching(q.term.trim()).await {
+        Ok(files) => AdminResponse::success(files.len()),
+        Err(e) => AdminResponse::error(&format!("Failed to count matching files: {}", e)),
+    }
+}
+
+/// `POST /admin/label-deletions/purge` — delete every existing file with a label matching `term`.
+#[cfg(feature = "labels")]
+async fn admin_purge_label(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+    Json(body): Json<LabelPurgeBody>,
+) -> AdminResponse<usize> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+    let term = body.term.trim().to_string();
+    if term.is_empty() {
+        return AdminResponse::error("Term cannot be empty");
+    }
+    let files = match state.db.files_with_label_matching(&term).await {
+        Ok(f) => f,
+        Err(e) => return AdminResponse::error(&format!("Failed to find matching files: {}", e)),
+    };
+    let count = files.len();
+    log::warn!("Admin purge of label '{}': deleting {} files", term, count);
+    let db = state.db.clone();
+    let fs = state.fs.clone();
+    tokio::spawn(async move {
+        for (id, label, model) in files {
+            let hit = crate::background::label_files::DeleteMatch {
+                term: term.clone(),
+                label,
+                confidence: 1.0,
+                reason: Some(format!("label:{} (admin purge)", term)),
+            };
+            crate::background::label_files::LabelFiles::auto_delete(
+                &db, &fs, &id, &model, &hit, false,
+            )
+            .await;
+        }
+        log::warn!("Admin purge of label '{}' finished", term);
+    });
+    AdminResponse::success(count)
 }
 
 #[cfg(test)]

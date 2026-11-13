@@ -1428,6 +1428,28 @@ impl Database {
     }
 
     #[cfg(feature = "labels")]
+    pub async fn files_with_label_matching(
+        &self,
+        term: &str,
+    ) -> Result<Vec<(Vec<u8>, String, String)>, Error> {
+        let escaped = term
+            .to_lowercase()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        sqlx::query_as(
+            "select u.id, min(l.label), min(l.model) from uploads u \
+             join upload_labels l on l.file = u.id \
+             where lower(l.label) like ? and u.banned = false and u.review_state <> ? \
+             group by u.id order by u.id",
+        )
+        .bind(format!("%{}%", escaped))
+        .bind(ReviewState::Reviewed)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    #[cfg(feature = "labels")]
     pub async fn pending_dry_run_deletions(
         &self,
         model: &str,

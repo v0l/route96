@@ -222,6 +222,7 @@ function LabelDeleteTerms({
   const [terms, setTerms] = useState<string[]>([]);
   const [minConfidence, setMinConfidence] = useState(0.8);
   const [confidenceInput, setConfidenceInput] = useState("0.8");
+  const [notice, setNotice] = useState<string>();
   const [dryRun, setDryRun] = useState(true);
   const [inputTerm, setInputTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -345,6 +346,33 @@ function LabelDeleteTerms({
     }
   };
 
+  const handlePurge = async (term: string) => {
+    try {
+      setSaving(true);
+      setError(undefined);
+      setNotice(undefined);
+      const route96 = new Route96(url, pub);
+      const count = await route96.countLabelPurge(term);
+      if (count === 0) {
+        setNotice(`No existing files match "${term}".`);
+        return;
+      }
+      if (
+        !window.confirm(
+          `Delete ${count} existing file(s) with a label matching "${term}"? Their hashes will be banned. Reviewed files are skipped.`,
+        )
+      ) {
+        return;
+      }
+      const started = await route96.purgeLabel(term);
+      setNotice(`Deleting ${started} file(s) matching "${term}" in the background.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to purge label");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-sm text-neutral-500 py-4">Loading...</div>;
   }
@@ -420,6 +448,15 @@ function LabelDeleteTerms({
                 className="inline-flex items-center gap-1 bg-neutral-800 border border-neutral-700 rounded-sm px-2 py-1 text-xs text-neutral-300"
               >
                 {term}
+                {!dirty && (
+                  <button
+                    onClick={() => handlePurge(term)}
+                    disabled={saving}
+                    className="text-red-400 hover:text-red-300 border-l border-neutral-700 pl-2 ml-1 disabled:opacity-50"
+                  >
+                    Delete existing files
+                  </button>
+                )}
                 <button
                   onClick={() => handleRemoveTerm(term)}
                   className="text-neutral-500 hover:text-red-400"
@@ -432,6 +469,7 @@ function LabelDeleteTerms({
         )}
 
         {error && <div className="text-xs text-red-400 mb-3">{error}</div>}
+        {notice && <div className="text-xs text-yellow-400 mb-3">{notice}</div>}
 
         <div className="flex gap-2">
           {dirty && (

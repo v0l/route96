@@ -496,6 +496,25 @@ export class Route96 {
     return data.data ?? [];
   }
 
+  async countLabelPurge(term: string) {
+    const rsp = await this.#req(
+      `admin/label-deletions/purge?term=${encodeURIComponent(term)}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponse<number>>(rsp);
+    return data.data ?? 0;
+  }
+
+  async purgeLabel(term: string) {
+    const rsp = await this.#req(
+      "admin/label-deletions/purge",
+      "POST",
+      JSON.stringify({ term }),
+    );
+    const data = await this.#handleResponse<AdminResponse<number>>(rsp);
+    return data.data ?? 0;
+  }
+
   async getStats(days: number = 30) {
     const rsp = await this.#req(`admin/stats?days=${days}`, "GET");
     const data = await this.#handleResponse<AdminResponse<AdminStatsResponse>>(rsp);

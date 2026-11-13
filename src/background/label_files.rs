@@ -31,10 +31,11 @@ impl DeletePolicy {
     }
 }
 
-struct DeleteMatch {
-    term: String,
-    label: String,
-    confidence: f32,
+pub(crate) struct DeleteMatch {
+    pub(crate) term: String,
+    pub(crate) label: String,
+    pub(crate) confidence: f32,
+    pub(crate) reason: Option<String>,
 }
 
 pub struct LabelFiles {
@@ -441,6 +442,7 @@ impl LabelFiles {
                 term: term.clone(),
                 label: row.label.clone(),
                 confidence: row.confidence,
+                reason: None,
             };
             Self::auto_delete(db, fs, &row.file, model, &hit, false).await;
         }
@@ -455,12 +457,13 @@ impl LabelFiles {
                     term: t.clone(),
                     label: l.label.clone(),
                     confidence: *score,
+                    reason: None,
                 })
             })
             .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
     }
 
-    async fn auto_delete(
+    pub(crate) async fn auto_delete(
         db: &Database,
         fs: &FileStore,
         id: &Vec<u8>,
@@ -480,7 +483,10 @@ impl LabelFiles {
                 return;
             }
         };
-        let reason = format!("label:{} ({} {:.2})", hit.term, model, hit.confidence);
+        let reason = hit
+            .reason
+            .clone()
+            .unwrap_or_else(|| format!("label:{} ({} {:.2})", hit.term, model, hit.confidence));
         let record = LabelDeletion {
             file: id.clone(),
             pubkeys: pubkeys.clone(),
@@ -735,6 +741,46 @@ mod tests {
         assert_eq!(real[0].file, id);
         assert!(fs.get(&reviewed).exists());
         assert!(!db.is_file_banned(&reviewed).await.unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn purge_deletes_every_existing_file_with_matching_label() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let a = add_owned(&db, &fs, b"a", ReviewState::None).await;
+        let b = add_owned(&db, &fs, b"b", ReviewState::None).await;
+        let keep = add_owned(&db, &fs, b"keep", ReviewState::None).await;
+        let reviewed = add_owned(&db, &fs, b"rev", ReviewState::Reviewed).await;
+        for (id, label) in [(&a, "Graphic_Gore"), (&b, "gore"), (&keep, "cat"), (&reviewed, "gore")] {
+            db.add_file_label(id, &FileLabel::new(label.to_string(), "nsfw".to_string()))
+                .await
+                .unwrap();
+        }
+
+        let files = db.files_with_label_matching("gore").await.unwrap();
+        assert_eq!(files.len(), 2);
+        for (id, label, model) in files {
+            let hit = DeleteMatch {
+                term: "gore".to_string(),
+                label,
+                confidence: 1.0,
+                reason: Some("label:gore (admin purge)".to_string()),
+            };
+            LabelFiles::auto_delete(&db, &fs, &id, &model, &hit, false).await;
+        }
+
+        for id in [&a, &b] {
+            assert!(!fs.get(id).exists());
+            assert!(db.is_file_banned(id).await.unwrap());
+        }
+        assert!(fs.get(&keep).exists());
+        assert!(fs.get(&reviewed).exists());
+        let rows = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.reason == "label:gore (admin purge)"));
+        assert!(db.files_with_label_matching("100%").await.unwrap().is_empty());
     }
 
     async fn test_db() -> Database {
