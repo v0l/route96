@@ -1428,6 +1428,24 @@ impl Database {
     }
 
     #[cfg(feature = "labels")]
+    pub async fn pending_dry_run_deletions(
+        &self,
+        model: &str,
+    ) -> Result<Vec<LabelDeletion>, Error> {
+        sqlx::query_as(
+            "select d.file, d.pubkeys, d.term, d.label, d.model, d.confidence, d.reason, d.dry_run, d.created \
+             from label_deletions d \
+             join uploads u on u.id = d.file \
+             where d.dry_run = true and d.model = ? and u.banned = false and u.review_state <> ? \
+             order by d.id desc",
+        )
+        .bind(model)
+        .bind(ReviewState::Reviewed)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    #[cfg(feature = "labels")]
     pub async fn list_label_deletions(
         &self,
         dry_run: Option<bool>,

@@ -218,6 +218,9 @@ impl LabelFiles {
         shutdown: &CancellationToken,
     ) -> BatchResult {
         let model_name = labeler.name().to_string();
+        if !delete.dry_run {
+            Self::apply_pending(db, fs, &model_name, delete).await;
+        }
         let to_label = match db.get_files_missing_labels(&model_name).await {
             Ok(v) => v,
             Err(e) => {
@@ -416,6 +419,31 @@ impl LabelFiles {
         }
 
         BatchResult::Processed { found, failed }
+    }
+
+    async fn apply_pending(db: &Database, fs: &FileStore, model: &str, delete: &DeletePolicy) {
+        let pending = match db.pending_dry_run_deletions(model).await {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Label delete: failed to read pending matches: {}", e);
+                return;
+            }
+        };
+        let mut seen = std::collections::HashSet::new();
+        for row in pending {
+            if !seen.insert(row.file.clone()) || row.confidence < delete.min_confidence {
+                continue;
+            }
+            let Some(term) = Database::matching_term(&row.label, &delete.terms) else {
+                continue;
+            };
+            let hit = DeleteMatch {
+                term: term.clone(),
+                label: row.label.clone(),
+                confidence: row.confidence,
+            };
+            Self::auto_delete(db, fs, &row.file, model, &hit, false).await;
+        }
     }
 
     fn delete_match(labels: &[(FileLabel, f32)], delete: &DeletePolicy) -> Option<DeleteMatch> {
@@ -681,6 +709,32 @@ mod tests {
         assert_eq!(would.len(), 1);
         assert_eq!(would[0].file, id);
         assert!(db.list_label_deletions(Some(false), 0, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn turning_dry_run_off_deletes_pending_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"pending", ReviewState::None).await;
+        let reviewed = add_owned(&db, &fs, b"pending reviewed", ReviewState::None).await;
+
+        run(&db, &fs, 0.95, &policy(true)).await;
+        assert!(fs.get(&id).exists());
+        db.set_file_review_state(&reviewed, ReviewState::Reviewed)
+            .await
+            .unwrap();
+
+        run(&db, &fs, 0.95, &policy(false)).await;
+
+        assert!(!fs.get(&id).exists());
+        assert!(db.is_file_banned(&id).await.unwrap());
+        let real = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
+        assert_eq!(real.len(), 1);
+        assert_eq!(real[0].file, id);
+        assert!(fs.get(&reviewed).exists());
+        assert!(!db.is_file_banned(&reviewed).await.unwrap());
     }
 
     async fn test_db() -> Database {
