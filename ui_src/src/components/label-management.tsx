@@ -221,6 +221,7 @@ function LabelDeleteTerms({
 }) {
   const [terms, setTerms] = useState<string[]>([]);
   const [minConfidence, setMinConfidence] = useState(0.8);
+  const [confidenceInput, setConfidenceInput] = useState("0.8");
   const [dryRun, setDryRun] = useState(true);
   const [inputTerm, setInputTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -234,6 +235,7 @@ function LabelDeleteTerms({
       const result = await route96.getLabelDeleteTerms();
       setTerms(result?.terms ?? []);
       setMinConfidence(result?.min_confidence ?? 0.8);
+      setConfidenceInput(String(result?.min_confidence ?? 0.8));
       setDryRun(result?.dry_run ?? true);
       setError(undefined);
     } catch (e) {
@@ -300,6 +302,49 @@ function LabelDeleteTerms({
     }
   };
 
+  const handleSaveMinConfidence = async () => {
+    const value = Number(confidenceInput);
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      setError("Min confidence must be between 0 and 1");
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.setConfig("label_delete_min_confidence", String(value));
+      setMinConfidence(value);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Failed to save min confidence",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleDryRun = async (next: boolean) => {
+    if (
+      !next &&
+      !window.confirm(
+        "Turn dry run off? Files matching the delete terms will be deleted and their hashes banned.",
+      )
+    ) {
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(undefined);
+      const route96 = new Route96(url, pub);
+      await route96.setConfig("label_delete_dry_run", String(next));
+      setDryRun(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save dry run");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-sm text-neutral-500 py-4">Loading...</div>;
   }
@@ -316,19 +361,41 @@ function LabelDeleteTerms({
           files are never deleted.
         </p>
 
-        <div className="flex gap-3 mb-3 text-xs">
-          <span className="bg-neutral-800 border border-neutral-700 rounded-sm px-2 py-1 text-neutral-300">
-            Min confidence: {minConfidence}
-          </span>
-          <span
-            className={`rounded-sm px-2 py-1 border ${
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-xs">
+          <label className="flex items-center gap-2 text-neutral-300">
+            Min confidence (0-1)
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={confidenceInput}
+              onChange={(e) => setConfidenceInput(e.target.value)}
+              className={inputCls("w-24")}
+            />
+          </label>
+          {Number(confidenceInput) !== minConfidence && (
+            <BtnSmall onClick={handleSaveMinConfidence} disabled={saving}>
+              Save
+            </BtnSmall>
+          )}
+          <label
+            className={`flex items-center gap-2 rounded-sm px-2 py-1 border ${
               dryRun
                 ? "bg-yellow-900/30 text-yellow-400 border-yellow-800"
                 : "bg-red-900/30 text-red-400 border-red-800"
             }`}
           >
-            {dryRun ? "Dry run on (nothing is deleted)" : "Dry run off (deleting)"}
-          </span>
+            <input
+              type="checkbox"
+              checked={dryRun}
+              disabled={saving}
+              onChange={(e) => handleToggleDryRun(e.target.checked)}
+            />
+            {dryRun
+              ? "Dry run on (nothing is deleted)"
+              : "Dry run off (deleting)"}
+          </label>
         </div>
 
         <div className="flex gap-2 mb-3">

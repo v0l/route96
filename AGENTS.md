@@ -172,6 +172,8 @@ import { Blossom } from "../upload/blossom";
 
 ### Configuration
 
+**Admin panel first.** Every runtime setting must be editable from the admin UI (`ui_src/src/views/admin.tsx` and `ui_src/src/components/`), not only in `config.yaml`. A new setting is not done until it has: a `Settings` field in `settings.rs`, a DB-backed override (the `config` table, read by `config_watcher.rs` so it applies live), a typed control in the admin UI (toggle, number or list, with the current effective value and default shown), and an entry in `docs/admin-api.md`. `config.yaml` and the README only document defaults. Never ship a setting that can only be changed by editing the file or by typing a raw key in the generic Config tab.
+
 Runtime config via `config.yaml`:
 ```yaml
 listen: "127.0.0.1:8000"
