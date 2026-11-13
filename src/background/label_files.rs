@@ -412,9 +412,7 @@ impl LabelFiles {
                 });
             }
 
-            if let Some(hit) = delete_hit
-                && file.review_state != ReviewState::Reviewed
-            {
+            if let Some(hit) = delete_hit {
                 Self::auto_delete(db, fs, &file.id, &model_name, &hit, delete.dry_run).await;
             }
         }
@@ -677,23 +675,19 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs ROUTE96_TEST_DATABASE"]
-    async fn reviewed_file_is_never_auto_deleted() {
+    async fn reviewed_file_is_auto_deleted_too() {
         let dir = tempfile::tempdir().unwrap();
         let fs = test_store(dir.path());
         let db = test_db().await;
         let id = add_owned(&db, &fs, b"ok", ReviewState::Reviewed).await;
-        let fresh = add_owned(&db, &fs, b"not reviewed", ReviewState::None).await;
 
         run(&db, &fs, 0.99, &policy(false)).await;
 
-        assert!(!fs.get(&fresh).exists());
-        assert!(db.is_file_banned(&fresh).await.unwrap());
-        assert!(fs.get(&id).exists());
-        let f = db.get_file(&id).await.unwrap().unwrap();
-        assert!(!f.banned);
-        assert_eq!(f.review_state, ReviewState::Reviewed);
-        let rows = db.list_label_deletions(None, 0, 10).await.unwrap();
-        assert!(rows.iter().all(|r| r.file != id));
+        assert!(!fs.get(&id).exists());
+        assert!(db.is_file_banned(&id).await.unwrap());
+        let rows = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].file, id);
     }
 
     #[tokio::test]
@@ -737,10 +731,9 @@ mod tests {
         assert!(!fs.get(&id).exists());
         assert!(db.is_file_banned(&id).await.unwrap());
         let real = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
-        assert_eq!(real.len(), 1);
-        assert_eq!(real[0].file, id);
-        assert!(fs.get(&reviewed).exists());
-        assert!(!db.is_file_banned(&reviewed).await.unwrap());
+        assert_eq!(real.len(), 2);
+        assert!(!fs.get(&reviewed).exists());
+        assert!(db.is_file_banned(&reviewed).await.unwrap());
     }
 
     #[tokio::test]
@@ -760,7 +753,7 @@ mod tests {
         }
 
         let files = db.files_with_label_matching("gore").await.unwrap();
-        assert_eq!(files.len(), 2);
+        assert_eq!(files.len(), 3);
         for (id, label, model) in files {
             let hit = DeleteMatch {
                 term: "gore".to_string(),
@@ -771,14 +764,13 @@ mod tests {
             LabelFiles::auto_delete(&db, &fs, &id, &model, &hit, false).await;
         }
 
-        for id in [&a, &b] {
+        for id in [&a, &b, &reviewed] {
             assert!(!fs.get(id).exists());
             assert!(db.is_file_banned(id).await.unwrap());
         }
         assert!(fs.get(&keep).exists());
-        assert!(fs.get(&reviewed).exists());
         let rows = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.reason == "label:gore (admin purge)"));
         assert!(db.files_with_label_matching("100%").await.unwrap().is_empty());
     }

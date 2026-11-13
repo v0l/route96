@@ -359,7 +359,7 @@ function LabelDeleteTerms({
       }
       if (
         !window.confirm(
-          `Delete ${count} existing file(s) with a label matching "${term}"? Their hashes will be banned. Reviewed files are skipped.`,
+          `Delete ${count} existing file(s) with a label matching "${term}"? Their hashes will be banned. Reviewed files are included.`,
         )
       ) {
         return;
@@ -385,8 +385,8 @@ function LabelDeleteTerms({
         </h3>
         <p className="text-xs text-neutral-500 mb-3">
           Files whose AI labels contain one of these terms at or above the
-          minimum confidence are deleted and their hash is banned. Reviewed
-          files are never deleted.
+          minimum confidence are deleted and their hash is banned, whether or not
+          they were reviewed.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 mb-3 text-xs">

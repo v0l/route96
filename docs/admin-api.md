@@ -455,7 +455,7 @@ next reload.
 
 ### `GET|PUT|DELETE /admin/label-delete-terms`
 
-Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Reviewed files are never deleted and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.
+Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Reviewed files are deleted too and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.
 
 ### `GET /admin/label-deletions`
 
@@ -463,7 +463,7 @@ Audit rows (file hash, uploader pubkeys, term, label, model, confidence, reason)
 
 ### `GET|POST /admin/label-deletions/purge`
 
-Delete every existing file whose label contains a term, without waiting for the labeler. `GET ?term=gore` returns how many files would be deleted; `POST {"term": "gore"}` deletes them in the background (hashes banned, `Reviewed` files skipped, audit rows reason `label:<term> (admin purge)`). Ignores dry run: it is an explicit admin action. The admin UI shows a "Delete existing files" button on each delete term.
+Delete every existing file whose label contains a term, without waiting for the labeler. `GET ?term=gore` returns how many files would be deleted; `POST {"term": "gore"}` deletes them in the background (hashes banned, reviewed files included, audit rows reason `label:<term> (admin purge)`). Ignores dry run: it is an explicit admin action. The admin UI shows a "Delete existing files" button on each delete term.
 
 ## Error responses
 

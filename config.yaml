@@ -67,7 +67,7 @@ label_flag_terms:
 # (Optional) Delete files automatically when the labeler applies a label that
 # contains one of these terms (same matching as label_flag_terms) with a
 # confidence of at least label_delete_min_confidence. The hash is banned so it
-# cannot be uploaded again. Reviewed files are never deleted. Every match is
+# cannot be uploaded again. Reviewed files are deleted too. Every match is
 # written to the label_deletions table (GET /admin/label-deletions).
 # label_delete_terms:
 #   - "gore"
