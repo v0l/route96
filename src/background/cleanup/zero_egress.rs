@@ -1,4 +1,4 @@
-use super::{Candidate, CleanupHeuristic, active_days, days_cutoff};
+use super::{Candidate, CleanupHeuristic, RuleSetting, active_days, days_cutoff};
 use crate::db::Database;
 use crate::settings::Settings;
 use anyhow::Result;
@@ -11,6 +11,17 @@ pub struct ZeroEgress;
 impl CleanupHeuristic for ZeroEgress {
     fn name(&self) -> &'static str {
         "zero_egress"
+    }
+
+    fn description(&self) -> &'static str {
+        "Deletes files that were never downloaded after the configured number of days."
+    }
+
+    fn settings(&self, settings: &Settings) -> Vec<RuleSetting> {
+        vec![RuleSetting::new(
+            "delete_zero_egress_days",
+            settings.delete_zero_egress_days,
+        )]
     }
 
     fn enabled(&self, settings: &Settings) -> bool {

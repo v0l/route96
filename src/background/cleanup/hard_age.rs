@@ -1,4 +1,4 @@
-use super::{Candidate, CleanupHeuristic, active_days, days_cutoff};
+use super::{Candidate, CleanupHeuristic, RuleSetting, active_days, days_cutoff};
 use crate::db::Database;
 use crate::settings::Settings;
 use anyhow::Result;
@@ -11,6 +11,17 @@ pub struct HardAge;
 impl CleanupHeuristic for HardAge {
     fn name(&self) -> &'static str {
         "expired"
+    }
+
+    fn description(&self) -> &'static str {
+        "Deletes every file older than the configured number of days."
+    }
+
+    fn settings(&self, settings: &Settings) -> Vec<RuleSetting> {
+        vec![RuleSetting::new(
+            "delete_after_days",
+            settings.delete_after_days,
+        )]
     }
 
     fn enabled(&self, settings: &Settings) -> bool {

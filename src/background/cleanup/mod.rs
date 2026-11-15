@@ -8,6 +8,7 @@ use crate::settings::Settings;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 pub use few_upload_non_media::FewUploadNonMedia;
 pub use hard_age::HardAge;
@@ -21,8 +22,13 @@ pub struct Candidate {
 }
 
 #[async_trait]
+#[allow(clippy::double_must_use)]
 pub trait CleanupHeuristic: Send + Sync {
     fn name(&self) -> &'static str;
+
+    fn description(&self) -> &'static str;
+
+    fn settings(&self, settings: &Settings) -> Vec<RuleSetting>;
 
     fn enabled(&self, settings: &Settings) -> bool;
 
@@ -33,6 +39,43 @@ pub trait CleanupHeuristic: Send + Sync {
         now: DateTime<Utc>,
         limit: usize,
     ) -> Result<Vec<Candidate>>;
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RuleSetting {
+    pub key: &'static str,
+    pub value: serde_json::Value,
+}
+
+impl RuleSetting {
+    pub fn new(key: &'static str, value: impl Serialize) -> Self {
+        Self {
+            key,
+            value: serde_json::to_value(value).unwrap_or(serde_json::Value::Null),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RuleInfo {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub settings: Vec<RuleSetting>,
+    pub files_deleted: Option<u64>,
+}
+
+pub fn describe(heuristics: &[Box<dyn CleanupHeuristic>], settings: &Settings) -> Vec<RuleInfo> {
+    heuristics
+        .iter()
+        .map(|h| RuleInfo {
+            name: h.name().to_string(),
+            description: h.description().to_string(),
+            enabled: h.enabled(settings),
+            settings: h.settings(settings),
+            files_deleted: None,
+        })
+        .collect()
 }
 
 pub fn default_heuristics() -> Vec<Box<dyn CleanupHeuristic>> {

@@ -1,5 +1,6 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
+use crate::background::cleanup::{RuleInfo, RuleSetting, default_heuristics, describe};
 #[cfg(feature = "labels")]
 use crate::db::LabelModel;
 use crate::db::{
@@ -67,6 +68,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
                 .post(admin_add_whitelist)
                 .delete(admin_remove_whitelist),
         )
+        .route("/admin/cleanup/rules", get(admin_cleanup_rules))
         .route("/admin/config", get(admin_list_config))
         .route(
             "/admin/config/{key}",
@@ -1886,6 +1888,53 @@ async fn admin_delete_label_flag_terms(
     }
 }
 
+pub(crate) fn cleanup_rules(
+    settings: &crate::settings::Settings,
+    label_files_deleted: Option<u64>,
+) -> Vec<RuleInfo> {
+    let mut rules = describe(&default_heuristics(), settings);
+    #[cfg(feature = "labels")]
+    {
+        let config = label_delete_config(settings);
+        let terms = settings.label_delete_terms.clone().unwrap_or_default();
+        rules.push(RuleInfo {
+            name: "label".to_string(),
+            description:
+                "Deletes files when the labeler applies a label matching a delete term. Dry run only records matches."
+                    .to_string(),
+            enabled: terms.iter().any(|t| !t.trim().is_empty()),
+            settings: vec![
+                RuleSetting::new("label_delete_terms", config["terms"].clone()),
+                RuleSetting::new(
+                    "label_delete_min_confidence",
+                    config["min_confidence"].clone(),
+                ),
+                RuleSetting::new("label_delete_dry_run", config["dry_run"].clone()),
+            ],
+            files_deleted: label_files_deleted,
+        });
+    }
+    #[cfg(not(feature = "labels"))]
+    let _ = label_files_deleted;
+    rules
+}
+
+/// `GET /admin/cleanup/rules` - list every file deletion rule with its live settings.
+async fn admin_cleanup_rules(
+    auth: Nip98Auth,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<Vec<RuleInfo>> {
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+    let settings = state.settings().await;
+    #[cfg(feature = "labels")]
+    let label_deleted = state.db.count_label_deletions().await.ok();
+    #[cfg(not(feature = "labels"))]
+    let label_deleted = None;
+    AdminResponse::success(cleanup_rules(&settings, label_deleted))
+}
+
 /// `GET /admin/label-delete-terms` — get the label delete terms.
 #[cfg(feature = "labels")]
 async fn admin_get_label_delete_terms(
@@ -2123,6 +2172,91 @@ mod tests {
         assert_eq!(v["terms"], serde_json::json!(["gore"]));
         assert_eq!(v["min_confidence"], serde_json::json!(0.5));
         assert_eq!(v["dry_run"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn cleanup_rules_lists_every_rule_with_enabled_state() {
+        let mut s = default_settings();
+        let names = |r: &[RuleInfo]| r.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+        let rules = cleanup_rules(&s, None);
+        let mut expected = vec!["inactive", "expired", "zero_egress", "few_upload_non_media"];
+        #[cfg(feature = "labels")]
+        expected.push("label");
+        assert_eq!(names(&rules), expected);
+        assert!(rules.iter().all(|r| !r.enabled));
+        assert!(rules.iter().all(|r| !r.description.is_empty()));
+        assert!(rules.iter().all(|r| !r.settings.is_empty()));
+
+        s.delete_after_days = Some(30);
+        s.delete_few_upload_max_files = Some(3);
+        let rules = cleanup_rules(&s, None);
+        let enabled: Vec<_> = rules
+            .iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.name.as_str())
+            .collect();
+        assert_eq!(enabled, vec!["expired", "few_upload_non_media"]);
+        let few = rules
+            .iter()
+            .find(|r| r.name == "few_upload_non_media")
+            .unwrap();
+        assert_eq!(few.settings[0].key, "delete_few_upload_max_files");
+        assert_eq!(few.settings[0].value, serde_json::json!(3));
+        assert_eq!(few.settings[1].value, serde_json::json!(24));
+    }
+
+    #[cfg(feature = "labels")]
+    #[test]
+    fn cleanup_rules_label_rule_follows_terms_and_reports_count() {
+        let mut s = default_settings();
+        s.label_delete_terms = Some(vec!["gore".to_string()]);
+        s.label_delete_dry_run = Some(false);
+        let rules = cleanup_rules(&s, Some(7));
+        let label = rules.iter().find(|r| r.name == "label").unwrap();
+        assert!(label.enabled);
+        assert_eq!(label.files_deleted, Some(7));
+        let dry = label
+            .settings
+            .iter()
+            .find(|x| x.key == "label_delete_dry_run")
+            .unwrap();
+        assert_eq!(dry.value, serde_json::json!(false));
+    }
+
+    #[tokio::test]
+    async fn cleanup_rules_endpoint_requires_admin_auth() {
+        use crate::file_stats::FileStatsTracker;
+        use crate::filesystem::FileStore;
+        use crate::whitelist::Whitelist;
+        use tokio::sync::RwLock;
+        use tower::ServiceExt;
+
+        let settings = Arc::new(RwLock::new(default_settings()));
+        let pool = sqlx::mysql::MySqlPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("mysql://user:pass@127.0.0.1:1/route96")
+            .unwrap();
+        let state = Arc::new(AppState {
+            fs: FileStore::new(settings.clone()),
+            db: Database::from_pool(pool),
+            config_path: String::new(),
+            settings,
+            wl: Arc::new(RwLock::new(Whitelist::default())),
+            file_stats: FileStatsTracker::new(),
+            #[cfg(feature = "payments")]
+            lnd: None,
+        });
+        let response = admin_routes()
+            .with_state(state)
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/admin/cleanup/rules")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     fn default_settings() -> Settings {

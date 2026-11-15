@@ -1,4 +1,4 @@
-use super::{Candidate, CleanupHeuristic};
+use super::{Candidate, CleanupHeuristic, RuleSetting};
 use crate::db::Database;
 use crate::settings::Settings;
 use anyhow::Result;
@@ -15,6 +15,23 @@ fn max_files(settings: &Settings) -> Option<u64> {
 impl CleanupHeuristic for FewUploadNonMedia {
     fn name(&self) -> &'static str {
         "few_upload_non_media"
+    }
+
+    fn description(&self) -> &'static str {
+        "Deletes non-media blobs (not image, video or audio) from pubkeys with few uploads. Admins and paid users are exempt."
+    }
+
+    fn settings(&self, settings: &Settings) -> Vec<RuleSetting> {
+        vec![
+            RuleSetting::new(
+                "delete_few_upload_max_files",
+                settings.delete_few_upload_max_files,
+            ),
+            RuleSetting::new(
+                "delete_few_upload_min_age_hours",
+                settings.delete_few_upload_min_age_hours(),
+            ),
+        ]
     }
 
     fn enabled(&self, settings: &Settings) -> bool {

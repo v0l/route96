@@ -132,6 +132,19 @@ export interface BackgroundProgressResponse {
 }
 
 
+export interface CleanupRuleSetting {
+  key: string;
+  value: unknown;
+}
+
+export interface CleanupRule {
+  name: string;
+  description: string;
+  enabled: boolean;
+  settings: CleanupRuleSetting[];
+  files_deleted: number | null;
+}
+
 export interface Report {
   id: number;
   file_id: string;
@@ -526,6 +539,13 @@ export class Route96 {
     const rsp = await this.#req("admin/background-progress", "GET");
     const data = await this.#handleResponse<AdminResponse<BackgroundProgressResponse>>(rsp);
     if (!data.data) throw new Error(data.message || "Get background progress failed");
+    return data.data;
+  }
+
+  async listCleanupRules() {
+    const rsp = await this.#req("admin/cleanup/rules", "GET");
+    const data = await this.#handleResponse<AdminResponse<CleanupRule[]>>(rsp);
+    if (!data.data) throw new Error(data.message || "List cleanup rules failed");
     return data.data;
   }
 

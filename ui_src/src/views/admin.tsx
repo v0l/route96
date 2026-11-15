@@ -20,10 +20,11 @@ import { FormatBytes } from "../const";
 import FileListControls from "../components/file-list-controls";
 import ConfigEditor from "../components/config-editor";
 import LabelManagement from "../components/label-management";
+import DeletionRules from "../components/deletion-rules";
 import Stats from "../components/stats";
 import BackgroundProgress from "../components/background-progress";
 
-type Tab = "files" | "reports" | "review" | "config" | "labeling" | "stats" | "progress";
+type Tab = "files" | "reports" | "review" | "config" | "rules" | "labeling" | "stats" | "progress";
 
 type AdminFileList = {
   count: number;
@@ -483,6 +484,7 @@ export default function Admin() {
     { id: "reports", label: "Reports" },
     { id: "review", label: "Review" },
     { id: "config", label: "Config" },
+    { id: "rules", label: "Deletion rules" },
     { id: "labeling", label: "Labeling" },
     { id: "progress", label: "Progress" },
     { id: "stats", label: "Stats" },
@@ -675,6 +677,10 @@ export default function Admin() {
           onSave={saveConfig}
           onDelete={deleteConfig}
         />
+      )}
+
+      {tab === "rules" && pub && (
+        <DeletionRules pub={pub} url={url} onOpenLabeling={() => setTab("labeling")} />
       )}
 
       {tab === "labeling" && pub && (

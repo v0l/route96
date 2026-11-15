@@ -1466,6 +1466,15 @@ impl Database {
     }
 
     #[cfg(feature = "labels")]
+    pub async fn count_label_deletions(&self) -> Result<u64, Error> {
+        let (n,): (i64,) =
+            sqlx::query_as("select count(*) from label_deletions where dry_run = false")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(n as u64)
+    }
+
+    #[cfg(feature = "labels")]
     pub async fn list_label_deletions(
         &self,
         dry_run: Option<bool>,

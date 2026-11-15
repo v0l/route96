@@ -57,7 +57,7 @@ fn next_sleep(result: &BatchResult, prev_count: &mut usize, stall_rounds: &mut u
     }
 }
 
-mod cleanup;
+pub mod cleanup;
 mod file_deleter;
 
 mod cold_storage;
