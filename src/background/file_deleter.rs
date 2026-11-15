@@ -13,6 +13,7 @@
 //! Thresholds are re-read from the live settings on every cycle so that
 //! config changes take effect without a restart.
 
+use super::cleanup::{CleanupHeuristic, default_heuristics};
 use super::{BatchResult, next_sleep};
 use crate::db::Database;
 use crate::filesystem::FileStore;
@@ -24,17 +25,23 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 /// Number of files to process per batch per policy.
-const BATCH_SIZE: u32 = 100;
+const BATCH_SIZE: usize = 100;
 
 pub struct FileDeleter {
     db: Database,
     fs: FileStore,
     settings: Arc<RwLock<Settings>>,
+    heuristics: Vec<Box<dyn CleanupHeuristic>>,
 }
 
 impl FileDeleter {
     pub fn new(db: Database, fs: FileStore, settings: Arc<RwLock<Settings>>) -> Self {
-        Self { db, fs, settings }
+        Self {
+            db,
+            fs,
+            settings,
+            heuristics: default_heuristics(),
+        }
     }
 
     /// Run the background deletion loop.
@@ -53,7 +60,7 @@ impl FileDeleter {
                 let sleep_dur;
 
                 tokio::select! {
-                    batch_result = Self::run_batch(&self.db, &self.fs, &self.settings) => {
+                    batch_result = Self::run_batch(&self.db, &self.fs, &self.heuristics, &self.settings) => {
                         sleep_dur = next_sleep(&batch_result, &mut prev_count, &mut stall_rounds);
                         if let BatchResult::Processed { found, failed } = batch_result
                             && stall_rounds > 0
@@ -88,58 +95,23 @@ impl FileDeleter {
     async fn run_batch(
         db: &Database,
         fs: &FileStore,
+        heuristics: &[Box<dyn CleanupHeuristic>],
         settings: &Arc<RwLock<Settings>>,
     ) -> BatchResult {
-        // Snapshot thresholds from live config for this cycle.
-        let (inactive_days, age_days, zero_egress_days) = {
-            let s = settings.read().await;
-            (
-                s.delete_unaccessed_days,
-                s.delete_after_days,
-                s.delete_zero_egress_days,
-            )
-        };
-
+        let snapshot = settings.read().await.clone();
         let now = Utc::now();
-        // Each entry is (file_id, reason) so the reason is logged on deletion.
         let mut ids: Vec<(Vec<u8>, &'static str)> = Vec::new();
 
-        // Inactivity policy.
-        if let Some(days) = inactive_days.filter(|&d| d > 0) {
-            let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
-            match db.get_unaccessed_files(cutoff, BATCH_SIZE).await {
-                Ok(v) => ids.extend(v.into_iter().map(|id| (id, "inactive"))),
-                Err(e) => error!("FileDeleter: inactivity query failed: {}", e),
-            }
-        }
-
-        // Hard-age policy.
-        if let Some(days) = age_days.filter(|&d| d > 0) {
-            let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
-            match db.get_files_older_than(cutoff, BATCH_SIZE).await {
-                Ok(v) => {
-                    for id in v {
-                        if !ids.iter().any(|(existing, _)| existing == &id) {
-                            ids.push((id, "expired"));
+        for heuristic in heuristics.iter().filter(|h| h.enabled(&snapshot)) {
+            match heuristic.candidates(db, &snapshot, now, BATCH_SIZE).await {
+                Ok(found) => {
+                    for c in found {
+                        if !ids.iter().any(|(existing, _)| existing == &c.id) {
+                            ids.push((c.id, c.reason));
                         }
                     }
                 }
-                Err(e) => error!("FileDeleter: hard-age query failed: {}", e),
-            }
-        }
-
-        // Zero-egress policy: delete files that have never been downloaded.
-        if let Some(days) = zero_egress_days.filter(|&d| d > 0) {
-            let cutoff = now - chrono::Duration::seconds((days * 86_400) as i64);
-            match db.get_files_with_zero_egress(cutoff, BATCH_SIZE).await {
-                Ok(v) => {
-                    for id in v {
-                        if !ids.iter().any(|(existing, _)| existing == &id) {
-                            ids.push((id, "zero_egress"));
-                        }
-                    }
-                }
-                Err(e) => error!("FileDeleter: zero-egress query failed: {}", e),
+                Err(e) => error!("FileDeleter: {} query failed: {}", heuristic.name(), e),
             }
         }
 

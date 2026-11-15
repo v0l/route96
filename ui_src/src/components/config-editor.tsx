@@ -107,6 +107,26 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "delete_few_upload_max_files",
+    label: "Delete non-media from low-activity uploaders",
+    description:
+      "Delete non-media blobs (anything that is not an image, video or audio file) from pubkeys that have uploaded fewer than this many files in total. Mostly catches spam. Admins, paid users and blobs shared with a pubkey at or above the limit are never touched. Set to 0 or leave unset to disable.",
+    type: "integer",
+    unit: "files",
+    min: 0,
+    optional: true,
+  },
+  {
+    key: "delete_few_upload_min_age_hours",
+    label: "Low-activity delete minimum age",
+    description:
+      "Only blobs older than this many hours are deleted by the low-activity uploader rule. Defaults to 24.",
+    type: "integer",
+    unit: "hours",
+    min: 0,
+    optional: true,
+  },
+  {
     key: "cold_storage_min_downloads",
     label: "Cold storage download threshold",
     description:

@@ -2044,6 +2044,41 @@ impl Database {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    pub async fn get_few_upload_non_media_files(
+        &self,
+        max_files: u64,
+        created_before: DateTime<Utc>,
+        now: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<Vec<u8>>, Error> {
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "select u.id from uploads u \
+             where u.banned = false \
+             and u.created < ? \
+             and u.mime_type not like 'image/%' \
+             and u.mime_type not like 'video/%' \
+             and u.mime_type not like 'audio/%' \
+             and exists (select 1 from user_uploads o where o.file = u.id) \
+             and not exists ( \
+                 select 1 from user_uploads o \
+                 join users usr on usr.id = o.user_id \
+                 join (select user_id, count(*) as n from user_uploads group by user_id) c \
+                     on c.user_id = o.user_id \
+                 where o.file = u.id \
+                 and (c.n >= ? or usr.is_admin = 1 or usr.paid_until > ?) \
+             ) \
+             order by u.created asc \
+             limit ?",
+        )
+        .bind(created_before)
+        .bind(max_files)
+        .bind(now)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     pub async fn get_upload_downloads_page(
         &self,
         after: Option<&[u8]>,

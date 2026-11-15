@@ -219,6 +219,16 @@ pub struct Settings {
     /// Set to `0` or omit to disable.
     pub delete_zero_egress_days: Option<u64>,
 
+    /// Delete non-media blobs (mime not image/video/audio) whose uploaders all
+    /// have fewer than this many files. Admin and paid users are exempt.
+    ///
+    /// Set to `0` or omit to disable.
+    pub delete_few_upload_max_files: Option<u64>,
+
+    /// Only blobs older than this many hours are deleted by
+    /// `delete_few_upload_max_files`. Defaults to 24.
+    pub delete_few_upload_min_age_hours: Option<u64>,
+
     pub cold_storage_dir: Option<String>,
 
     pub cold_storage_min_downloads: Option<u64>,
@@ -230,6 +240,10 @@ pub const DEFAULT_COLD_STORAGE_MIN_DOWNLOADS: u64 = 50;
 pub const DEFAULT_COLD_STORAGE_AFTER_DAYS: u64 = 7;
 
 impl Settings {
+    pub fn delete_few_upload_min_age_hours(&self) -> u64 {
+        self.delete_few_upload_min_age_hours.unwrap_or(24)
+    }
+
     pub fn cold_storage_min_downloads(&self) -> u64 {
         self.cold_storage_min_downloads
             .unwrap_or(DEFAULT_COLD_STORAGE_MIN_DOWNLOADS)
