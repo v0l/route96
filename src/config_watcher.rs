@@ -43,6 +43,11 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
 
     let built = builder.build_cloned().await?;
     let mut settings: Settings = built.try_deserialize()?;
+    #[cfg(feature = "media-compression")]
+    crate::media::configure(
+        settings.media_worker_timeout_secs,
+        settings.media_worker_memory_mb,
+    );
 
     // Merge label models from the database into settings.
     // Database models override any models from the config file with the same name,

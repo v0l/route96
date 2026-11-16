@@ -159,6 +159,18 @@ pub struct Settings {
     /// Defaults to 25 MiB (`26214400`) when absent.
     pub steganography_scan_max_bytes: Option<u64>,
 
+    /// Wall-clock limit in seconds for one sandboxed media worker job
+    /// (probe, compress, thumbnail, phash, labeling frames). A worker that
+    /// runs longer is killed and the media is rejected.
+    ///
+    /// Defaults to 120 when absent.
+    pub media_worker_timeout_secs: Option<u64>,
+
+    /// Address space limit in MiB for the sandboxed media worker process.
+    ///
+    /// Defaults to 2048 when absent.
+    pub media_worker_memory_mb: Option<u64>,
+
     /// Enable BUD-12 identical media deduplication.
     ///
     /// When set to `true`, image uploads are checked against existing blobs using

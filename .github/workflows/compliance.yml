@@ -49,7 +49,7 @@ jobs:
             libavfilter-dev libavdevice-dev pkg-config
 
       - name: Build route96
-        run: cargo build --no-default-features --features "blossom,nip96,react-ui,media-compression" --bin route96
+        run: cargo build --no-default-features --features "blossom,nip96,react-ui,media-compression" --bin route96 && cargo build -p route96-media
 
       - name: Write test config
         run: |

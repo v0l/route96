@@ -1316,6 +1316,8 @@ mod tests {
             reject_sensitive_exif: None,
             reject_steganography: None,
             steganography_scan_max_bytes: None,
+            media_worker_timeout_secs: None,
+            media_worker_memory_mb: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
@@ -1552,6 +1554,8 @@ mod tests {
             reject_sensitive_exif: None,
             reject_steganography: None,
             steganography_scan_max_bytes: None,
+            media_worker_timeout_secs: None,
+            media_worker_memory_mb: None,
             #[cfg(feature = "media-compression")]
             identical_media_dedup: None,
             #[cfg(feature = "media-compression")]
@@ -1683,6 +1687,8 @@ mod tests {
             public_url: "https://example.com".to_string(),
             whitelist: None,
             steganography_scan_max_bytes: None,
+            media_worker_timeout_secs: None,
+            media_worker_memory_mb: None,
             #[cfg(feature = "labels")]
             models_dir: None,
             #[cfg(feature = "labels")]

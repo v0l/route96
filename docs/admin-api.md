@@ -401,6 +401,13 @@ also changes.
 Keys use dot-notation for nested YAML paths (e.g. `max_upload_bytes`,
 `payments.cost`).
 
+Media sandbox keys (see `docs/media-sandbox.md`), also editable in the admin UI config editor:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `media_worker_timeout_secs` | `120` | Wall-clock limit for one sandboxed media job. On expiry the worker is killed and the upload is rejected. |
+| `media_worker_memory_mb` | `2048` | Address space limit of the media worker process, in MiB. |
+
 ### `GET /admin/config`
 
 List all database config overrides.

@@ -75,6 +75,28 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "media_worker_timeout_secs",
+    label: "Media worker time limit",
+    description:
+      "Seconds one sandboxed media job (probe, compress, thumbnail, hashing, labeling frames) may run before it is killed and the file is rejected. Defaults to 120.",
+    type: "integer",
+    unit: "seconds",
+    min: 1,
+    max: 3600,
+    optional: true,
+  },
+  {
+    key: "media_worker_memory_mb",
+    label: "Media worker memory limit",
+    description:
+      "Address space limit in MB for the sandboxed media worker. Defaults to 2048.",
+    type: "integer",
+    unit: "MB",
+    min: 64,
+    max: 65536,
+    optional: true,
+  },
+  {
     key: "whitelist",
     label: "Whitelist",
     description:

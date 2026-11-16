@@ -135,3 +135,7 @@ payments:
 # cold_storage_dir: "/mnt/hdd/route96"
 # cold_storage_min_downloads: 50
 # cold_storage_after_days: 7
+
+# (Optional) Sandboxed media worker limits (see docs/media-sandbox.md).
+# media_worker_timeout_secs: 120
+# media_worker_memory_mb: 2048

@@ -8,6 +8,9 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 
 fn worker() -> PathBuf {
+    if let Some(p) = std::env::var_os("ROUTE96_MEDIA_BIN") {
+        return PathBuf::from(p);
+    }
     static BUILD: Once = Once::new();
     BUILD.call_once(|| {
         let status = Command::new(env!("CARGO"))
@@ -289,4 +292,52 @@ fn worker_outputs_match_the_in_process_golden_corpus() {
             }
         }
     }
+}
+
+#[test]
+#[ignore = "measurement, run with --release worker and --nocapture"]
+fn overhead_per_job() {
+    let sb = sandbox();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("test-data/corpus"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    files.push(resolve("sample.mp4"));
+    files.push(resolve("glass_sculpture.webp"));
+    let mut samples = Vec::new();
+    while samples.len() < 50 {
+        for f in &files {
+            if samples.len() == 50 {
+                break;
+            }
+            let t = Instant::now();
+            let _ = sb.run(f, Job::Probe);
+            samples.push(t.elapsed());
+        }
+    }
+    let idle = {
+        let t = Instant::now();
+        for _ in 0..50 {
+            let _ = selftest(&sb, SelftestOp::SandboxState);
+        }
+        t.elapsed() / 50
+    };
+    let no_ns = {
+        let sb = sb.clone().with_namespaces(false);
+        let t = Instant::now();
+        for _ in 0..50 {
+            let _ = selftest(&sb, SelftestOp::SandboxState);
+        }
+        t.elapsed() / 50
+    };
+    println!("no-op without namespaces: {:?}", no_ns);
+    samples.sort();
+    let total: Duration = samples.iter().sum();
+    println!(
+        "probe x50: mean {:?} median {:?} max {:?}; no-op job (spawn+sandbox+exit) mean {:?}",
+        total / 50,
+        samples[25],
+        samples[49],
+        idle
+    );
 }
