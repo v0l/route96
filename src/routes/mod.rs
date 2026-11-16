@@ -1,7 +1,6 @@
 use crate::db::{Database, FileUpload};
 use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
-#[cfg(feature = "media-compression")]
 pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
