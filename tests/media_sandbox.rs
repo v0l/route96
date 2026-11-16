@@ -341,3 +341,183 @@ fn overhead_per_job() {
         idle
     );
 }
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for b in data {
+        crc ^= *b as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
+
+fn png_chunk(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut out = (body.len() as u32).to_be_bytes().to_vec();
+    let mut tagged = kind.to_vec();
+    tagged.extend_from_slice(body);
+    out.extend_from_slice(&tagged);
+    out.extend_from_slice(&crc32(&tagged).to_be_bytes());
+    out
+}
+
+fn png_declaring(width: u32, height: u32) -> Vec<u8> {
+    let mut ihdr = width.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    out.extend(png_chunk(b"IHDR", &ihdr));
+    out.extend(png_chunk(b"IDAT", &[0x78, 0x01, 0x01, 0x00]));
+    out.extend(png_chunk(b"IEND", &[]));
+    out
+}
+
+fn bmp_declaring(width: i32, height: i32) -> Vec<u8> {
+    let mut out = b"BM".to_vec();
+    out.extend_from_slice(&(54u32 + 16).to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&54u32.to_le_bytes());
+    out.extend_from_slice(&40u32.to_le_bytes());
+    out.extend_from_slice(&width.to_le_bytes());
+    out.extend_from_slice(&height.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&24u16.to_le_bytes());
+    out.extend_from_slice(&[0; 24]);
+    out.extend_from_slice(&[0; 16]);
+    out
+}
+
+fn assert_survives(sb: &MediaSandbox, label: &str, bytes: Vec<u8>, jobs: Vec<Job>) {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("hostile");
+    std::fs::write(&p, bytes).unwrap();
+    for job in jobs {
+        let start = Instant::now();
+        let r = sb.run(&p, job.clone());
+        assert!(r.is_err(), "{label} {job:?} was accepted: {:?}", r.map(|(m, _)| m));
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "{label} {job:?} ran {:?}",
+            start.elapsed()
+        );
+    }
+    assert!(sb.run(&corpus("a.jpg"), Job::Probe).is_ok(), "{label}: next job must still work");
+}
+
+#[test]
+fn huge_declared_png_is_refused_within_limits() {
+    let sb = sandbox().with_memory_mb(256).with_timeout(Duration::from_secs(10));
+    for (w, h) in [(30000u32, 30000u32), (65535, 65535), (0x7fff_ffff, 0x7fff_ffff)] {
+        assert_survives(
+            &sb,
+            &format!("png {w}x{h}"),
+            png_declaring(w, h),
+            vec![
+                Job::Rgb,
+                Job::Thumbnail,
+                Job::Compress { mime_type: "image/png".into() },
+                Job::LabelImage { width: 224, height: 224 },
+            ],
+        );
+    }
+}
+
+#[test]
+fn huge_declared_bmp_is_refused_within_limits() {
+    let sb = sandbox().with_memory_mb(256).with_timeout(Duration::from_secs(10));
+    for (w, h) in [(20000i32, 20000i32), (i32::MAX, 3)] {
+        assert_survives(
+            &sb,
+            &format!("bmp {w}x{h}"),
+            bmp_declaring(w, h),
+            vec![Job::Rgb, Job::Thumbnail, Job::LabelImage { width: 224, height: 224 }],
+        );
+    }
+}
+
+#[test]
+fn allocation_over_the_cap_kills_the_worker_not_the_server() {
+    let sb = sandbox().with_memory_mb(128);
+    let r = selftest(&sb, SelftestOp::AllocHuge);
+    assert!(matches!(r, Err(MediaError::Rejected(_))), "{r:?}");
+}
+
+fn generated(name: &str, args: &[&str]) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join(name);
+    let status = Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args(args)
+        .arg(&out)
+        .status()
+        .expect("ffmpeg");
+    assert!(status.success(), "ffmpeg could not make {name}");
+    (dir, out)
+}
+
+#[test]
+fn animated_webp_and_other_legit_media_probe_in_the_worker() {
+    let sb = sandbox();
+    let video = ["-f", "lavfi", "-i", "testsrc=size=64x64:rate=5:duration=1"];
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        ("a.webp", [&video[..], &["-loop", "0"]].concat()),
+        ("a.mkv", [&video[..], &["-c:v", "mpeg4"]].concat()),
+        ("a.gif", video.to_vec()),
+        ("a.webm", [&video[..], &["-c:v", "libvpx"]].concat()),
+    ];
+    for (name, args) in cases {
+        let (_dir, path) = generated(name, &args);
+        match sb.run(&path, Job::Probe) {
+            Ok((Meta::Probe(p), _)) => assert!(p.stream_count > 0, "{name}"),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+}
+
+const DASH: &str = "<?xml version=\"1.0\"?><MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" type=\"static\" mediaPresentationDuration=\"PT1S\" minBufferTime=\"PT1S\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\"><Period><AdaptationSet mimeType=\"video/mp4\"><Representation id=\"1\" bandwidth=\"1000\"><SegmentList duration=\"1\"><SegmentURL media=\"secret.mp4\"/></SegmentList></Representation></AdaptationSet></Period></MPD>";
+
+#[test]
+fn dash_manifest_and_concat_through_compress_are_refused() {
+    let sb = sandbox();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::copy(corpus("a.mp4"), dir.path().join("secret.mp4")).unwrap();
+    for (name, body) in [
+        ("dash.mp4", DASH),
+        ("concat.jpg", "ffconcat version 1.0\nfile /etc/hostname\n"),
+    ] {
+        let p = dir.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        for job in [
+            Job::Probe,
+            Job::Rgb,
+            Job::Thumbnail,
+            Job::Compress { mime_type: "image/jpeg".into() },
+            Job::LabelVideo { width: 224, height: 224 },
+        ] {
+            let r = sb.run(&p, job.clone());
+            assert!(matches!(r, Err(MediaError::Job(_))), "{name} {job:?}: {r:?}");
+        }
+    }
+}
+
+#[test]
+fn valid_but_decoder_hungry_image_is_stopped_by_the_memory_cap() {
+    let (_dir, path) = generated(
+        "big.png",
+        &["-f", "lavfi", "-i", "color=c=gray:size=12000x12000", "-frames:v", "1"],
+    );
+    assert!(std::fs::metadata(&path).unwrap().len() < 16 * 1024 * 1024);
+    let job = Job::LabelImage { width: 224, height: 224 };
+
+    let uncapped = sandbox().with_memory_mb(4096).with_timeout(Duration::from_secs(60));
+    let ok = uncapped.run(&path, job.clone());
+    assert!(matches!(ok, Ok((Meta::Image { .. }, _))), "control run: {ok:?}");
+
+    let capped = sandbox().with_memory_mb(256).with_timeout(Duration::from_secs(60));
+    let start = Instant::now();
+    let r = capped.run(&path, job);
+    assert!(r.is_err(), "decode must not fit in 256 MiB");
+    assert!(start.elapsed() < Duration::from_secs(30));
+    assert!(capped.run(&corpus("a.jpg"), Job::Probe).is_ok());
+}
