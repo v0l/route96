@@ -80,7 +80,7 @@ The `ffmpeg` CLI is only spawned by tests (to generate fixtures), never by serve
 
 * `selftest` attempts `open("/etc/passwd")` (EPERM), `socket()` (killed), `execve` (killed), `fork` (killed), `mmap(PROT_EXEC)` (killed), `ptrace` (killed), and a normal read of fd 3 (works). Each ran failing first before the sandbox existed.
 * A worker that spins forever, one that segfaults and one that allocates past `RLIMIT_AS` all give `MediaRejected` and leave the test process alive.
-* Garbage, truncated and hostile (HLS, concat, DASH) inputs give clean errors.
+* Garbage, truncated and hostile (HLS, concat, DASH) inputs give clean errors, as do PNG and BMP files declaring up to 2^31 x 2^31 pixels. A valid 12000x12000 PNG decodes with a 4 GiB cap and is killed under a 256 MiB cap, proving the rlimit stops a decoder-level allocation.
 * Probe, compress, thumbnail, pHash and label frames from the worker equal the previous in-process results on the sample corpus (`test-data/` plus generated fixtures).
 
 ## Overhead
