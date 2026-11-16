@@ -617,11 +617,11 @@ impl FileStore {
                 .eq_ignore_ascii_case("application/pdf")
             {
                 use std::io::Read;
-                let mut magic = [0u8; 5];
+                let mut head = Vec::with_capacity(1024);
                 let is_pdf = std::fs::File::open(out_path)
-                    .and_then(|mut f| f.read_exact(&mut magic))
+                    .and_then(|f| f.take(1024).read_to_end(&mut head))
                     .is_ok()
-                    && &magic == b"%PDF-";
+                    && head.windows(5).any(|w| w == b"%PDF-");
                 if !is_pdf {
                     return "application/octet-stream".to_string();
                 }
@@ -1027,6 +1027,12 @@ mod expected_hash_tests {
 
         // Real %PDF- magic keeps the pdf type (via infer's own matcher).
         std::fs::write(&fake, b"%PDF-1.7\n1 0 obj\nendobj\n").unwrap();
+        assert_eq!(
+            FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
+            "application/pdf"
+        );
+
+        std::fs::write(&fake, b"\xEF\xBB\xBF\r\n%PDF-1.4\n1 0 obj\nendobj\n").unwrap();
         assert_eq!(
             FileStore::infer_mime_type("application/pdf", &fake.to_path_buf()),
             "application/pdf"
