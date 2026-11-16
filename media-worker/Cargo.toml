@@ -1,0 +1,17 @@
+[package]
+name = "route96-media"
+version = "0.8.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "route96-media"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+seccompiler = "0.5"
+ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "2594eceddf216807a254b87cff5df3e672c4a25b" }

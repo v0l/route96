@@ -26,9 +26,20 @@ impl MediaMetadata {
             }
             // probe file and update metadata
             let path = self.fs.get(&file.id);
-            match probe_file(&path) {
+            let probed = {
+                let path = path.clone();
+                tokio::task::spawn_blocking(move || probe_file(&path)).await
+            };
+            let probed = match probed {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Probe task failed: {}", e);
+                    continue;
+                }
+            };
+            match probed {
                 Ok(data) => {
-                    let bv = data.best_video();
+                    let bv = data.best_video.as_ref();
                     let duration = if data.duration < 0.0 {
                         None
                     } else {

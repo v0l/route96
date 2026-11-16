@@ -3958,7 +3958,6 @@ dependencies = [
  "config",
  "dashmap",
  "fedimint-tonic-lnd",
- "ffmpeg-rs-raw",
  "futures-util",
  "hex",
  "hf-hub",
@@ -3989,6 +3988,18 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "route96-media"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "ffmpeg-rs-raw",
+ "libc",
+ "seccompiler",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4225,6 +4236,15 @@ dependencies = [
  "pbkdf2",
  "salsa20",
  "sha2",
+]
+
+[[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

@@ -2,7 +2,6 @@ use crate::db::{Database, FileUpload};
 use crate::file_stats::FileStatsTracker;
 use crate::filesystem::FileStore;
 #[cfg(feature = "media-compression")]
-use crate::processing::WebpProcessor;
 pub use crate::routes::admin::admin_routes;
 #[cfg(feature = "blossom")]
 pub use crate::routes::blossom::blossom_routes;
@@ -802,8 +801,7 @@ pub async fn get_blob_thumb(
             let src = file_path.clone();
             let tmp = tmp_out.clone();
             let result = tokio::task::spawn_blocking(move || {
-                let mut p = WebpProcessor::new();
-                p.thumbnail(&src, &tmp)
+                crate::media::thumbnail_file(&src, &tmp)
             })
             .await;
             match result {

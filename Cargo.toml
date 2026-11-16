@@ -12,12 +12,16 @@ name = "r96util"
 path = "src/bin/r96util.rs"
 required-features = ["r96util"]
 
+[workspace]
+members = [".", "media-worker"]
+default-members = ["."]
+
 [lib]
 name = "route96"
 
 [features]
 default = ["nip96", "blossom", "react-ui", "r96util", "labels"]
-media-compression = ["dep:ffmpeg-rs-raw", "dep:libc"]
+media-compression = ["dep:libc"]
 labels = ["media-compression", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:hf-hub"]
 cuda = ["labels", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 nip96 = ["media-compression"]
@@ -64,7 +68,6 @@ image = { version = "0.25", default-features = false, features = ["webp", "jpeg"
 image_hasher = "3"
 
 libc = { version = "0.2", optional = true }
-ffmpeg-rs-raw = { git = "https://github.com/v0l/ffmpeg-rs-raw.git", rev = "2594eceddf216807a254b87cff5df3e672c4a25b", optional = true }
 candle-core = { git = "https://github.com/v0l/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }
 candle-nn = { git = "https://github.com/v0l/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }
 candle-transformers = { git = "https://github.com/v0l/candle", rev = "bb4d7025db5d6ad43d0286849d5f3dfc993c7c84", optional = true }

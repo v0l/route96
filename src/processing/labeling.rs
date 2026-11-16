@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::slice;
 
 use anyhow::{Error, Result};
 use async_openai::{
@@ -18,8 +17,6 @@ use base64::Engine;
 use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::vit;
-use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVPixelFormat;
-use ffmpeg_rs_raw::{Decoder, Demuxer, Scaler};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info, warn};
 use nostr::serde_json;
@@ -30,12 +27,12 @@ use serde::Deserialize;
 pub const MIN_CONFIDENCE: f32 = 0.4;
 
 /// Maximum number of frames to sample from a video (max 10 frames, spread over entire file)
-const MAX_VIDEO_FRAMES: usize = 10;
+pub use crate::media::protocol::MAX_VIDEO_FRAMES;
 
 /// Media smaller than this on either axis is not worth classifying: the model
 /// input is 224x224, so a degenerate strip (e.g. 900x1) only yields garbage
 /// labels or upsets the scaler.
-pub const MIN_LABEL_DIMENSION: u32 = 48;
+pub use crate::media::protocol::MIN_LABEL_DIMENSION;
 
 // ── Labeling error type ────────────────────────────────────────────────────
 
@@ -127,31 +124,22 @@ impl fmt::Display for LabelError {
 impl std::error::Error for LabelError {}
 
 /// Reject media that is too small on either axis to produce meaningful labels.
-const LLM_MAX_HEIGHT: u32 = 1024;
-pub const DEFAULT_LLM_MAX_PIXELS: u64 = 1_800_000;
+pub use crate::media::protocol::{DEFAULT_LLM_MAX_PIXELS, LLM_MAX_HEIGHT, llm_target_size};
 const LLM_RETRY_PIXEL_DIVISOR: u64 = 4;
 
-fn llm_target_size(width: u32, height: u32, max_pixels: u64) -> (u32, u32) {
-    let mut scale = 1.0f64;
-    if height > LLM_MAX_HEIGHT {
-        scale = LLM_MAX_HEIGHT as f64 / height as f64;
+impl From<crate::media::MediaError> for LabelError {
+    fn from(e: crate::media::MediaError) -> Self {
+        use crate::media::{JobError, MediaError};
+        match e {
+            MediaError::Job(JobError::NoMediaStream) => LabelError::NoMediaStream,
+            MediaError::Job(JobError::NoImageData) => LabelError::NoImageData,
+            MediaError::Job(JobError::TooSmall { width, height }) => {
+                LabelError::TooSmall { width, height }
+            }
+            MediaError::Job(JobError::Corrupt { detail }) => LabelError::CorruptMedia { detail },
+            other => LabelError::Ffmpeg(Error::msg(other.to_string())),
+        }
     }
-    let scaled_pixels = width as f64 * height as f64 * scale * scale;
-    if scaled_pixels > max_pixels as f64 {
-        scale *= (max_pixels as f64 / scaled_pixels).sqrt();
-    }
-    if scale >= 1.0 {
-        return (width, height);
-    }
-    let even = |v: f64| (((v as u32).max(2)) / 2) * 2;
-    (even(width as f64 * scale), even(height as f64 * scale))
-}
-
-fn check_dimensions(width: u32, height: u32) -> Result<(), LabelError> {
-    if width < MIN_LABEL_DIMENSION || height < MIN_LABEL_DIMENSION {
-        return Err(LabelError::TooSmall { width, height });
-    }
-    Ok(())
 }
 
 impl From<candle_core::Error> for LabelError {
@@ -346,12 +334,12 @@ impl VitModel {
         min_confidence: f32,
     ) -> Result<HashMap<String, f32>, LabelError> {
         if mime_type.starts_with("video/") {
-            let frames = unsafe { extract_video_frames(path, &self.normalization, &self.device) }?;
+            let frames = extract_video_frames(path, &self.normalization, &self.device)?;
             classify_frames(self, &frames, min_confidence).map_err(LabelError::Ffmpeg)
         } else if mime_type.starts_with("image/svg") {
             Ok(HashMap::new())
         } else {
-            let image = unsafe { load_frame_224(path, &self.normalization, &self.device) }?;
+            let image = load_frame_224(path, &self.normalization, &self.device)?;
             self.classify(&image, min_confidence)
                 .map_err(LabelError::Ffmpeg)
         }
@@ -443,96 +431,10 @@ impl GenericLlmLabeler {
     }
 
     fn compress_image_to_jpeg(path: &Path, max_pixels: u64) -> Result<Vec<u8>, LabelError> {
-        use ffmpeg_rs_raw::ffmpeg_sys_the_third::AVCodecID::AV_CODEC_ID_MJPEG;
-        use ffmpeg_rs_raw::{Encoder, StreamType};
-
         if !path.exists() {
             return Err(LabelError::FileNotFound(path.to_path_buf()));
         }
-
-        let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
-
-        let temp_path =
-            std::env::temp_dir().join(format!("route96_llm_{}.jpg", uuid::Uuid::new_v4()));
-        let temp_str = temp_path.to_str().ok_or(LabelError::InvalidPath)?;
-
-        unsafe {
-            let mut demux =
-                crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
-            let probe = demux.probe_input().map_err(LabelError::Ffmpeg)?;
-            crate::processing::check_demuxer_format(&probe.format)
-                .map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
-
-            let stream = probe
-                .streams
-                .iter()
-                .find(|s| s.stream_type == StreamType::Video)
-                .ok_or(LabelError::NoMediaStream)?;
-
-            check_dimensions(stream.width as u32, stream.height as u32)?;
-
-            let (out_width, out_height) =
-                llm_target_size(stream.width as u32, stream.height as u32, max_pixels);
-            let (out_width, out_height) = (out_width as i32, out_height as i32);
-
-            let enc = Encoder::new(AV_CODEC_ID_MJPEG)
-                .map_err(LabelError::Ffmpeg)?
-                .with_width(out_width)
-                .with_height(out_height)
-                .with_pix_fmt(AVPixelFormat::AV_PIX_FMT_YUVJ420P)
-                .open(None)
-                .map_err(LabelError::Ffmpeg)?;
-
-            let mut sws = Scaler::new();
-            let mut decoder = Decoder::new();
-            decoder
-                .setup_decoder(stream, None)
-                .map_err(LabelError::Ffmpeg)?;
-            let stream_index = stream.index as i32;
-
-            let mut packet_count = 0;
-            let max_packets = 10; // Prevent infinite loops on corrupt files
-
-            while let Ok((pkt, _)) = demux.get_packet() {
-                packet_count += 1;
-                if packet_count > max_packets {
-                    return Err(LabelError::CorruptMedia {
-                        detail: format!(
-                            "exceeded {} packet attempts without producing a frame",
-                            max_packets
-                        ),
-                    });
-                }
-
-                if let Some(ref pkt) = pkt
-                    && pkt.stream_index != stream_index
-                {
-                    continue;
-                }
-                if let Ok(results) = decoder.decode_pkt(pkt.as_ref())
-                    && let Some((frame, _)) = results.into_iter().next()
-                {
-                    let scaled = sws
-                        .process_frame(
-                            &frame,
-                            out_width as u16,
-                            out_height as u16,
-                            AVPixelFormat::AV_PIX_FMT_YUVJ420P,
-                        )
-                        .map_err(LabelError::Ffmpeg)?;
-                    enc.save_picture(&scaled, temp_str)
-                        .map_err(LabelError::Ffmpeg)?;
-
-                    let buffer = std::fs::read(&temp_path).map_err(|e| {
-                        LabelError::TempFileIo(format!("Failed to read encoded JPEG: {}", e))
-                    })?;
-                    let _ = std::fs::remove_file(&temp_path);
-                    return Ok(buffer);
-                }
-            }
-
-            Err(LabelError::NoImageData)
-        }
+        crate::media::llm_jpeg(path, max_pixels).map_err(LabelError::from)
     }
 
     fn encode_image_to_base64(&self, path: &Path, max_pixels: u64) -> Result<String, LabelError> {
@@ -754,193 +656,26 @@ fn classify_frames(
     Ok(result)
 }
 
-/// Extract up to MAX_VIDEO_FRAMES frames from a video by seeking to evenly spaced timestamps.
-unsafe fn extract_video_frames(
+fn extract_video_frames(
     path: &Path,
     normalization: &Normalization,
     device: &Device,
 ) -> Result<Vec<Tensor>, LabelError> {
-    use ffmpeg_rs_raw::ffmpeg_sys_the_third::{AVSEEK_FLAG_BACKWARD, av_seek_frame};
-
-    let path_str = path.to_str().ok_or(LabelError::InvalidPath)?;
-    let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
-    let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    crate::processing::check_demuxer_format(&info.format)
-        .map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
-    let video_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
-
-    check_dimensions(video_stream.width as u32, video_stream.height as u32)?;
-
-    let stream_index = video_stream.index as i32;
-    let (tb_num, tb_den) = (
-        video_stream.timebase.0 as f64,
-        video_stream.timebase.1 as f64,
-    );
-    let start_secs = if video_stream.start_time.is_finite() {
-        video_stream.start_time as f64
-    } else {
-        0.0
-    };
-    let duration = if info.duration.is_finite() && info.duration > 0.0 {
-        info.duration as f64
-    } else {
-        0.0
-    };
-
-    let mut scaler = Scaler::new();
-    let mut frames = Vec::new();
-
-    for target_secs in video_sample_times(duration, MAX_VIDEO_FRAMES) {
-        let target_secs = target_secs + start_secs;
-        let seek_ts = (target_secs * tb_den / tb_num) as i64;
-        let ret =
-            unsafe { av_seek_frame(demux.context(), stream_index, seek_ts, AVSEEK_FLAG_BACKWARD) };
-        if ret < 0 {
-            debug!("Seek to {:.2}s failed: {}", target_secs, ret);
-            continue;
-        }
-
-        let mut decoder = Decoder::new();
-        decoder
-            .setup_decoder(video_stream, None)
-            .map_err(LabelError::Ffmpeg)?;
-
-        let mut picked = None;
-        let mut last = None;
-        'packets: while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
-            let Some(pkt) = pkt else { break };
-            if pkt.stream_index != stream_index {
-                continue;
-            }
-            for (frame, _) in decoder.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)? {
-                let frame_secs = frame.pts as f64 * tb_num / tb_den;
-                if frame.pts == ffmpeg_rs_raw::ffmpeg_sys_the_third::AV_NOPTS_VALUE
-                    || frame_secs >= target_secs
-                {
-                    picked = Some(frame);
-                    break 'packets;
-                }
-                last = Some(frame);
-            }
-        }
-        if picked.is_none() {
-            picked = last;
-        }
-
-        if let Some(frame) = picked {
-            match unsafe { frame_to_tensor(&frame, &mut scaler, normalization, device) } {
-                Ok(tensor) => frames.push(tensor),
-                Err(e) => debug!(
-                    "Failed to convert video frame at {:.2}s: {}",
-                    target_secs, e
-                ),
-            }
-        }
-    }
-
-    Ok(frames)
-}
-
-fn video_sample_times(duration: f64, count: usize) -> Vec<f64> {
-    if duration <= 0.0 || count <= 1 {
-        return vec![0.0];
-    }
-    (0..count)
-        .map(|i| (i as f64 + 0.5) / count as f64 * duration)
+    let size = crate::media::protocol::LABEL_FRAME_SIZE as usize;
+    crate::media::label_video_frames(path)?
+        .into_iter()
+        .map(|rgb| Ok(normalization.apply(rgb, size, size, device)?))
         .collect()
 }
 
-/// Scale a decoded video frame to 224x224 RGB and convert to a normalized tensor.
-unsafe fn frame_to_tensor(
-    frame: &ffmpeg_rs_raw::AvFrameRef,
-    scaler: &mut Scaler,
-    normalization: &Normalization,
-    device: &Device,
-) -> Result<Tensor, LabelError> {
-    let scaled = scaler
-        .process_frame(frame, 224, 224, AVPixelFormat::AV_PIX_FMT_RGB24)
-        .map_err(LabelError::Ffmpeg)?;
-    let width = 224usize;
-    let height = 224usize;
-
-    let mut dst_vec = Vec::with_capacity(3 * width * height);
-    for row in 0..height {
-        let line_size = scaled.linesize[0] as usize;
-        let row_offset = line_size * row;
-        let row_slice = unsafe { slice::from_raw_parts(scaled.data[0].add(row_offset), 3 * width) };
-        dst_vec.extend_from_slice(row_slice);
-    }
-
-    Ok(normalization.apply(dst_vec, width, height, device)?)
-}
-
-/// Load an image from disk, decode and scale it to `width × height` RGB pixels.
-unsafe fn load_image(path_buf: &Path, width: usize, height: usize) -> Result<Vec<u8>, LabelError> {
-    let path_str = path_buf.to_str().ok_or(LabelError::InvalidPath)?;
-    let mut demux = crate::processing::open_demuxer(path_str).map_err(LabelError::Ffmpeg)?;
-    let info = unsafe { demux.probe_input() }.map_err(LabelError::Ffmpeg)?;
-    crate::processing::check_demuxer_format(&info.format)
-        .map_err(|e| LabelError::Ffmpeg(Error::msg(e)))?;
-    let image_stream = info.best_video().ok_or(LabelError::NoMediaStream)?;
-
-    check_dimensions(image_stream.width as u32, image_stream.height as u32)?;
-
-    let mut decoder = Decoder::new();
-    decoder
-        .setup_decoder(image_stream, None)
-        .map_err(LabelError::Ffmpeg)?;
-
-    let mut scaler = Scaler::new();
-
-    macro_rules! try_frame {
-        ($decoded:expr) => {
-            if let Some((frame, _)) = $decoded.into_iter().next() {
-                let new_frame = scaler
-                    .process_frame(
-                        &frame,
-                        width as u16,
-                        height as u16,
-                        AVPixelFormat::AV_PIX_FMT_RGB24,
-                    )
-                    .map_err(LabelError::Ffmpeg)?;
-                let mut dst_vec = Vec::with_capacity(3 * width * height);
-                for row in 0..height {
-                    let line_size = new_frame.linesize[0] as usize;
-                    let row_offset = line_size * row;
-                    let row_slice = unsafe {
-                        slice::from_raw_parts(new_frame.data[0].add(row_offset), 3 * width)
-                    };
-                    dst_vec.extend_from_slice(row_slice);
-                }
-                return Ok(dst_vec);
-            }
-        };
-    }
-
-    while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
-        let pkt = match pkt {
-            Some(p) => p,
-            None => break,
-        };
-        let decoded = decoder.decode_pkt(Some(&pkt)).map_err(LabelError::Ffmpeg)?;
-        try_frame!(decoded);
-    }
-
-    // Flush any frame the decoder was buffering
-    let flushed = decoder.decode_pkt(None).map_err(LabelError::Ffmpeg)?;
-    try_frame!(flushed);
-
-    Err(LabelError::NoImageData)
-}
-
-// https://github.com/huggingface/candle/blob/main/candle-examples/src/imagenet.rs
-unsafe fn load_frame_224(
+fn load_frame_224(
     path: &Path,
     normalization: &Normalization,
     device: &Device,
 ) -> Result<Tensor, LabelError> {
-    let pic = unsafe { load_image(path, 224, 224)? };
-    Ok(normalization.apply(pic, 224, 224, device)?)
+    let size = crate::media::protocol::LABEL_FRAME_SIZE as usize;
+    let pic = crate::media::label_image_rgb(path)?;
+    Ok(normalization.apply(pic, size, size, device)?)
 }
 
 #[cfg(test)]
@@ -955,16 +690,7 @@ mod tests {
         path
     }
 
-    #[test]
-    fn test_video_sample_times_spread_across_duration() {
-        let times = video_sample_times(100.0, 10);
-        assert_eq!(times.len(), 10);
-        assert!((times[0] - 5.0).abs() < 1e-9);
-        assert!((times[9] - 95.0).abs() < 1e-9);
-        assert_eq!(video_sample_times(0.0, 10), vec![0.0]);
-    }
-
-    #[test]
+        #[test]
     fn test_extract_frames_seeks_without_full_decode() {
         let path = std::env::temp_dir().join("route96_test_synthetic.mp4");
         let status = Command::new("ffmpeg")
@@ -985,9 +711,7 @@ mod tests {
             .status()
             .expect("ffmpeg must be installed");
         assert!(status.success());
-        let frames = unsafe {
-            extract_video_frames(&path, &Normalization::default(), &Device::Cpu).unwrap()
-        };
+        let frames = extract_video_frames(&path, &Normalization::default(), &Device::Cpu).unwrap();
         assert_eq!(frames.len(), MAX_VIDEO_FRAMES);
         let a = frames[0].flatten_all().unwrap().to_vec1::<f32>().unwrap();
         let b = frames[MAX_VIDEO_FRAMES - 1]
@@ -1030,32 +754,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_check_dimensions_rejects_degenerate_media() {
-        assert!(check_dimensions(224, 224).is_ok());
-        assert!(check_dimensions(MIN_LABEL_DIMENSION, MIN_LABEL_DIMENSION).is_ok());
-
-        let err = check_dimensions(900, 1).unwrap_err();
-        assert!(matches!(
-            err,
-            LabelError::TooSmall {
-                width: 900,
-                height: 1
-            }
-        ));
-        assert!(err.is_skip());
-        assert!(!err.is_transient());
-        assert!(err.to_string().contains("900x1"));
-
-        assert!(check_dimensions(1, 900).is_err());
-    }
-
-    #[test]
+        #[test]
     fn test_extract_frames_from_real_video() {
         let video = get_test_video();
-        let frames = unsafe {
-            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
-        };
+        let frames = extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap();
 
         // 5-second clip should yield up to 10 frames (one every 0.5s)
         // But the test video is very short (5s) with few frames, so we get at most 10
@@ -1076,9 +778,7 @@ mod tests {
     #[test]
     fn test_tensor_values_normalized() {
         let video = get_test_video();
-        let frames = unsafe {
-            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
-        };
+        let frames = extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap();
         assert!(!frames.is_empty(), "should extract at least 1 frame");
 
         for (i, frame) in frames.iter().enumerate() {
@@ -1101,9 +801,7 @@ mod tests {
     #[test]
     fn test_frames_differ_between_seconds() {
         let video = get_test_video();
-        let frames = unsafe {
-            extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap()
-        };
+        let frames = extract_video_frames(&video, &Normalization::default(), &Device::Cpu).unwrap();
         assert!(
             frames.len() >= 2,
             "need at least 2 frames to compare, got {}",

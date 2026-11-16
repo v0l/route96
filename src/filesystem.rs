@@ -9,9 +9,7 @@ use dashmap::DashMap;
 use anyhow::Error;
 use anyhow::Result;
 #[cfg(feature = "media-compression")]
-use ffmpeg_rs_raw::DemuxerInfo;
-#[cfg(feature = "media-compression")]
-use ffmpeg_rs_raw::StreamInfo;
+use crate::media::{ProbeInfo, VideoStreamInfo};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -386,7 +384,7 @@ impl FileStore {
                         .await
                         .ok()
                         .flatten();
-                    let v_stream = probe.as_ref().and_then(|p| p.best_video());
+                    let v_stream = probe.as_ref().and_then(|p| p.best_video.as_ref());
                     let mime = Self::hack_mime_type(mime_type, &probe, &v_stream, &temp_file);
                     (
                         v_stream.map(|v| v.width as u32),
@@ -541,8 +539,8 @@ impl FileStore {
     /// Try to replace the mime-type when unknown using ffmpeg probe result
     fn hack_mime_type(
         mime_type: &str,
-        p: &Option<DemuxerInfo>,
-        stream: &Option<&StreamInfo>,
+        p: &Option<ProbeInfo>,
+        stream: &Option<&VideoStreamInfo>,
         out_path: &PathBuf,
     ) -> String {
         if let Some(p) = p {
@@ -634,10 +632,10 @@ impl FileStore {
     /// Synchronous compression — call inside `spawn_blocking`.
     fn compress_file_sync(&self, input: &Path, mime_type: &str) -> Result<NewFileResult> {
         let compressed_result = compress_file(input, mime_type, &self.temp_dir())?;
-        let hash = Self::hash_file_sync(&compressed_result.result)?;
-        let n = std::fs::metadata(&compressed_result.result)?.len();
+        let hash = Self::hash_file_sync(&compressed_result.path)?;
+        let n = std::fs::metadata(&compressed_result.path)?.len();
         Ok(NewFileResult {
-            path: compressed_result.result,
+            path: compressed_result.path,
             id: hash,
             size: n,
             width: Some(compressed_result.width as u32),

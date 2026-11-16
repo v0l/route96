@@ -11,9 +11,6 @@ use anyhow::{Error, Result};
 use image::{ImageBuffer, Rgb};
 use image_hasher::{HashAlg, HasherConfig, ImageHash};
 use std::path::Path;
-use std::slice;
-
-use ffmpeg_rs_raw::{Decoder, Scaler, ffmpeg_sys_the_third::AVPixelFormat::AV_PIX_FMT_RGB24};
 
 /// Maximum Hamming distance (inclusive) for two images to be "similar".
 pub const MAX_HAMMING_DISTANCE: u32 = 10;
@@ -65,49 +62,10 @@ pub fn phash_image(path: &Path, mime_type: &str) -> Result<PHash> {
             mime_type
         )));
     }
-    let (width, height, pixels) = unsafe { decode_rgb(path)? };
-    let buf = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width, height, pixels)
+    let img = crate::media::decode_rgb(path)?;
+    let buf = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(img.width, img.height, img.pixels)
         .ok_or_else(|| Error::msg("pixel buffer size mismatch"))?;
     Ok(PHash(make_hasher().hash_image(&buf)))
-}
-
-unsafe fn decode_rgb(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let mut demux = crate::processing::open_demuxer(path.to_str().unwrap())?;
-    let info = unsafe { demux.probe_input()? };
-    crate::processing::check_demuxer_format(&info.format)?;
-    let stream = info
-        .best_video()
-        .ok_or(Error::msg("no video/image stream found"))?;
-
-    let width = stream.width as u32;
-    let height = stream.height as u32;
-
-    let mut decoder = Decoder::new();
-    decoder.setup_decoder(stream, None)?;
-
-    let mut scaler = Scaler::new();
-
-    while let Ok((pkt, _)) = unsafe { demux.get_packet() } {
-        let pkt = match pkt {
-            Some(p) => p,
-            None => break,
-        };
-        let decoded = decoder.decode_pkt(Some(&pkt))?;
-        if let Some((frame, _)) = decoded.into_iter().next() {
-            let scaled =
-                scaler.process_frame(&frame, width as u16, height as u16, AV_PIX_FMT_RGB24)?;
-            let mut out = Vec::with_capacity(3 * width as usize * height as usize);
-            for row in 0..height as usize {
-                let stride = scaled.linesize[0] as usize;
-                let row_slice = unsafe {
-                    slice::from_raw_parts(scaled.data[0].add(stride * row), 3 * width as usize)
-                };
-                out.extend_from_slice(row_slice);
-            }
-            return Ok((width, height, out));
-        }
-    }
-    Err(Error::msg("no image data found"))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
