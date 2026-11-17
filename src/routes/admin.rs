@@ -1422,11 +1422,7 @@ impl Database {
             qb.push(" ");
         }
         if let Some(l) = label {
-            qb.push(
-                "and exists (select 1 from upload_labels ul where ul.file = u.id and ul.label = ",
-            );
-            qb.push_bind(l.clone());
-            qb.push(") ");
+            Self::push_label_combination(qb, l, "u");
         }
     }
 

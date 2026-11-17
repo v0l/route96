@@ -38,7 +38,7 @@ export default function FileListControls({
       </select>
       <input
         type="text"
-        placeholder="Filter by label..."
+        placeholder="Label, or a+b for a combination"
         className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2 text-xs text-neutral-300 placeholder-neutral-600"
         value={labelFilter || ""}
         onChange={(e) => onLabelFilter(e.target.value || undefined)}

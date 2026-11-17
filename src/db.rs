@@ -1129,10 +1129,29 @@ impl Database {
             qb.push(" ");
         }
         if let Some(l) = label {
-            qb.push(
-                "and exists (select 1 from upload_labels ul where ul.file = uploads.id and ul.label = ",
-            );
-            qb.push_bind(l.clone());
+            Self::push_label_combination(qb, l, "uploads");
+        }
+    }
+
+    pub(crate) fn push_label_combination<'a>(
+        qb: &mut QueryBuilder<'a, sqlx::MySql>,
+        filter: &str,
+        table: &str,
+    ) {
+        for part in filter
+            .split('+')
+            .map(|p| p.trim().to_lowercase())
+            .filter(|p| !p.is_empty())
+        {
+            let escaped = part
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            qb.push(format!(
+                "and exists (select 1 from upload_labels ul where ul.file = {}.id and lower(ul.label) like ",
+                table
+            ));
+            qb.push_bind(format!("%{}%", escaped));
             qb.push(") ");
         }
     }
@@ -2552,6 +2571,36 @@ mod user_list_tests {
             ..Default::default()
         };
         db.add_file(&upload, Some(user)).await.unwrap();
+    }
+
+    #[cfg(feature = "labels")]
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn label_filter_accepts_combinations() {
+        let db = test_db().await;
+        let user = db.upsert_user(&vec![1u8; 32]).await.unwrap();
+        for id in [20u8, 21, 22] {
+            add(&db, id, 1, user).await;
+        }
+        let label = |l: &str| FileLabel::new(l.to_string(), "m".to_string());
+        for (id, labels) in [(20u8, vec!["Beach", "Dog"]), (21, vec!["Beach"]), (22, vec!["Dog", "Cat"])] {
+            for l in labels {
+                db.add_file_label(&vec![id; 32], &label(l)).await.unwrap();
+            }
+        }
+        let find = |q: &'static str| {
+            let db = db.clone();
+            async move {
+                db.list_all_files(0, 10, None, Some(q.to_string()), FileStatSort::Created, SortOrder::Desc)
+                    .await
+                    .unwrap()
+                    .1
+            }
+        };
+        assert_eq!(find("beach").await, 2);
+        assert_eq!(find("beach+dog").await, 1);
+        assert_eq!(find(" dog + cat ").await, 1);
+        assert_eq!(find("beach+cat").await, 0);
     }
 
     #[tokio::test]

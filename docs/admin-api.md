@@ -40,7 +40,7 @@ List the authenticated user's own files with full metadata and download statisti
 | `page`      | int    | `0`       | Page number (zero-based)                                   |
 | `count`     | int    | `50`      | Results per page (max 5000)                                |
 | `mime_type` | string | —         | Filter by MIME type substring                              |
-| `label`     | string | —         | Filter to files whose labels contain this substring        |
+| `label`     | string | —         | Files with labels containing this substring; `a+b` requires both |
 | `sort`      | string | `created` | Sort column: `created`, `egress_bytes`, or `last_accessed` |
 | `order`     | string | `desc`    | Sort direction: `desc` or `asc`                            |
 
@@ -98,7 +98,7 @@ List all files (excluding banned).
 | `page`      | int    | `0`       | Page number (zero-based)                                   |
 | `count`     | int    | `50`      | Results per page (max 5000)                                |
 | `mime_type` | string | —         | Filter by MIME type substring                              |
-| `label`     | string | —         | Filter to files whose labels contain this substring        |
+| `label`     | string | —         | Files with labels containing this substring; `a+b` requires both |
 | `sort`      | string | `created` | Sort column: `created`, `egress_bytes`, or `last_accessed` |
 | `order`     | string | `desc`    | Sort direction: `desc` or `asc`                            |
 
