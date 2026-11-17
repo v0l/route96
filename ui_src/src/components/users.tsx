@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { NostrLink } from "@snort/system";
-import classNames from "classnames";
+import Pager from "./pager";
 import Profile from "./profile";
 import { FormatBytes } from "../const";
 import { Route96, type SortOrder, type UserSort, type UserSummary } from "../upload/admin";
@@ -175,22 +175,7 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
           </tbody>
         </table>
       </div>
-      {pages > 1 && (
-        <div className="flex justify-center gap-1">
-          {Array.from({ length: pages }, (_, x) => (
-            <button
-              key={x}
-              onClick={() => setPage(x)}
-              className={classNames("px-2 py-1 text-xs border border-neutral-800", {
-                "bg-white text-black": page === x,
-                "bg-neutral-900 text-neutral-300 hover:bg-neutral-800": page !== x,
-              })}
-            >
-              {x + 1}
-            </button>
-          ))}
-        </div>
-      )}
+      <Pager page={page} pages={pages} onPage={setPage} />
     </div>
   );
 }

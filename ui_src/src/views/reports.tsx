@@ -1,6 +1,7 @@
 import { NostrLink } from "@snort/system";
 import { Link } from "react-router-dom";
 import classNames from "classnames";
+import Pager from "../components/pager";
 import Profile from "../components/profile";
 import { GroupedReport } from "../upload/admin";
 
@@ -33,33 +34,6 @@ export default function ReportList({
     return <span className="text-neutral-500 text-sm">No Reports</span>;
   }
 
-  function pageButtons(page: number, n: number) {
-    const ret = [];
-    const start = 0;
-
-    for (let x = start; x < n; x++) {
-      ret.push(
-        <button
-          key={x}
-          onClick={() => onPage?.(x)}
-          className={classNames(
-            "px-2 py-1 text-xs border border-neutral-800 transition-colors",
-            {
-              "rounded-l-sm": x === start,
-              "rounded-r-sm": x + 1 === n,
-              "bg-white text-black": page === x,
-              "bg-neutral-900 text-neutral-300 hover:bg-neutral-800":
-                page !== x,
-            },
-          )}
-        >
-          {x + 1}
-        </button>,
-      );
-    }
-
-    return ret;
-  }
 
   function getReportReason(reason: string): string {
     return reason || "No reason provided";
@@ -231,11 +205,7 @@ export default function ReportList({
         </table>
       </div>
 
-      {pages !== undefined && pages > 1 && (
-        <div className="flex justify-center">
-          <div className="flex">{pageButtons(page ?? 0, pages)}</div>
-        </div>
-      )}
+      <Pager page={page ?? 0} pages={pages} onPage={onPage} />
     </div>
   );
 }
