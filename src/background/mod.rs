@@ -15,6 +15,8 @@ const IDLE_SLEEP: Duration = Duration::from_secs(30);
 /// How long to wait between batches when the previous batch processed files.
 const BATCH_SLEEP: Duration = Duration::from_secs(2);
 
+const USER_USAGE_REFRESH: Duration = Duration::from_secs(300);
+
 /// Upper limit for back-off when the same files keep reappearing.
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
 
@@ -88,6 +90,23 @@ pub async fn start_background_tasks(
 
     // Always start the file-stats flush task.
     set.spawn(file_stats.flush_task(db.clone(), shutdown.clone()));
+
+    {
+        let db = db.clone();
+        let token = shutdown.clone();
+        set.spawn(async move {
+            info!("Starting UserUsage background task");
+            loop {
+                if let Err(e) = db.refresh_user_usage().await {
+                    error!("UserUsage refresh failed: {}", e);
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(USER_USAGE_REFRESH) => {}
+                    _ = token.cancelled() => return,
+                }
+            }
+        });
+    }
 
     #[cfg(feature = "media-compression")]
     {

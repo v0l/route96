@@ -1414,16 +1414,14 @@ impl Database {
     fn build_all_files_where<'a>(
         qb: &mut QueryBuilder<'a, sqlx::MySql>,
         mime_type: &'a Option<String>,
-        label: &'a Option<String>,
+        label: &'a [Vec<String>],
     ) {
         if let Some(m) = mime_type {
             qb.push("and u.mime_type like ");
             qb.push_bind(format!("%{}%", m));
             qb.push(" ");
         }
-        if let Some(l) = label {
-            Self::push_label_combination(qb, l, "u");
-        }
+        Self::push_label_combination(qb, label, "u");
     }
 
     pub async fn list_all_files(
@@ -1435,6 +1433,9 @@ impl Database {
         sort: FileStatSort,
         order: SortOrder,
     ) -> Result<(Vec<(FileUpload, FileStats, Vec<User>)>, i64), Error> {
+        let Some(label_parts) = self.resolve_label_filter(&label).await? else {
+            return Ok((Vec::new(), 0));
+        };
         let order_sql = match order {
             SortOrder::Desc => "desc",
             SortOrder::Asc => "asc",
@@ -1464,7 +1465,7 @@ impl Database {
         );
         q.push(join_sql);
         q.push(" where u.banned = false ");
-        Self::build_all_files_where(&mut q, &mime_type, &label);
+        Self::build_all_files_where(&mut q, &mime_type, &label_parts);
         q.push(format!("order by {} {} limit ", sort_col, order_sql));
         q.push_bind(limit);
         q.push(" offset ");
@@ -1472,7 +1473,7 @@ impl Database {
         let mut rows: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
 
         let mut cq = QueryBuilder::new("select count(u.id) from uploads u where u.banned = false ");
-        Self::build_all_files_where(&mut cq, &mime_type, &label);
+        Self::build_all_files_where(&mut cq, &mime_type, &label_parts);
         let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
 
         #[cfg(feature = "labels")]

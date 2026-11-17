@@ -518,55 +518,77 @@ impl Database {
             SortOrder::Asc => "asc",
             SortOrder::Desc => "desc",
         };
-        let usage = "select uu.user_id, count(*) as file_count, \
-             sum(up.size) as total_size, \
-             sum(coalesce(fs.egress_bytes, 0)) as egress_bytes, \
-             max(uu.created) as last_upload \
-             from user_uploads uu \
-             join uploads up on up.id = uu.file \
-             left join file_stats fs on fs.file = uu.file \
-             group by uu.user_id";
         let columns = "u.pubkey, u.created, u.is_admin, u.banned, u.paid_until, \
              cast(coalesce(a.file_count, 0) as unsigned) as file_count, \
              cast(coalesce(a.total_size, 0) as unsigned) as total_size, \
              cast(coalesce(a.egress_bytes, 0) as unsigned) as egress_bytes, \
              a.last_upload as last_upload";
-        let sql = match sort {
-            UserSort::Created => format!(
+        let by_usage = !matches!(sort, UserSort::Created);
+        let sql = if by_usage {
+            let column = match sort {
+                UserSort::Size => "a.total_size",
+                UserSort::Uploads => "a.file_count",
+                UserSort::Egress => "a.egress_bytes",
+                _ => "a.last_upload",
+            };
+            format!(
+                "select {columns} from user_usage a \
+                 join users u on u.id = a.user_id \
+                 where 1 = 1{filter} \
+                 order by {column} {direction}, a.user_id {direction} \
+                 limit ? offset ?"
+            )
+        } else {
+            format!(
                 "select {columns} from \
                  (select * from users u where 1 = 1{filter} \
                   order by u.created {direction}, u.id asc limit ? offset ?) u \
-                 left join ({usage}) a on a.user_id = u.id \
+                 left join user_usage a on a.user_id = u.id \
                  order by u.created {direction}, u.id asc"
-            ),
-            _ => {
-                let column = match sort {
-                    UserSort::Size => "coalesce(a.total_size, 0)",
-                    UserSort::Uploads => "coalesce(a.file_count, 0)",
-                    UserSort::Egress => "coalesce(a.egress_bytes, 0)",
-                    _ => "a.last_upload",
-                };
-                format!(
-                    "select {columns} from users u \
-                     left join ({usage}) a on a.user_id = u.id \
-                     where 1 = 1{filter} \
-                     order by {column} {direction}, u.id asc \
-                     limit ? offset ?"
-                )
-            }
+            )
         };
         let users: Vec<UserSummary> = sqlx::query_as(&sql)
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)
             .await?;
-        let count: i64 = sqlx::query(&format!(
-            "select count(*) from users u where 1 = 1{filter}"
-        ))
+        let count_sql = if by_usage && filter.is_empty() {
+            "select count(*) from user_usage".to_string()
+        } else if by_usage {
+            format!(
+                "select count(*) from user_usage a join users u on u.id = a.user_id where 1 = 1{filter}"
+            )
+        } else {
+            format!("select count(*) from users u where 1 = 1{filter}")
+        };
+        let count: i64 = sqlx::query(&count_sql)
         .fetch_one(&self.pool)
         .await?
         .try_get(0)?;
         Ok((users, count))
+    }
+
+    pub async fn refresh_user_usage(&self) -> Result<(), Error> {
+        sqlx::query(
+            "insert into user_usage (user_id, file_count, total_size, egress_bytes, last_upload) \
+             select uu.user_id, count(*), cast(sum(up.size) as unsigned), \
+             cast(sum(coalesce(fs.egress_bytes, 0)) as unsigned), max(uu.created) \
+             from user_uploads uu \
+             join uploads up on up.id = uu.file \
+             left join file_stats fs on fs.file = uu.file \
+             group by uu.user_id \
+             on duplicate key update file_count = values(file_count), total_size = values(total_size), \
+             egress_bytes = values(egress_bytes), last_upload = values(last_upload)",
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "delete a from user_usage a \
+             where not exists (select 1 from user_uploads uu where uu.user_id = a.user_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
@@ -1053,6 +1075,9 @@ impl Database {
         sort: FileStatSort,
         order: SortOrder,
     ) -> Result<(Vec<(FileUpload, FileStats)>, i64), Error> {
+        let Some(label_parts) = self.resolve_label_filter(&label).await? else {
+            return Ok((Vec::new(), 0));
+        };
         let order_sql = match order {
             SortOrder::Desc => "desc",
             SortOrder::Asc => "asc",
@@ -1094,7 +1119,7 @@ impl Database {
         q.push(" join user_uploads on user_uploads.user_id = users.id and user_uploads.file = uploads.id ");
         q.push(stats_join);
         q.push(" where uploads.banned = false ");
-        Self::build_user_files_where(&mut q, &mime_type, &label);
+        Self::build_user_files_where(&mut q, &mime_type, &label_parts);
         q.push(format!("order by {} {} limit ", sort_col, order_sql));
         q.push_bind(limit);
         q.push(" offset ");
@@ -1114,7 +1139,7 @@ impl Database {
              and user_uploads.file = uploads.id \
              where uploads.banned = false ",
         );
-        Self::build_user_files_where(&mut cq, &mime_type, &label);
+        Self::build_user_files_where(&mut cq, &mime_type, &label_parts);
         let count: i64 = cq.build().fetch_one(&self.pool).await?.try_get(0)?;
 
         #[cfg(feature = "labels")]
@@ -1132,42 +1157,62 @@ impl Database {
         ))
     }
 
+    pub(crate) async fn resolve_label_filter(
+        &self,
+        filter: &Option<String>,
+    ) -> Result<Option<Vec<Vec<String>>>, Error> {
+        let Some(filter) = filter else {
+            return Ok(Some(Vec::new()));
+        };
+        let mut resolved = Vec::new();
+        for part in Self::term_parts(filter) {
+            let escaped = part
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let names: Vec<(String,)> = sqlx::query_as(
+                "select distinct label from upload_labels where lower(label) like ? limit 1000",
+            )
+            .bind(format!("%{}%", escaped))
+            .fetch_all(&self.pool)
+            .await?;
+            if names.is_empty() {
+                return Ok(None);
+            }
+            resolved.push(names.into_iter().map(|(n,)| n).collect());
+        }
+        Ok(Some(resolved))
+    }
+
     /// Append optional WHERE clauses for user file queries.
     fn build_user_files_where<'a>(
         qb: &mut QueryBuilder<'a, sqlx::MySql>,
         mime_type: &'a Option<String>,
-        label: &'a Option<String>,
+        label: &'a [Vec<String>],
     ) {
         if let Some(m) = mime_type {
             qb.push("and uploads.mime_type like ");
             qb.push_bind(format!("%{}%", m));
             qb.push(" ");
         }
-        if let Some(l) = label {
-            Self::push_label_combination(qb, l, "uploads");
-        }
+        Self::push_label_combination(qb, label, "uploads");
     }
 
     pub(crate) fn push_label_combination<'a>(
         qb: &mut QueryBuilder<'a, sqlx::MySql>,
-        filter: &str,
+        parts: &'a [Vec<String>],
         table: &str,
     ) {
-        for part in filter
-            .split('+')
-            .map(|p| p.trim().to_lowercase())
-            .filter(|p| !p.is_empty())
-        {
-            let escaped = part
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
+        for names in parts {
             qb.push(format!(
-                "and exists (select 1 from upload_labels ul where ul.file = {}.id and lower(ul.label) like ",
+                "and exists (select 1 from upload_labels ul where ul.file = {}.id and ul.label in (",
                 table
             ));
-            qb.push_bind(format!("%{}%", escaped));
-            qb.push(") ");
+            let mut sep = qb.separated(", ");
+            for n in names {
+                sep.push_bind(n.as_str());
+            }
+            sep.push_unseparated(")) ");
         }
     }
 
@@ -1594,32 +1639,32 @@ impl Database {
         &self,
         term: &str,
     ) -> Result<Vec<(Vec<u8>, String, String)>, Error> {
-        let parts = Self::term_parts(term);
-        if parts.is_empty() {
+        let Some(parts) = self
+            .resolve_label_filter(&Some(term.to_string()))
+            .await?
+            .filter(|p| !p.is_empty())
+        else {
             return Ok(Vec::new());
-        }
-        let pattern = |p: &str| {
-            let escaped = p
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            format!("%{}%", escaped)
         };
         let mut qb = sqlx::QueryBuilder::<sqlx::MySql>::new(
-            "select u.id, min(l.label), min(l.model) from uploads u \
-             join upload_labels l on l.file = u.id \
-             where u.banned = false and lower(l.label) like ",
+            "select l.file, min(l.label), min(l.model) from upload_labels l \
+             join uploads u on u.id = l.file \
+             where u.banned = false and l.label in (",
         );
-        qb.push_bind(pattern(&parts[0]));
-        for part in &parts[1..] {
-            qb.push(
-                " and exists (select 1 from upload_labels l2 \
-                 where l2.file = u.id and lower(l2.label) like ",
-            );
-            qb.push_bind(pattern(part));
-            qb.push(")");
+        let mut sep = qb.separated(", ");
+        for n in &parts[0] {
+            sep.push_bind(n.as_str());
         }
-        qb.push(" group by u.id order by u.id");
+        sep.push_unseparated(")");
+        for names in &parts[1..] {
+            qb.push(" and exists (select 1 from upload_labels l2 where l2.file = l.file and l2.label in (");
+            let mut sep = qb.separated(", ");
+            for n in names {
+                sep.push_bind(n.as_str());
+            }
+            sep.push_unseparated("))");
+        }
+        qb.push(" group by l.file order by l.file");
         qb.build_query_as().fetch_all(&self.pool).await
     }
 
@@ -2632,11 +2677,13 @@ mod user_list_tests {
             .await
             .unwrap();
 
+        db.refresh_user_usage().await.unwrap();
+
         let (users, total) = db
             .list_users(UserSort::Size, SortOrder::Desc, false, false, 0, 10)
             .await
             .unwrap();
-        assert_eq!(total, 3);
+        assert_eq!(total, 2);
         assert_eq!(users[0].pubkey, vec![1u8; 32]);
         assert_eq!(users[0].file_count, 2);
         assert_eq!(users[0].total_size, 1200);
@@ -2646,8 +2693,15 @@ mod user_list_tests {
             .list_users(UserSort::Uploads, SortOrder::Asc, false, false, 0, 10)
             .await
             .unwrap();
-        assert_eq!(users[0].file_count, 0);
-        assert_eq!(users[2].file_count, 2);
+        assert_eq!(users[0].file_count, 1);
+        assert_eq!(users[1].file_count, 2);
+
+        let (users, total) = db
+            .list_users(UserSort::Created, SortOrder::Desc, false, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!((users.len(), total), (3, 3));
+        assert!(users.iter().any(|u| u.file_count == 0));
 
         let (users, total) = db
             .list_users(UserSort::Created, SortOrder::Desc, true, false, 0, 10)
