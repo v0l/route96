@@ -2242,21 +2242,18 @@ impl Database {
              and u.mime_type not like 'image/%' \
              and u.mime_type not like 'video/%' \
              and u.mime_type not like 'audio/%' \
-             and exists (select 1 from user_uploads o where o.file = u.id) \
-             and not exists ( \
-                 select 1 from user_uploads o \
-                 join users usr on usr.id = o.user_id \
-                 join (select user_id, count(*) as n from user_uploads group by user_id) c \
-                     on c.user_id = o.user_id \
-                 where o.file = u.id \
-                 and (c.n >= ? or usr.is_admin = 1 or usr.paid_until > ?) \
-             ) \
+             and (select count(*) from user_uploads o where o.file = u.id) > 0 \
+             and (select count(*) from user_uploads o \
+                  join users usr on usr.id = o.user_id \
+                  where o.file = u.id \
+                  and (usr.is_admin = 1 or usr.paid_until > ? \
+                       or (select count(*) from user_uploads c where c.user_id = o.user_id) >= ?)) = 0 \
              order by u.created asc \
              limit ?",
         )
         .bind(created_before)
-        .bind(max_files)
         .bind(now)
+        .bind(max_files)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
