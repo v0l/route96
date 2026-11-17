@@ -157,6 +157,7 @@ async fn main() -> Result<(), Error> {
         lnd: lnd.as_ref().map(|(c, _)| c.clone()),
     });
     let mut app = app.with_state(app_state.clone());
+    app = app.layer(middleware::from_fn(routes::admin_page_for_navigation));
 
     // Add middleware layers
     app = app.layer(ResponseLogLayer);

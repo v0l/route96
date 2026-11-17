@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import classNames from "classnames";
 import FileList, { type FileInfo } from "./files";
 import ReportList from "./reports";
@@ -27,6 +27,12 @@ import BackgroundProgress from "../components/background-progress";
 
 type Tab = "files" | "reports" | "users" | "review" | "config" | "rules" | "labeling" | "stats" | "progress";
 
+const TABS: Tab[] = ["files", "reports", "users", "review", "config", "rules", "labeling", "stats", "progress"];
+
+function isTab(v: string | null): v is Tab {
+  return TABS.includes(v as Tab);
+}
+
 type AdminFileList = {
   count: number;
   total: number;
@@ -37,7 +43,13 @@ type AdminFileList = {
 export default function Admin() {
   const [self, setSelf] = useState<AdminSelf>();
   const [error, setError] = useState<string>();
-  const [tab, setTab] = useState<Tab>("files");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab: Tab = isTab(requestedTab) ? requestedTab : "files";
+  const setTab = useCallback(
+    (next: Tab) => setSearchParams(next === "files" ? {} : { tab: next }),
+    [setSearchParams],
+  );
   const [loading, setLoading] = useState(true);
 
   // Files tab

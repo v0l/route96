@@ -485,6 +485,24 @@ async fn delete_file(
     }
 }
 
+pub async fn admin_page_for_navigation(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = request.uri().path();
+    let is_admin_page = request.method() == axum::http::Method::GET
+        && (path == "/admin" || path.starts_with("/admin/"));
+    let accepts_html = request
+        .headers()
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("text/html"));
+    if is_admin_page && accepts_html {
+        return root().await.into_response();
+    }
+    next.run(request).await
+}
+
 pub async fn root() -> Result<Html<Vec<u8>>, StatusCode> {
     #[cfg(all(debug_assertions, feature = "react-ui"))]
     let index = "./ui_src/dist/index.html";
@@ -845,6 +863,37 @@ pub async fn get_blob_thumb(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn admin_paths_serve_the_app_to_browser_navigation() {
+        use axum::{Router, routing::get};
+        use tower::ServiceExt;
+        let app = Router::new()
+            .route("/admin/stats", get(|| async { "json" }))
+            .layer(axum::middleware::from_fn(admin_page_for_navigation));
+        let body = |accept: Option<&'static str>, uri: &'static str| {
+            let app = app.clone();
+            async move {
+                let mut req = axum::http::Request::builder().uri(uri);
+                if let Some(a) = accept {
+                    req = req.header("accept", a);
+                }
+                let rsp = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+                let status = rsp.status();
+                let bytes = axum::body::to_bytes(rsp.into_body(), usize::MAX).await.unwrap();
+                (status, String::from_utf8_lossy(&bytes).to_string())
+            }
+        };
+        let (status, text) = body(Some("text/html,*/*"), "/admin/user/abcd").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(text.contains("<html"));
+        let (_, text) = body(Some("text/html"), "/admin/stats").await;
+        assert!(text.contains("<html"));
+        let (status, _) = body(Some("*/*"), "/admin/user/abcd").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, text) = body(Some("*/*"), "/admin/stats").await;
+        assert_eq!(text, "json");
+    }
+
     #[test]
     fn file_headers_do_not_expose_uploader_name() {
         let info = FileUpload {

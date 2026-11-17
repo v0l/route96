@@ -1,11 +1,30 @@
 import { useEffect, useState } from "react";
-import { useParams, Navigate, Link } from "react-router-dom";
+import { useParams, Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import { hexToBech32 } from "@snort/shared";
 import { FormatBytes } from "../const";
 import FileList from "./files";
 import useLogin from "../hooks/login";
 import usePublisher from "../hooks/publisher";
 import { AdminSelf, AdminUserInfo, Route96 } from "../upload/admin";
+
+function BackLink() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <Link
+      to="/admin"
+      onClick={(e) => {
+        if (location.key !== "default") {
+          e.preventDefault();
+          navigate(-1);
+        }
+      }}
+      className="text-xs text-neutral-500 hover:text-white"
+    >
+      &larr; Back
+    </Link>
+  );
+}
 
 export default function UserScope() {
   const { pubkey } = useParams<{ pubkey: string }>();
@@ -153,12 +172,7 @@ export default function UserScope() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-medium text-white">User</h1>
-          <Link
-            to="/admin"
-            className="text-xs text-neutral-500 hover:text-white"
-          >
-            &larr; Back
-          </Link>
+          <BackLink />
         </div>
         <div className="bg-red-950 border border-red-900 text-red-200 px-3 py-2 rounded-sm text-sm">
           {error}
@@ -179,9 +193,7 @@ export default function UserScope() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-medium text-white">User</h1>
-        <Link to="/admin" className="text-xs text-neutral-500 hover:text-white">
-          &larr; Back
-        </Link>
+        <BackLink />
       </div>
 
       {/* User Info */}
