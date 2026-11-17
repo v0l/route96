@@ -164,7 +164,7 @@ export interface GroupedReport {
   created: string;
 }
 
-export type UserSort = "created" | "size" | "uploads" | "egress" | "last_upload";
+export type UserSort = "created" | "size" | "uploads" | "egress" | "ratio" | "last_upload";
 
 export interface UserSummary {
   pubkey: string;
@@ -175,6 +175,7 @@ export interface UserSummary {
   file_count: number;
   total_size: number;
   egress_bytes: number;
+  traffic_ratio?: number | null;
   last_upload?: string;
 }
 

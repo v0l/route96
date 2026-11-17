@@ -43,6 +43,7 @@ pub enum UserSort {
     Size,
     Uploads,
     Egress,
+    Ratio,
     LastUpload,
 }
 
@@ -57,6 +58,7 @@ pub struct UserSummary {
     pub file_count: u64,
     pub total_size: u64,
     pub egress_bytes: u64,
+    pub traffic_ratio: Option<f64>,
     pub last_upload: Option<DateTime<Utc>>,
 }
 
@@ -522,6 +524,7 @@ impl Database {
              cast(coalesce(a.file_count, 0) as unsigned) as file_count, \
              cast(coalesce(a.total_size, 0) as unsigned) as total_size, \
              cast(coalesce(a.egress_bytes, 0) as unsigned) as egress_bytes, \
+             a.traffic_ratio as traffic_ratio, \
              a.last_upload as last_upload";
         let by_usage = !matches!(sort, UserSort::Created);
         let sql = if by_usage {
@@ -529,6 +532,7 @@ impl Database {
                 UserSort::Size => "a.total_size",
                 UserSort::Uploads => "a.file_count",
                 UserSort::Egress => "a.egress_bytes",
+                UserSort::Ratio => "a.traffic_ratio",
                 _ => "a.last_upload",
             };
             format!(
@@ -2688,6 +2692,26 @@ mod user_list_tests {
         assert_eq!(users[0].file_count, 2);
         assert_eq!(users[0].total_size, 1200);
         assert_eq!(users[1].total_size, 5);
+
+        sqlx::query("insert into file_stats(file, egress_bytes) values(?, 10), (?, 600)")
+            .bind(vec![12u8; 32])
+            .bind(vec![10u8; 32])
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.refresh_user_usage().await.unwrap();
+        let (users, _) = db
+            .list_users(UserSort::Ratio, SortOrder::Desc, false, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(users[0].pubkey, vec![2u8; 32]);
+        assert_eq!(users[0].traffic_ratio, Some(2.0));
+        assert_eq!(users[1].traffic_ratio, Some(0.5));
+        let (users, _) = db
+            .list_users(UserSort::Ratio, SortOrder::Asc, false, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(users[0].pubkey, vec![1u8; 32]);
 
         let (users, _) = db
             .list_users(UserSort::Uploads, SortOrder::Asc, false, false, 0, 10)

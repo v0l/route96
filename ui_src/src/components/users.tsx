@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { NostrLink } from "@snort/system";
 import Pager from "./pager";
 import Profile from "./profile";
 import { FormatBytes } from "../const";
-import { Route96, type SortOrder, type UserSort, type UserSummary } from "../upload/admin";
+import {
+  Route96,
+  type SortOrder,
+  type UserSort,
+  type UserSummary,
+} from "../upload/admin";
 import type { EventPublisher } from "@snort/system";
 
 const PAGE_SIZE = 50;
@@ -14,17 +19,48 @@ const sorts: { id: UserSort; label: string }[] = [
   { id: "size", label: "Size" },
   { id: "uploads", label: "Uploads" },
   { id: "egress", label: "Egress" },
+  { id: "ratio", label: "Egress / size" },
   { id: "last_upload", label: "Last upload" },
 ];
 
-export default function Users({ pub, url }: { pub: EventPublisher; url: string }) {
+export default function Users({
+  pub,
+  url,
+}: {
+  pub: EventPublisher;
+  url: string;
+}) {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
-  const [sort, setSort] = useState<UserSort>("created");
-  const [order, setOrder] = useState<SortOrder>("desc");
-  const [banned, setBanned] = useState(false);
-  const [withBalance, setWithBalance] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const sortParam = params.get("sort");
+  const sort: UserSort = sorts.some((s) => s.id === sortParam)
+    ? (sortParam as UserSort)
+    : "created";
+  const order: SortOrder = params.get("order") === "asc" ? "asc" : "desc";
+  const banned = params.get("banned") === "1";
+  const withBalance = params.get("balance") === "1";
+  const page = Math.max(0, parseInt(params.get("page") ?? "0", 10) || 0);
+
+  function update(changes: Record<string, string | undefined>) {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(changes)) {
+      if (v === undefined) next.delete(k);
+      else next.set(k, v);
+    }
+    setParams(next);
+  }
+
+  const setPage = (n: number) =>
+    update({ page: n > 0 ? String(n) : undefined });
+  const setSort = (s: UserSort) =>
+    update({ sort: s === "created" ? undefined : s, page: undefined });
+  const setOrder = (o: SortOrder) =>
+    update({ order: o === "asc" ? "asc" : undefined, page: undefined });
+  const setBanned = (b: boolean) =>
+    update({ banned: b ? "1" : undefined, page: undefined });
+  const setWithBalance = (b: boolean) =>
+    update({ balance: b ? "1" : undefined, page: undefined });
   const [error, setError] = useState<string>();
 
   const load = useCallback(async () => {
@@ -51,12 +87,14 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
 
   function toggleSort(id: UserSort) {
     if (sort === id) {
-      setOrder(order === "desc" ? "asc" : "desc");
+      update({ order: order === "desc" ? "asc" : undefined, page: undefined });
     } else {
-      setSort(id);
-      setOrder("desc");
+      update({
+        sort: id === "created" ? undefined : id,
+        order: undefined,
+        page: undefined,
+      });
     }
-    setPage(0);
   }
 
   function header(id: UserSort, label: string) {
@@ -82,10 +120,7 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
         <select
           className="h-7 rounded-sm border border-neutral-800 bg-neutral-950 px-2"
           value={sort}
-          onChange={(e) => {
-            setSort(e.target.value as UserSort);
-            setPage(0);
-          }}
+          onChange={(e) => setSort(e.target.value as UserSort)}
         >
           {sorts.map((s) => (
             <option key={s.id} value={s.id}>
@@ -105,10 +140,7 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
           <input
             type="checkbox"
             checked={banned}
-            onChange={(e) => {
-              setBanned(e.target.checked);
-              setPage(0);
-            }}
+            onChange={(e) => setBanned(e.target.checked)}
           />
           Banned only
         </label>
@@ -116,10 +148,7 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
           <input
             type="checkbox"
             checked={withBalance}
-            onChange={(e) => {
-              setWithBalance(e.target.checked);
-              setPage(0);
-            }}
+            onChange={(e) => setWithBalance(e.target.checked)}
           />
           With balance
         </label>
@@ -133,6 +162,7 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
               {header("uploads", "Uploads")}
               {header("size", "Size")}
               {header("egress", "Egress")}
+              {header("ratio", "Egress / size")}
               {header("last_upload", "Last upload")}
               {header("created", "Joined")}
               <th className={plain}>Status</th>
@@ -153,10 +183,21 @@ export default function Users({ pub, url }: { pub: EventPublisher; url: string }
                   </div>
                 </td>
                 <td className="px-2 py-1.5 text-neutral-300">{u.file_count}</td>
-                <td className="px-2 py-1.5 text-neutral-300">{FormatBytes(u.total_size, 2)}</td>
-                <td className="px-2 py-1.5 text-neutral-300">{FormatBytes(u.egress_bytes, 2)}</td>
+                <td className="px-2 py-1.5 text-neutral-300">
+                  {FormatBytes(u.total_size, 2)}
+                </td>
+                <td className="px-2 py-1.5 text-neutral-300">
+                  {FormatBytes(u.egress_bytes, 2)}
+                </td>
+                <td className="px-2 py-1.5 text-neutral-300">
+                  {u.traffic_ratio == null
+                    ? "-"
+                    : `${u.traffic_ratio.toFixed(2)}x`}
+                </td>
                 <td className="px-2 py-1.5 text-neutral-500">
-                  {u.last_upload ? new Date(u.last_upload).toLocaleString() : "-"}
+                  {u.last_upload
+                    ? new Date(u.last_upload).toLocaleString()
+                    : "-"}
                 </td>
                 <td className="px-2 py-1.5 text-neutral-500">
                   {new Date(u.created).toLocaleDateString()}

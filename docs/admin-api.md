@@ -307,7 +307,7 @@ Acknowledge one or more reports, marking them as reviewed without taking action 
 
 ### `GET /admin/users`
 
-List users with usage totals. Query: `sort` (`created` default, `size`, `uploads`, `egress`, `last_upload`), `order` (`desc` default, `asc`), `banned=true` (banned only), `with_balance=true` (users with an active paid quota), `page`, `count` (max 500). Each row has `pubkey`, `created`, `is_admin`, `banned`, `paid_until`, `file_count`, `total_size`, `egress_bytes`, `last_upload`. The admin UI Users tab uses it.
+List users with usage totals. Query: `sort` (`created` default, `size`, `uploads`, `egress`, `ratio` for egress over size, `last_upload`), `order` (`desc` default, `asc`), `banned=true` (banned only), `with_balance=true` (users with an active paid quota), `page`, `count` (max 500). Each row has `pubkey`, `created`, `is_admin`, `banned`, `paid_until`, `file_count`, `total_size`, `egress_bytes`, `traffic_ratio` (egress over size, null with no data), `last_upload`. The admin UI Users tab uses it and keeps sort, order, filters and page in the URL. Usage columns and sorts refresh every 5 minutes.
 
 ### `GET /admin/user/{pubkey}`
 
