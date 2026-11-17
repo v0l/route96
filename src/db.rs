@@ -514,32 +514,47 @@ impl Database {
         if with_balance {
             filter.push_str(" and u.paid_until > current_timestamp");
         }
-        let column = match sort {
-            UserSort::Created => "u.created",
-            UserSort::Size => "total_size",
-            UserSort::Uploads => "file_count",
-            UserSort::Egress => "egress_bytes",
-            UserSort::LastUpload => "last_upload",
-        };
         let direction = match order {
             SortOrder::Asc => "asc",
             SortOrder::Desc => "desc",
         };
-        let sql = format!(
-            "select u.pubkey, u.created, u.is_admin, u.banned, u.paid_until, \
-             cast(count(up.id) as unsigned) as file_count, \
-             cast(coalesce(sum(up.size), 0) as unsigned) as total_size, \
-             cast(coalesce(sum(fs.egress_bytes), 0) as unsigned) as egress_bytes, \
+        let usage = "select uu.user_id, count(*) as file_count, \
+             sum(up.size) as total_size, \
+             sum(coalesce(fs.egress_bytes, 0)) as egress_bytes, \
              max(uu.created) as last_upload \
-             from users u \
-             left join user_uploads uu on uu.user_id = u.id \
-             left join uploads up on up.id = uu.file \
+             from user_uploads uu \
+             join uploads up on up.id = uu.file \
              left join file_stats fs on fs.file = uu.file \
-             where 1 = 1{filter} \
-             group by u.id \
-             order by {column} {direction}, u.id asc \
-             limit ? offset ?"
-        );
+             group by uu.user_id";
+        let columns = "u.pubkey, u.created, u.is_admin, u.banned, u.paid_until, \
+             cast(coalesce(a.file_count, 0) as unsigned) as file_count, \
+             cast(coalesce(a.total_size, 0) as unsigned) as total_size, \
+             cast(coalesce(a.egress_bytes, 0) as unsigned) as egress_bytes, \
+             a.last_upload as last_upload";
+        let sql = match sort {
+            UserSort::Created => format!(
+                "select {columns} from \
+                 (select * from users u where 1 = 1{filter} \
+                  order by u.created {direction}, u.id asc limit ? offset ?) u \
+                 left join ({usage}) a on a.user_id = u.id \
+                 order by u.created {direction}, u.id asc"
+            ),
+            _ => {
+                let column = match sort {
+                    UserSort::Size => "coalesce(a.total_size, 0)",
+                    UserSort::Uploads => "coalesce(a.file_count, 0)",
+                    UserSort::Egress => "coalesce(a.egress_bytes, 0)",
+                    _ => "a.last_upload",
+                };
+                format!(
+                    "select {columns} from users u \
+                     left join ({usage}) a on a.user_id = u.id \
+                     where 1 = 1{filter} \
+                     order by {column} {direction}, u.id asc \
+                     limit ? offset ?"
+                )
+            }
+        };
         let users: Vec<UserSummary> = sqlx::query_as(&sql)
             .bind(limit)
             .bind(offset)
