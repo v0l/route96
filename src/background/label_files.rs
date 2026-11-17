@@ -399,9 +399,14 @@ impl LabelFiles {
             let flagged = !labels_only.is_empty()
                 && (Database::review_state_for_labels(&labels_only, label_flag_terms)
                     == ReviewState::LabelFlagged
-                    || new_labels
-                        .iter()
-                        .any(|(l, _)| Database::matching_term(&l.label, &delete.terms).is_some()));
+                    || Self::delete_match(
+                        &new_labels,
+                        &DeletePolicy {
+                            min_confidence: 0.0,
+                            ..delete.clone()
+                        },
+                    )
+                    .is_some());
             if flagged {
                 db.flag_file_for_review(&file.id).await.unwrap_or_else(|e| {
                     error!(
@@ -428,37 +433,39 @@ impl LabelFiles {
                 return;
             }
         };
-        let mut seen = std::collections::HashSet::new();
+        let mut by_file: Vec<(Vec<u8>, Vec<(String, f32)>)> = Vec::new();
         for row in pending {
-            if !seen.insert(row.file.clone()) || row.confidence < delete.min_confidence {
-                continue;
+            match by_file.iter_mut().find(|(f, _)| *f == row.file) {
+                Some((_, labels)) => labels.push((row.label, row.confidence)),
+                None => by_file.push((row.file, vec![(row.label, row.confidence)])),
             }
-            let Some(term) = Database::matching_term(&row.label, &delete.terms) else {
+        }
+        for (file, labels) in by_file {
+            let Some((term, label, confidence)) =
+                Database::combination_match(&labels, &delete.terms, delete.min_confidence)
+            else {
                 continue;
             };
             let hit = DeleteMatch {
                 term: term.clone(),
-                label: row.label.clone(),
-                confidence: row.confidence,
+                label,
+                confidence,
                 reason: None,
             };
-            Self::auto_delete(db, fs, &row.file, model, &hit, false).await;
+            Self::auto_delete(db, fs, &file, model, &hit, false).await;
         }
     }
 
     fn delete_match(labels: &[(FileLabel, f32)], delete: &DeletePolicy) -> Option<DeleteMatch> {
-        labels
-            .iter()
-            .filter(|(_, score)| *score >= delete.min_confidence)
-            .filter_map(|(l, score)| {
-                Database::matching_term(&l.label, &delete.terms).map(|t| DeleteMatch {
-                    term: t.clone(),
-                    label: l.label.clone(),
-                    confidence: *score,
-                    reason: None,
-                })
-            })
-            .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+        let scored: Vec<(String, f32)> = labels.iter().map(|(l, s)| (l.label.clone(), *s)).collect();
+        Database::combination_match(&scored, &delete.terms, delete.min_confidence).map(
+            |(term, label, confidence)| DeleteMatch {
+                term: term.clone(),
+                label,
+                confidence,
+                reason: None,
+            },
+        )
     }
 
     pub(crate) async fn auto_delete(
@@ -773,6 +780,22 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.reason == "label:gore (admin purge)"));
         assert!(db.files_with_label_matching("100%").await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn combination_term_needs_every_part_above_threshold() {
+        let terms = vec!["beach+dog".to_string()];
+        let both = vec![("Beach".to_string(), 0.9), ("Dog".to_string(), 0.85)];
+        let (term, label, confidence) = Database::combination_match(&both, &terms, 0.8).unwrap();
+        assert_eq!(term, "beach+dog");
+        assert_eq!(label, "Beach, Dog");
+        assert_eq!(confidence, 0.85);
+        let weak = vec![("Beach".to_string(), 0.9), ("Dog".to_string(), 0.5)];
+        assert!(Database::combination_match(&weak, &terms, 0.8).is_none());
+        let one = vec![("Beach".to_string(), 0.9)];
+        assert!(Database::combination_match(&one, &terms, 0.8).is_none());
+        let plain = vec!["gore".to_string()];
+        assert!(Database::combination_match(&[("Gore".to_string(), 0.9)], &plain, 0.8).is_some());
     }
 
     async fn test_db() -> Database {

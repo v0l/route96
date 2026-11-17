@@ -571,11 +571,58 @@ impl Database {
     }
 
     #[cfg(feature = "labels")]
+    pub fn term_parts(term: &str) -> Vec<String> {
+        term.split('+')
+            .map(|p| p.trim().to_lowercase())
+            .filter(|p| !p.is_empty())
+            .collect()
+    }
+
+    #[cfg(feature = "labels")]
     pub fn matching_term<'a>(label: &str, terms: &'a [String]) -> Option<&'a String> {
         let lower = label.to_lowercase();
-        terms
-            .iter()
-            .find(|t| !t.is_empty() && lower.contains(&t.to_lowercase()))
+        terms.iter().find(|t| {
+            let parts = Self::term_parts(t);
+            !parts.is_empty() && parts.iter().all(|p| lower.contains(p))
+        })
+    }
+
+    #[cfg(feature = "labels")]
+    pub fn combination_match<'a>(
+        labels: &[(String, f32)],
+        terms: &'a [String],
+        min_confidence: f32,
+    ) -> Option<(&'a String, String, f32)> {
+        let mut best: Option<(&'a String, String, f32)> = None;
+        for term in terms {
+            let parts = Self::term_parts(term);
+            if parts.is_empty() {
+                continue;
+            }
+            let mut names: Vec<String> = Vec::new();
+            let mut confidence = f32::MAX;
+            for part in &parts {
+                let top = labels
+                    .iter()
+                    .filter(|(l, s)| *s >= min_confidence && l.to_lowercase().contains(part))
+                    .max_by(|a, b| a.1.total_cmp(&b.1));
+                let Some((label, score)) = top else {
+                    names.clear();
+                    break;
+                };
+                if !names.contains(label) {
+                    names.push(label.clone());
+                }
+                confidence = confidence.min(*score);
+            }
+            if names.is_empty() {
+                continue;
+            }
+            if best.as_ref().is_none_or(|(_, _, c)| confidence > *c) {
+                best = Some((term, names.join(", "), confidence));
+            }
+        }
+        best
     }
 
     pub async fn get_file(&self, file: &Vec<u8>) -> Result<Option<FileUpload>, Error> {
@@ -1432,20 +1479,33 @@ impl Database {
         &self,
         term: &str,
     ) -> Result<Vec<(Vec<u8>, String, String)>, Error> {
-        let escaped = term
-            .to_lowercase()
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
-        sqlx::query_as(
+        let parts = Self::term_parts(term);
+        if parts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let pattern = |p: &str| {
+            let escaped = p
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            format!("%{}%", escaped)
+        };
+        let mut qb = sqlx::QueryBuilder::<sqlx::MySql>::new(
             "select u.id, min(l.label), min(l.model) from uploads u \
              join upload_labels l on l.file = u.id \
-             where lower(l.label) like ? and u.banned = false \
-             group by u.id order by u.id",
-        )
-        .bind(format!("%{}%", escaped))
-        .fetch_all(&self.pool)
-        .await
+             where u.banned = false and lower(l.label) like ",
+        );
+        qb.push_bind(pattern(&parts[0]));
+        for part in &parts[1..] {
+            qb.push(
+                " and exists (select 1 from upload_labels l2 \
+                 where l2.file = u.id and lower(l2.label) like ",
+            );
+            qb.push_bind(pattern(part));
+            qb.push(")");
+        }
+        qb.push(" group by u.id order by u.id");
+        qb.build_query_as().fetch_all(&self.pool).await
     }
 
     #[cfg(feature = "labels")]

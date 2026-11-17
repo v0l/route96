@@ -139,7 +139,9 @@ label_flag_terms:
   - "hentai"
 
 # Delete automatically instead of only flagging. Same case-insensitive substring
-# match. A hit needs a score of at least label_delete_min_confidence (default 0.8);
+# match. Join terms with + to require a combination of labels ("beach+dog" needs
+# a label containing each part, each at the minimum confidence).
+# A hit needs a score of at least label_delete_min_confidence (default 0.8);
 # weaker hits are only flagged. Reviewed files are deleted too. The hash is banned,
 # so the same file cannot be uploaded again.
 label_delete_terms:

@@ -462,7 +462,7 @@ next reload.
 
 ### `GET|PUT|DELETE /admin/label-delete-terms`
 
-Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Reviewed files are deleted too and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.
+Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Join parts with `+` to require a combination: `beach+dog` deletes only a file that has a label containing `beach` and a label containing `dog`, each scoring at least the minimum confidence (the audit confidence is the lowest of the parts). Reviewed files are deleted too and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.
 
 ### `GET /admin/label-deletions`
 
