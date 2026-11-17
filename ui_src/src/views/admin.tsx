@@ -21,10 +21,11 @@ import FileListControls from "../components/file-list-controls";
 import ConfigEditor from "../components/config-editor";
 import LabelManagement from "../components/label-management";
 import DeletionRules from "../components/deletion-rules";
+import Users from "../components/users";
 import Stats from "../components/stats";
 import BackgroundProgress from "../components/background-progress";
 
-type Tab = "files" | "reports" | "review" | "config" | "rules" | "labeling" | "stats" | "progress";
+type Tab = "files" | "reports" | "users" | "review" | "config" | "rules" | "labeling" | "stats" | "progress";
 
 type AdminFileList = {
   count: number;
@@ -482,6 +483,7 @@ export default function Admin() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "files", label: "Files" },
     { id: "reports", label: "Reports" },
+    { id: "users", label: "Users" },
     { id: "review", label: "Review" },
     { id: "config", label: "Config" },
     { id: "rules", label: "Deletion rules" },
@@ -621,6 +623,8 @@ export default function Admin() {
           )}
         </>
       )}
+
+      {tab === "users" && pub && <Users pub={pub} url={url} />}
 
       {tab === "review" && (
         <>

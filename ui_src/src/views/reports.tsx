@@ -1,4 +1,5 @@
 import { NostrLink } from "@snort/system";
+import { Link } from "react-router-dom";
 import classNames from "classnames";
 import Profile from "../components/profile";
 import { GroupedReport } from "../upload/admin";
@@ -129,6 +130,9 @@ export default function ReportList({
                 Reporter
               </th>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
+                Uploader
+              </th>
+              <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
                 Reason
               </th>
               <th className="px-2 py-1.5 text-left text-xs font-medium text-neutral-500 uppercase border-b border-neutral-800">
@@ -177,6 +181,25 @@ export default function ReportList({
                       />
                     ) : (
                       <span className="text-neutral-500">Unknown</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {report.uploaders.length === 0 ? (
+                      <span className="text-neutral-500">Unknown</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {report.uploaders.map((u) => (
+                          <div key={u} className="flex items-center gap-2">
+                            <Profile link={NostrLink.publicKey(u)} size={16} />
+                            <Link
+                              to={`/admin/user/${u}`}
+                              className="bg-red-900 hover:bg-red-800 text-white px-2 py-0.5 rounded-sm text-xs"
+                            >
+                              Account
+                            </Link>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-neutral-400 max-w-32 truncate">

@@ -35,6 +35,31 @@ pub enum SortOrder {
     Asc,
 }
 
+#[derive(Deserialize, Default, Clone, Copy, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum UserSort {
+    #[default]
+    Created,
+    Size,
+    Uploads,
+    Egress,
+    LastUpload,
+}
+
+#[derive(Clone, Debug, FromRow, Serialize)]
+pub struct UserSummary {
+    #[serde(with = "hex")]
+    pub pubkey: Vec<u8>,
+    pub created: DateTime<Utc>,
+    pub is_admin: bool,
+    pub banned: bool,
+    pub paid_until: Option<DateTime<Utc>>,
+    pub file_count: u64,
+    pub total_size: u64,
+    pub egress_bytes: u64,
+    pub last_upload: Option<DateTime<Utc>>,
+}
+
 /// Review/moderation state for an uploaded file.
 ///
 /// Stored as a `TINYINT UNSIGNED` in MySQL (0–3).
@@ -471,6 +496,62 @@ impl Database {
         .bind(id)
         .fetch_one(&self.pool)
         .await
+    }
+
+    pub async fn list_users(
+        &self,
+        sort: UserSort,
+        order: SortOrder,
+        banned: bool,
+        with_balance: bool,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<UserSummary>, i64), Error> {
+        let mut filter = String::new();
+        if banned {
+            filter.push_str(" and u.banned = 1");
+        }
+        if with_balance {
+            filter.push_str(" and u.paid_until > current_timestamp");
+        }
+        let column = match sort {
+            UserSort::Created => "u.created",
+            UserSort::Size => "total_size",
+            UserSort::Uploads => "file_count",
+            UserSort::Egress => "egress_bytes",
+            UserSort::LastUpload => "last_upload",
+        };
+        let direction = match order {
+            SortOrder::Asc => "asc",
+            SortOrder::Desc => "desc",
+        };
+        let sql = format!(
+            "select u.pubkey, u.created, u.is_admin, u.banned, u.paid_until, \
+             cast(count(up.id) as unsigned) as file_count, \
+             cast(coalesce(sum(up.size), 0) as unsigned) as total_size, \
+             cast(coalesce(sum(fs.egress_bytes), 0) as unsigned) as egress_bytes, \
+             max(uu.created) as last_upload \
+             from users u \
+             left join user_uploads uu on uu.user_id = u.id \
+             left join uploads up on up.id = uu.file \
+             left join file_stats fs on fs.file = uu.file \
+             where 1 = 1{filter} \
+             group by u.id \
+             order by {column} {direction}, u.id asc \
+             limit ? offset ?"
+        );
+        let users: Vec<UserSummary> = sqlx::query_as(&sql)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        let count: i64 = sqlx::query(&format!(
+            "select count(*) from users u where 1 = 1{filter}"
+        ))
+        .fetch_one(&self.pool)
+        .await?
+        .try_get(0)?;
+        Ok((users, count))
     }
 
     pub async fn get_user_id(&self, pubkey: &Vec<u8>) -> Result<u64, Error> {
@@ -2440,5 +2521,86 @@ mod file_cache_tests {
             .insert(f.id.clone(), (Instant::now(), Some(f.clone())));
         db.forget_files([f.id.as_slice()]);
         assert!(db.get_file_cached(&f.id).await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod user_list_tests {
+    use super::*;
+
+    async fn test_db() -> Database {
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_users_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let db = Database::new(&format!("{}/{}", url, name)).await.unwrap();
+        db.migrate().await.unwrap();
+        db
+    }
+
+    async fn add(db: &Database, id: u8, size: u64, user: u64) {
+        let upload = FileUpload {
+            id: vec![id; 32],
+            size,
+            mime_type: "image/png".to_string(),
+            created: Utc::now(),
+            ..Default::default()
+        };
+        db.add_file(&upload, Some(user)).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn list_users_sorts_and_filters() {
+        let db = test_db().await;
+        let big = db.upsert_user(&vec![1u8; 32]).await.unwrap();
+        let small = db.upsert_user(&vec![2u8; 32]).await.unwrap();
+        let _idle = db.upsert_user(&vec![3u8; 32]).await.unwrap();
+        add(&db, 10, 500, big).await;
+        add(&db, 11, 700, big).await;
+        add(&db, 12, 5, small).await;
+        db.ban_user(&vec![2u8; 32], None).await.unwrap();
+        sqlx::query("update users set paid_until = date_add(current_timestamp, interval 5 day) where id = ?")
+            .bind(small)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+
+        let (users, total) = db
+            .list_users(UserSort::Size, SortOrder::Desc, false, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(users[0].pubkey, vec![1u8; 32]);
+        assert_eq!(users[0].file_count, 2);
+        assert_eq!(users[0].total_size, 1200);
+        assert_eq!(users[1].total_size, 5);
+
+        let (users, _) = db
+            .list_users(UserSort::Uploads, SortOrder::Asc, false, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(users[0].file_count, 0);
+        assert_eq!(users[2].file_count, 2);
+
+        let (users, total) = db
+            .list_users(UserSort::Created, SortOrder::Desc, true, false, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!((users.len(), total), (1, 1));
+        assert_eq!(users[0].pubkey, vec![2u8; 32]);
+
+        let (users, total) = db
+            .list_users(UserSort::LastUpload, SortOrder::Desc, false, true, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!((users.len(), total), (1, 1));
+        assert!(users[0].paid_until.is_some());
+        assert!(users[0].last_upload.is_some());
     }
 }

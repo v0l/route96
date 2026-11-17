@@ -305,6 +305,10 @@ Acknowledge one or more reports, marking them as reviewed without taking action 
 
 ## Users
 
+### `GET /admin/users`
+
+List users with usage totals. Query: `sort` (`created` default, `size`, `uploads`, `egress`, `last_upload`), `order` (`desc` default, `asc`), `banned=true` (banned only), `with_balance=true` (users with an active paid quota), `page`, `count` (max 500). Each row has `pubkey`, `created`, `is_admin`, `banned`, `paid_until`, `file_count`, `total_size`, `egress_bytes`, `last_upload`. The admin UI Users tab uses it.
+
 ### `GET /admin/user/{pubkey}`
 
 Return detailed info for a user identified by their hex-encoded pubkey.

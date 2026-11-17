@@ -4,7 +4,7 @@ use crate::background::cleanup::{RuleInfo, RuleSetting, default_heuristics, desc
 #[cfg(feature = "labels")]
 use crate::db::LabelModel;
 use crate::db::{
-    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User,
+    Database, FileStatSort, FileUpload, FileUploadWithStats, Report, ReviewState, SortOrder, User, UserSort, UserSummary,
     WhitelistEntry,
 };
 use crate::file_stats::FileStats;
@@ -56,6 +56,7 @@ pub fn admin_routes() -> Router<Arc<AppState>> {
         .route("/admin/reports/grouped", get(admin_list_reports_grouped))
         .route("/admin/reports", delete(admin_acknowledge_reports))
         .route("/admin/reports/bulk", delete(admin_delete_reports_bulk))
+        .route("/admin/users", get(admin_list_users))
         .route("/admin/user/{user_pubkey}", get(admin_get_user_info))
         .route("/admin/user/{user_pubkey}/purge", delete(admin_purge_user))
         .route(
@@ -831,6 +832,7 @@ struct GroupedReport {
     report_count: u32,
     latest_report_id: u64,
     reporter_pubkey: String,
+    uploaders: Vec<String>,
     reason: String,
     created: String,
 }
@@ -851,23 +853,82 @@ async fn admin_list_reports_grouped(
         .list_reports_grouped(params.page * server_count, server_count)
         .await
     {
-        Ok((reports, total_count)) => AdminResponse::success(PagedResult {
-            count: reports.len() as u32,
-            page: params.page,
-            total: total_count as u32,
-            files: reports
-                .into_iter()
-                .map(|r| GroupedReport {
-                    file_id: hex::encode(&r.file_id),
-                    report_count: r.report_count,
-                    latest_report_id: r.latest_report_id,
-                    reporter_pubkey: hex::encode(&r.reporter_pubkey),
-                    reason: r.reason,
-                    created: r.created.to_rfc3339(),
-                })
-                .collect(),
-        }),
+        Ok((reports, total_count)) => {
+            let ids: Vec<&[u8]> = reports.iter().map(|r| r.file_id.as_slice()).collect();
+            let mut owners = state.db.get_file_owners_batch(&ids).await.unwrap_or_default();
+            AdminResponse::success(PagedResult {
+                count: reports.len() as u32,
+                page: params.page,
+                total: total_count as u32,
+                files: reports
+                    .into_iter()
+                    .map(|r| GroupedReport {
+                        uploaders: owners
+                            .remove(&r.file_id)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|u| hex::encode(&u.pubkey))
+                            .collect(),
+                        file_id: hex::encode(&r.file_id),
+                        report_count: r.report_count,
+                        latest_report_id: r.latest_report_id,
+                        reporter_pubkey: hex::encode(&r.reporter_pubkey),
+                        reason: r.reason,
+                        created: r.created.to_rfc3339(),
+                    })
+                    .collect(),
+            })
+        }
         Err(e) => AdminResponse::error(&format!("Could not list reports: {}", e)),
+    }
+}
+
+#[derive(Deserialize)]
+struct AdminListUsersQuery {
+    #[serde(default)]
+    page: u32,
+    #[serde(default = "default_count")]
+    count: u32,
+    #[serde(default)]
+    sort: UserSort,
+    #[serde(default)]
+    order: SortOrder,
+    #[serde(default)]
+    banned: bool,
+    #[serde(default)]
+    with_balance: bool,
+}
+
+async fn admin_list_users(
+    auth: Nip98Auth,
+    Query(params): Query<AdminListUsersQuery>,
+    AxumState(state): AxumState<Arc<AppState>>,
+) -> AdminResponse<PagedResult<UserSummary>> {
+    let server_count = params.count.clamp(1, 500);
+
+    if let Err(e) = require_admin(&auth, &state.db).await {
+        return AdminResponse::error(&e);
+    }
+
+    match state
+        .db
+        .list_users(
+            params.sort,
+            params.order,
+            params.banned,
+            params.with_balance,
+            params.page * server_count,
+            server_count,
+        )
+        .await
+    {
+        Ok((users, total)) => AdminResponse::success(PagedResult {
+            count: users.len() as u32,
+            page: params.page,
+            total: total as u32,
+            files: users,
+        }),
+        Err(e) => AdminResponse::error(&format!("Could not list users: {}", e)),
     }
 }
 

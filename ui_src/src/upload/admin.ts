@@ -159,9 +159,31 @@ export interface GroupedReport {
   report_count: number;
   latest_report_id: number;
   reporter_pubkey: string;
+  uploaders: string[];
   reason: string;
   created: string;
 }
+
+export type UserSort = "created" | "size" | "uploads" | "egress" | "last_upload";
+
+export interface UserSummary {
+  pubkey: string;
+  created: string;
+  is_admin: boolean;
+  banned: boolean;
+  paid_until?: string;
+  file_count: number;
+  total_size: number;
+  egress_bytes: number;
+  last_upload?: string;
+}
+
+export type AdminResponseUserList = AdminResponse<{
+  total: number;
+  page: number;
+  count: number;
+  files: Array<UserSummary>;
+}>;
 
 export interface WhitelistEntry {
   pubkey: string;
@@ -242,6 +264,23 @@ export class Route96 {
       ...data.data,
       files: data.data.files,
     };
+  }
+
+  async listUsers(
+    page = 0,
+    count = 50,
+    sort: UserSort = "created",
+    order: SortOrder = "desc",
+    banned = false,
+    withBalance = false,
+  ) {
+    const rsp = await this.#req(
+      `admin/users?page=${page}&count=${count}&sort=${sort}&order=${order}${banned ? "&banned=true" : ""}${withBalance ? "&with_balance=true" : ""}`,
+      "GET",
+    );
+    const data = await this.#handleResponse<AdminResponseUserList>(rsp);
+    if (!data.data) throw new Error(data.message || "List users failed");
+    return { ...data, ...data.data, users: data.data.files };
   }
 
   async listReports(page = 0, count = 10) {
