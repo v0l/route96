@@ -1,14 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Blossom } from "../upload/blossom";
-import {
-  MirrorOp,
-  MirrorOutcome,
-  groupFailures,
-  runMirror,
-  stoppedMessage,
-} from "../upload/mirror-run";
-import { FormatBytes } from "../const";
+import { MirrorOp, runMirror } from "../upload/mirror-run";
 import Button from "./button";
+import { MirrorPanelView, MirrorProgress } from "./mirror-panel";
 import usePublisher from "../hooks/publisher";
 import useLogin from "../hooks/login";
 
@@ -23,41 +17,6 @@ interface FileMirrorSuggestion {
 
 interface MirrorSuggestionsProps {
   servers: string[];
-}
-
-interface MirrorProgress {
-  total: number;
-  completed: number;
-  failed: number;
-  outcome: MirrorOutcome | null;
-  finished?: boolean;
-}
-
-function MirrorErrors({ outcome }: { outcome: MirrorOutcome | null }) {
-  if (!outcome || outcome.failed.length === 0) return null;
-  const groups = groupFailures(outcome.failed);
-  return (
-    <div className="bg-red-950 border border-red-900 text-red-200 px-2 py-1 rounded-sm text-xs max-h-48 overflow-y-auto space-y-1">
-      {groups.map((g, i) => (
-        <details key={i}>
-          <summary className="cursor-pointer break-words">
-            {g.host}: {g.message} ({g.count}x, {g.files}{" "}
-            {g.files === 1 ? "file" : "files"})
-          </summary>
-          <ul className="pl-3 font-mono break-all">
-            {g.failures.map((f, j) => (
-              <li key={j}>
-                {g.host} {f.op.sha256}: {f.message}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ))}
-      {outcome.stopped.map((server) => (
-        <div key={server}>{stoppedMessage(server)}</div>
-      ))}
-    </div>
-  );
 }
 
 export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
@@ -376,108 +335,15 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
         }
       />
       {isExpanded && (
-        <div className="px-3 pb-3 space-y-3">
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-2 text-center bg-neutral-950 border border-neutral-800 rounded-sm p-2">
-            <div>
-              <div className="text-lg font-medium text-white">{totalFiles}</div>
-              <div className="text-xs text-neutral-500">Files</div>
-            </div>
-            <div>
-              <div className="text-lg font-medium text-orange-400">
-                {totalMirrorOperations}
-              </div>
-              <div className="text-xs text-neutral-500">Ops</div>
-            </div>
-            <div>
-              <div className="text-lg font-medium text-green-400">
-                {FormatBytes(totalSize)}
-              </div>
-              <div className="text-xs text-neutral-500">Size</div>
-            </div>
-          </div>
-
-          {/* Server Coverage */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-            {serverCoverage.map((server) => (
-              <div
-                key={server.url}
-                className="bg-neutral-950 border border-neutral-800 rounded-sm p-2"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-neutral-300 truncate">
-                    {server.hostname}
-                  </span>
-                  <span
-                    className={`text-xs px-1 rounded-sm ${
-                      server.coveragePercentage === 100
-                        ? "bg-green-950 text-green-400"
-                        : server.coveragePercentage >= 80
-                          ? "bg-yellow-950 text-yellow-400"
-                          : "bg-red-950 text-red-400"
-                    }`}
-                  >
-                    {server.coveragePercentage}%
-                  </span>
-                </div>
-                <div className="w-full bg-neutral-800 rounded-sm h-1">
-                  <div
-                    className="bg-white h-1 rounded-sm transition-all"
-                    style={{ width: `${server.coveragePercentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Mirror Action */}
-          {!mirrorAllProgress ? (
-            <Button
-              onClick={mirrorAll}
-              disabled={totalMirrorOperations === 0}
-              className="w-full"
-              size="sm"
-            >
-              Mirror All
-            </Button>
-          ) : (
-            <div className="space-y-2">
-              <div className="w-full bg-neutral-800 rounded-sm h-1">
-                <div
-                  className="bg-white h-1 rounded-sm transition-all"
-                  style={{
-                    width: `${((mirrorAllProgress.completed + mirrorAllProgress.failed) / mirrorAllProgress.total) * 100}%`,
-                  }}
-                />
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-green-400">
-                  {mirrorAllProgress.completed} done
-                </span>
-                <span className="text-red-400">
-                  {mirrorAllProgress.failed} failed
-                </span>
-                <span className="text-neutral-500">
-                  {mirrorAllProgress.total -
-                    mirrorAllProgress.completed -
-                    mirrorAllProgress.failed}{" "}
-                  left
-                </span>
-              </div>
-              <MirrorErrors outcome={mirrorAllProgress.outcome} />
-              {mirrorAllProgress.finished && mirrorAllProgress.failed > 0 && (
-                <Button
-                  onClick={retryFailed}
-                  variant="secondary"
-                  size="sm"
-                  className="w-full"
-                >
-                  Retry failed
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+        <MirrorPanelView
+          totalFiles={totalFiles}
+          totalMirrorOperations={totalMirrorOperations}
+          totalSize={totalSize}
+          serverCoverage={serverCoverage}
+          progress={mirrorAllProgress}
+          onMirrorAll={mirrorAll}
+          onRetry={retryFailed}
+        />
       )}
     </div>
   );
