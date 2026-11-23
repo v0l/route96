@@ -24,6 +24,18 @@ export class IdenticalMediaError extends Error {
   }
 }
 
+export function hashFromUrl(url: string): string | undefined {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    path = url;
+  }
+  const last = path.split("/").filter(Boolean).pop() ?? "";
+  const stem = last.split(".")[0];
+  return /^[0-9a-fA-F]{64}$/.test(stem) ? stem.toLowerCase() : undefined;
+}
+
 export class Blossom {
   constructor(
     readonly url: string,
@@ -106,13 +118,19 @@ export class Blossom {
     return this.#handleUploadResponse(rsp);
   }
 
-  async mirror(url: string): Promise<BlobDescriptor> {
+  async mirror(url: string, sha256?: string): Promise<BlobDescriptor> {
+    const hash = sha256 ?? hashFromUrl(url);
+    if (!hash) {
+      throw new Error(
+        `Cannot mirror ${url}: no sha256 given and the URL does not end in a 64 character hex hash`,
+      );
+    }
     const rsp = await this.#req(
       "mirror",
       "PUT",
       "upload",
       JSON.stringify({ url }),
-      undefined,
+      [["x", hash.toLowerCase()]],
       {
         "content-type": "application/json",
       },

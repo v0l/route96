@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Blossom } from "../upload/blossom";
+import {
+  MirrorOp,
+  MirrorOutcome,
+  groupFailures,
+  runMirror,
+  stoppedMessage,
+} from "../upload/mirror-run";
 import { FormatBytes } from "../const";
 import Button from "./button";
 import usePublisher from "../hooks/publisher";
@@ -22,7 +29,35 @@ interface MirrorProgress {
   total: number;
   completed: number;
   failed: number;
-  errors: string[];
+  outcome: MirrorOutcome | null;
+  finished?: boolean;
+}
+
+function MirrorErrors({ outcome }: { outcome: MirrorOutcome | null }) {
+  if (!outcome || outcome.failed.length === 0) return null;
+  const groups = groupFailures(outcome.failed);
+  return (
+    <div className="bg-red-950 border border-red-900 text-red-200 px-2 py-1 rounded-sm text-xs max-h-48 overflow-y-auto space-y-1">
+      {groups.map((g, i) => (
+        <details key={i}>
+          <summary className="cursor-pointer break-words">
+            {g.host}: {g.message} ({g.count}x, {g.files}{" "}
+            {g.files === 1 ? "file" : "files"})
+          </summary>
+          <ul className="pl-3 font-mono break-all">
+            {g.failures.map((f, j) => (
+              <li key={j}>
+                {g.host} {f.op.sha256}: {f.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ))}
+      {outcome.stopped.map((server) => (
+        <div key={server}>{stoppedMessage(server)}</div>
+      ))}
+    </div>
+  );
 }
 
 export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
@@ -126,80 +161,68 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
     }
   }, [isExpanded, memoizedServers, pub, login?.publicKey, fetchSuggestions]);
 
-  async function mirrorAll() {
-    if (!pub || suggestions.length === 0) return;
-
-    const totalOperations = suggestions.reduce(
-      (total, suggestion) => total + suggestion.missing_from.length,
-      0,
-    );
-
+  async function runOps(ops: MirrorOp[]) {
+    if (!pub || ops.length === 0) return;
     setMirrorAllProgress({
-      total: totalOperations,
+      total: ops.length,
       completed: 0,
       failed: 0,
-      errors: [],
+      outcome: null,
     });
-
-    let completed = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
-    for (const suggestion of suggestions) {
-      for (const targetServer of suggestion.missing_from) {
-        try {
-          const blossom = new Blossom(targetServer, pub);
-          await blossom.mirror(suggestion.url);
-          completed++;
-
-          setMirrorAllProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  completed: completed,
-                  failed: failed,
-                }
-              : null,
-          );
-
-          setSuggestions((prev) =>
-            prev
-              .map((s) =>
-                s.sha256 === suggestion.sha256
-                  ? {
-                      ...s,
-                      available_on: [...s.available_on, targetServer],
-                      missing_from: s.missing_from.filter(
-                        (server) => server !== targetServer,
-                      ),
-                    }
-                  : s,
-              )
-              .filter((s) => s.missing_from.length > 0),
-          );
-        } catch (e) {
-          failed++;
-          const errorMessage = e instanceof Error ? e.message : "Unknown error";
-          const serverHost = new URL(targetServer).hostname;
-          errors.push(`${serverHost}: ${errorMessage}`);
-
-          setMirrorAllProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  completed: completed,
-                  failed: failed,
-                  errors: [...errors],
-                }
-              : null,
-          );
-        }
-      }
+    const outcome = await runMirror(
+      ops,
+      async (op) => {
+        await new Blossom(op.server, pub).mirror(op.url, op.sha256);
+        setSuggestions((prev) =>
+          prev
+            .map((s) =>
+              s.sha256 === op.sha256
+                ? {
+                    ...s,
+                    available_on: [...s.available_on, op.server],
+                    missing_from: s.missing_from.filter(
+                      (server) => server !== op.server,
+                    ),
+                  }
+                : s,
+            )
+            .filter((s) => s.missing_from.length > 0),
+        );
+      },
+      (o) =>
+        setMirrorAllProgress({
+          total: ops.length,
+          completed: o.completed.length,
+          failed: o.failed.length,
+          outcome: { ...o, failed: [...o.failed] },
+        }),
+    );
+    setMirrorAllProgress({
+      total: ops.length,
+      completed: outcome.completed.length,
+      failed: outcome.failed.length,
+      outcome,
+      finished: true,
+    });
+    if (outcome.failed.length === 0) {
+      setTimeout(() => setMirrorAllProgress(null), 3000);
     }
+  }
 
-    setTimeout(() => {
-      setMirrorAllProgress(null);
-    }, 3000);
+  async function mirrorAll() {
+    const ops: MirrorOp[] = suggestions.flatMap((s) =>
+      s.missing_from.map((server) => ({
+        sha256: s.sha256,
+        url: s.url,
+        server,
+      })),
+    );
+    await runOps(ops);
+  }
+
+  async function retryFailed() {
+    const failed = mirrorAllProgress?.outcome?.failed ?? [];
+    await runOps(failed.map((f) => f.op));
   }
 
   const totalFiles = suggestions.length;
@@ -441,12 +464,16 @@ export default function MirrorSuggestions({ servers }: MirrorSuggestionsProps) {
                   left
                 </span>
               </div>
-              {mirrorAllProgress.errors.length > 0 && (
-                <div className="bg-red-950 border border-red-900 text-red-200 px-2 py-1 rounded-sm text-xs max-h-20 overflow-y-auto">
-                  {mirrorAllProgress.errors.map((err, i) => (
-                    <div key={i}>{err}</div>
-                  ))}
-                </div>
+              <MirrorErrors outcome={mirrorAllProgress.outcome} />
+              {mirrorAllProgress.finished && mirrorAllProgress.failed > 0 && (
+                <Button
+                  onClick={retryFailed}
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                >
+                  Retry failed
+                </Button>
               )}
             </div>
           )}
