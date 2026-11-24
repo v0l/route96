@@ -12,6 +12,15 @@ services:
   app:
     image: voidic/route96
     #build: .
+    # The image runs as uid 10001. Installs made with images before 17 Nov
+    # (which ran as root) need their files handed over once:
+    #   docker compose -f docker-compose.prod.yml stop app
+    #   sudo chown 10001:10001 ./config.prod.yaml
+    #   sudo chmod 640 ./config.prod.yaml
+    #   docker compose -f docker-compose.prod.yml run --rm --no-deps -u 0 --entrypoint chown app -R 10001:10001 /app/data
+    # If you cannot change ownership, uncomment the next line to run as root
+    # again. Discouraged: it drops the protection of the non-root user.
+    #user: "0:0"
     environment:
       - "RUST_LOG=info"
     ports:

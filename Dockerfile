@@ -85,7 +85,7 @@ ENV RUST_BACKTRACE=1
 
 RUN groupadd --gid 10001 route96 && \
     useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin route96 && \
-    mkdir -p /data /tmp && chown route96:route96 /data
+    mkdir -p /data /app/data /tmp && chown route96:route96 /data /app/data
 USER 10001:10001
 
 RUN ./bin/route96 --version

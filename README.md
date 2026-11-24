@@ -255,5 +255,48 @@ docker run --rm -it \
   voidic/route96
 ```
 
+The image runs as uid 10001 (user `route96`). The config file must be readable and
+`storage_dir` (and `cold_storage_dir`, if set) writable by that uid.
+
+### Upgrading from images before 17 Nov (root to uid 10001)
+
+Images built before 17 Nov ran as root. Newer images run as uid 10001, so an install
+made with an old image has a config file and data directory owned by root, and the
+container stops at startup with a message like:
+
+```
+route96 cannot start as uid 10001:
+  config file /app/config.yaml is not readable (owner 0:0 mode 600, process uid 10001)
+  data directory /app/data is not writable (owner 0:0 mode 755, process uid 10001)
+```
+
+Stop the container, change the owner once on the host, then start it again.
+
+With `docker run` and a host directory:
+
+```bash
+sudo chown 10001:10001 ./config.yaml
+sudo chmod 640 ./config.yaml
+sudo chown -R 10001:10001 ./data
+```
+
+With compose (`docker-compose.prod.yml`, named volume `files` and `./config.prod.yaml`):
+
+```bash
+docker compose -f docker-compose.prod.yml stop app
+sudo chown 10001:10001 ./config.prod.yaml
+sudo chmod 640 ./config.prod.yaml
+docker compose -f docker-compose.prod.yml run --rm --no-deps -u 0 --entrypoint chown app -R 10001:10001 /app/data
+docker compose -f docker-compose.prod.yml up -d app
+```
+
+For a named volume with `docker run`, use
+`docker run --rm -u 0 -v <volume>:/app/data --entrypoint chown voidic/route96 -R 10001:10001 /app/data`.
+Do the same for `cold_storage_dir` and a separate `models_dir` if you set them.
+
+If you cannot change the ownership, you can run the container as root again with
+`--user 0:0` (`docker run`) or `user: "0:0"` (compose). This is an escape hatch, not a
+recommended setup: it gives up the protection the non-root user adds.
+
 ### Manual
 See [docs/debian.md](docs/debian.md)
