@@ -544,10 +544,10 @@ async fn admin_get_self(
                     let mut total_available = free_quota;
 
                     // Add paid quota if still valid
-                    if let Some(paid_until) = &user.paid_until {
-                        if *paid_until > chrono::Utc::now() {
-                            total_available += user.paid_size;
-                        }
+                    if let Some(paid_until) = &user.paid_until
+                        && *paid_until > chrono::Utc::now()
+                    {
+                        total_available += user.paid_size;
                     }
 
                     (free_quota, total_available)
@@ -730,8 +730,10 @@ async fn user_list_files(
             &pubkey_vec,
             params.page * server_count,
             server_count,
-            params.mime_type,
-            params.label,
+            crate::db::FileListFilter {
+                mime_type: params.mime_type,
+                label: params.label,
+            },
             params.sort,
             params.order,
         )
@@ -1006,10 +1008,10 @@ async fn admin_get_user_info(
             let mut total_available = free_quota;
 
             // Add paid quota if still valid
-            if let Some(paid_until) = &target_user.paid_until {
-                if *paid_until > chrono::Utc::now() {
-                    total_available += target_user.paid_size;
-                }
+            if let Some(paid_until) = &target_user.paid_until
+                && *paid_until > chrono::Utc::now()
+            {
+                total_available += target_user.paid_size;
             }
 
             let payments = state

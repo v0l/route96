@@ -6,13 +6,13 @@ use axum::{
     Json, Router,
     extract::State as AxumState,
     http::StatusCode,
-    routing::{get, post},
+    routing::get,
 };
 use chrono::{Months, Utc};
 use fedimint_tonic_lnd::lnrpc::Invoice;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Deref};
+use std::ops::Add;
 use std::sync::Arc;
 
 pub fn payment_routes() -> Router<Arc<AppState>> {
@@ -117,7 +117,7 @@ async fn req_payment(
         "LND client not configured".to_string(),
     ))?;
 
-    let mut lnd = lnd_client.deref().clone();
+    let mut lnd = lnd_client.clone();
     let c = lnd.lightning();
     // amount is BTC-denominated satoshis as f64 (validated above); convert to msat.
     let msat = (amount * 1e11f64) as u64;

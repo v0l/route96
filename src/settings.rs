@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn whitelist_mode_deserialize_file() {
         let mode: WhitelistMode = serde_json::from_str(r#""/etc/whitelist.txt""#).unwrap();
-        assert!(matches!(mode, WhitelistMode::File(p) if p == PathBuf::from("/etc/whitelist.txt")));
+        assert!(matches!(mode, WhitelistMode::File(p) if p.as_path() == std::path::Path::new("/etc/whitelist.txt")));
     }
 
     #[test]

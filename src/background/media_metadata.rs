@@ -62,8 +62,8 @@ impl MediaMetadata {
                         .db
                         .update_metadata(
                             &file.id,
-                            bv.map(|v| v.width as u32),
-                            bv.map(|v| v.height as u32),
+                            bv.map(|v| v.width),
+                            bv.map(|v| v.height),
                             duration,
                             bitrate,
                         )

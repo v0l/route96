@@ -8,7 +8,7 @@ use crate::whitelist::Whitelist;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, RawQuery, State as AxumState},
+    extract::{Path, RawQuery, State as AxumState},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, head, put},
@@ -43,7 +43,7 @@ impl BlobDescriptor {
             url: format!(
                 "{}/{}{}",
                 settings.public_url,
-                &id_hex,
+                id_hex,
                 mime2ext::mime2ext(&value.mime_type)
                     .map(|m| format!(".{m}"))
                     .unwrap_or("".to_string())
@@ -210,14 +210,6 @@ impl IntoResponse for BlossomResponse {
 }
 
 impl BlossomResponse {
-    pub fn error(msg: impl Into<String>) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            payment_headers: None,
-        })
-    }
-
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
@@ -250,26 +242,6 @@ impl BlossomResponse {
         })
     }
 
-    pub fn payment_required(msg: impl Into<String>) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::PAYMENT_REQUIRED,
-            payment_headers: None,
-        })
-    }
-
-    pub fn payment_required_with_headers(
-        msg: impl Into<String>,
-        lightning: Option<String>,
-        cashu: Option<String>,
-    ) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::PAYMENT_REQUIRED,
-            payment_headers: Some(PaymentHeaders { lightning, cashu }),
-        })
-    }
-
     pub fn conflict(msg: impl Into<String>) -> Self {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
@@ -278,34 +250,10 @@ impl BlossomResponse {
         })
     }
 
-    pub fn length_required(msg: impl Into<String>) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::LENGTH_REQUIRED,
-            payment_headers: None,
-        })
-    }
-
     pub fn content_too_large(msg: impl Into<String>) -> Self {
         Self::Generic(BlossomGenericResponse {
             message: Some(msg.into()),
             status: StatusCode::PAYLOAD_TOO_LARGE,
-            payment_headers: None,
-        })
-    }
-
-    pub fn unsupported_media_type(msg: impl Into<String>) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            payment_headers: None,
-        })
-    }
-
-    pub fn too_many_requests(msg: impl Into<String>) -> Self {
-        Self::Generic(BlossomGenericResponse {
-            message: Some(msg.into()),
-            status: StatusCode::TOO_MANY_REQUESTS,
             payment_headers: None,
         })
     }

@@ -387,8 +387,8 @@ impl FileStore {
                     let v_stream = probe.as_ref().and_then(|p| p.best_video.as_ref());
                     let mime = Self::hack_mime_type(mime_type, &probe, &v_stream, &temp_file);
                     (
-                        v_stream.map(|v| v.width as u32),
-                        v_stream.map(|v| v.height as u32),
+                        v_stream.map(|v| v.width),
+                        v_stream.map(|v| v.height),
                         mime,
                         probe
                             .as_ref()

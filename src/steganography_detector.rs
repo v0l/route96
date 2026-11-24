@@ -48,8 +48,8 @@ fn has_data_after_eoi(data: &[u8]) -> bool {
     for i in 0..data.len() - 1 {
         if data[i] == 0xFF && data[i + 1] == 0xD9 {
             // Found EOI, check if there's non-padding data after it
-            for j in (i + 2)..data.len() {
-                if data[j] != 0x00 && data[j] != 0xFF {
+            for &byte in &data[i + 2..] {
+                if byte != 0x00 && byte != 0xFF {
                     return true;
                 }
             }

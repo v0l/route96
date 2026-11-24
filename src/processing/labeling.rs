@@ -233,7 +233,7 @@ impl VitModel {
         device: Device,
     ) -> Result<Self> {
         candle_core::cuda::set_gemm_reduced_precision_f32(true);
-        info!("Loading ViT model {:?} on {:?}", model_path, &device);
+        info!("Loading ViT model {:?} on {:?}", model_path, device);
         let vb =
             unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
         let config_data = std::fs::read(config_path)?;
@@ -762,7 +762,7 @@ mod tests {
         // 5-second clip should yield up to 10 frames (one every 0.5s)
         // But the test video is very short (5s) with few frames, so we get at most 10
         assert!(
-            frames.len() > 0 && frames.len() <= MAX_VIDEO_FRAMES,
+            !frames.is_empty() && frames.len() <= MAX_VIDEO_FRAMES,
             "expected >0 and <= {} frames, got {}",
             MAX_VIDEO_FRAMES,
             frames.len()

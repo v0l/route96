@@ -70,7 +70,7 @@ impl FileStatsTracker {
     /// * `file_id`  – raw binary SHA-256 of the file.
     /// * `bytes`    – number of bytes sent in this response.
     /// * `accessed` – timestamp of the access (caller supplies this so that
-    ///                tests can inject a deterministic value).
+    ///   tests can inject a deterministic value).
     pub fn record(&self, file_id: &[u8], bytes: u64, accessed: DateTime<Utc>) {
         let secs = accessed.timestamp();
         if let Some(entry) = self.inner.get(file_id) {

@@ -84,7 +84,7 @@ async fn main() -> Result<(), Error> {
                         let id = if let Some(i) = id_from_path(&entry) {
                             i
                         } else {
-                            p.set_message(format!("Skipping invalid file: {}", &entry.display()));
+                            p.set_message(format!("Skipping invalid file: {}", entry.display()));
                             return Ok(());
                         };
 
@@ -93,11 +93,11 @@ async fn main() -> Result<(), Error> {
                             if delete.unwrap_or(false) {
                                 p.set_message(format!(
                                     "Deleting corrupt file: {}",
-                                    &entry.display()
+                                    entry.display()
                                 ));
                                 tokio::fs::remove_file(&entry).await?;
                             } else {
-                                p.set_message(format!("File is corrupted: {}", &entry.display()));
+                                p.set_message(format!("File is corrupted: {}", entry.display()));
                             }
                         }
                         Ok(())
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Error> {
                         && (mime.starts_with("image/") || mime.starts_with("video/"))
                         && probe_file(&entry).is_err()
                     {
-                        p.set_message(format!("Skipping media invalid file: {}", &entry.display()));
+                        p.set_message(format!("Skipping media invalid file: {}", entry.display()));
                         return Ok(());
                     }
 
@@ -133,13 +133,13 @@ async fn main() -> Result<(), Error> {
                     let dst = fs.put(&db, file, mime, false).await?;
                     match dst {
                         FileSystemResult::Banned => {
-                            p.set_message(format!("Skipping banned file: {}", &entry.display()));
+                            p.set_message(format!("Skipping banned file: {}", entry.display()));
                         }
                         FileSystemResult::AlreadyExists(_) => {
-                            p.set_message(format!("Duplicate file: {}", &entry.display()));
+                            p.set_message(format!("Duplicate file: {}", entry.display()));
                         }
                         FileSystemResult::NewFile(_) => {
-                            p.set_message(format!("Imported: {}", &entry.display()));
+                            p.set_message(format!("Imported: {}", entry.display()));
                         }
                         #[cfg(feature = "blossom")]
                         FileSystemResult::Rejected(reason) => {
@@ -163,13 +163,13 @@ async fn main() -> Result<(), Error> {
                     let id = if let Some(i) = id_from_path(&entry) {
                         i
                     } else {
-                        p.set_message(format!("Skipping invalid file: {}", &entry.display()));
+                        p.set_message(format!("Skipping invalid file: {}", entry.display()));
                         return Ok(());
                     };
                     let u = db.get_file(&id).await.context("db get_file")?;
                     if u.is_none() {
                         if !dry_run.unwrap_or(false) {
-                            p.set_message(format!("Importing file: {}", &entry.display()));
+                            p.set_message(format!("Importing file: {}", entry.display()));
                             let mime = infer::get_from_path(&entry)
                                 .context("infer")?
                                 .map(|m| m.mime_type())
@@ -199,7 +199,7 @@ async fn main() -> Result<(), Error> {
                         } else {
                             p.set_message(format!(
                                 "[DRY-RUN] Importing file: {}",
-                                &entry.display()
+                                entry.display()
                             ));
                         }
                     }

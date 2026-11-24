@@ -270,10 +270,19 @@ pub struct LabelModel {
     pub config: String,
 }
 
+#[derive(Clone, Default)]
+pub struct FileListFilter {
+    pub mime_type: Option<String>,
+    pub label: Option<String>,
+}
+
+type CachedFile = (Instant, Option<FileUpload>);
+type ReportRow = (Vec<u8>, i64, u64, u64, String, DateTime<Utc>);
+
 #[derive(Clone)]
 pub struct Database {
     pub(crate) pool: sqlx::pool::Pool<sqlx::mysql::MySql>,
-    file_cache: Arc<DashMap<Vec<u8>, (Instant, Option<FileUpload>)>>,
+    file_cache: Arc<DashMap<Vec<u8>, CachedFile>>,
     body_cache: Arc<DashMap<Vec<u8>, (Instant, Bytes)>>,
     body_cache_bytes: Arc<AtomicUsize>,
     user_ids: Arc<DashMap<Vec<u8>, u64>>,
@@ -1074,11 +1083,11 @@ impl Database {
         pubkey: &[u8],
         offset: u32,
         limit: u32,
-        mime_type: Option<String>,
-        label: Option<String>,
+        filter: FileListFilter,
         sort: FileStatSort,
         order: SortOrder,
     ) -> Result<(Vec<(FileUpload, FileStats)>, i64), Error> {
+        let FileListFilter { mime_type, label } = filter;
         let Some(label_parts) = self.resolve_label_filter(&label).await? else {
             return Ok((Vec::new(), 0));
         };
@@ -1356,7 +1365,7 @@ impl Database {
         limit: u32,
     ) -> Result<(Vec<GroupedReportData>, i64), Error> {
         // Get grouped reports with latest report details
-        let results: Vec<(Vec<u8>, i64, u64, u64, String, DateTime<Utc>)> = sqlx::query(
+        let results: Vec<ReportRow> = sqlx::query(
             "SELECT 
                 r.file_id,
                 COUNT(*) as report_count,
@@ -1839,6 +1848,7 @@ impl FilePhash {
 #[cfg(feature = "media-compression")]
 #[derive(Clone, FromRow)]
 struct BannedPHashCandidate {
+    #[allow(dead_code)]
     pub id: Vec<u8>,
     pub band0: i16,
     pub band1: i16,
@@ -2149,10 +2159,10 @@ impl Database {
         let mut available_quota = free_quota_bytes;
 
         // Add paid quota if still valid
-        if let Some(paid_until) = paid_until {
-            if paid_until > chrono::Utc::now() {
-                available_quota += paid_size;
-            }
+        if let Some(paid_until) = paid_until
+            && paid_until > chrono::Utc::now()
+        {
+            available_quota += paid_size;
         }
 
         // Check if upload would exceed quota
@@ -2326,7 +2336,6 @@ impl Database {
         .bind(limit)
         .fetch_all(&self.pool)
         .await
-        .map_err(Error::from)
     }
 
     pub async fn get_upload_sizes_page(
@@ -2339,7 +2348,6 @@ impl Database {
             .bind(limit)
             .fetch_all(&self.pool)
             .await
-            .map_err(Error::from)
     }
 
     /// Fetch persisted stats for a batch of files.
@@ -2646,7 +2654,7 @@ mod user_list_tests {
         let label = |l: &str| FileLabel::new(l.to_string(), "m".to_string());
         for (id, labels) in [(20u8, vec!["Beach", "Dog"]), (21, vec!["Beach"]), (22, vec!["Dog", "Cat"])] {
             for l in labels {
-                db.add_file_label(&vec![id; 32], &label(l)).await.unwrap();
+                db.add_file_label(&[id; 32], &label(l)).await.unwrap();
             }
         }
         let find = |q: &'static str| {

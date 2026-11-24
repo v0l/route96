@@ -10,6 +10,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+type FileLabels = (Vec<u8>, Vec<(String, f32)>);
+
 const DEFAULT_DELETE_MIN_CONFIDENCE: f32 = 0.8;
 
 #[derive(Clone, Debug, Default)]
@@ -433,7 +435,7 @@ impl LabelFiles {
                 return;
             }
         };
-        let mut by_file: Vec<(Vec<u8>, Vec<(String, f32)>)> = Vec::new();
+        let mut by_file: Vec<FileLabels> = Vec::new();
         for row in pending {
             match by_file.iter_mut().find(|(f, _)| *f == row.file) {
                 Some((_, labels)) => labels.push((row.label, row.confidence)),

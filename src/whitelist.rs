@@ -221,6 +221,57 @@ pub(crate) fn parse_whitelist_file(contents: &str) -> HashSet<String> {
         .collect()
 }
 
+async fn fallback_polling(
+    whitelist: Arc<RwLock<Whitelist>>,
+    path: PathBuf,
+    mut last_modified: Option<SystemTime>,
+    shutdown: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                info!("Stopping whitelist watcher (polling)");
+                break;
+            }
+            _ = sleep(Duration::from_secs(10)) => {
+                match tokio::fs::metadata(&path).await {
+                    Ok(md) => match md.modified() {
+                        Ok(modified) => {
+                            let changed = last_modified.is_none_or(|prev| modified > prev);
+                            if changed {
+                                match tokio::fs::read_to_string(&path).await {
+                                    Ok(contents) => {
+                                        replace_set(&whitelist, parse_whitelist_file(&contents)).await;
+                                        last_modified = Some(modified);
+                                        info!("Reloaded whitelist from {}", path.display());
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            "Failed to read whitelist file {}: {}",
+                                            path.display(),
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to get modification time for {}: {}",
+                                path.display(),
+                                e
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Failed to stat whitelist file {}: {}", path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,56 +342,5 @@ mod tests {
         replace_set(&wl, new_set).await;
         assert!(wl.read().await.is_allowed("aabbcc").await);
         assert!(!wl.read().await.is_allowed("ddeeff").await);
-    }
-}
-
-async fn fallback_polling(
-    whitelist: Arc<RwLock<Whitelist>>,
-    path: PathBuf,
-    mut last_modified: Option<SystemTime>,
-    shutdown: CancellationToken,
-) {
-    loop {
-        tokio::select! {
-            _ = shutdown.cancelled() => {
-                info!("Stopping whitelist watcher (polling)");
-                break;
-            }
-            _ = sleep(Duration::from_secs(10)) => {
-                match tokio::fs::metadata(&path).await {
-                    Ok(md) => match md.modified() {
-                        Ok(modified) => {
-                            let changed = last_modified.is_none_or(|prev| modified > prev);
-                            if changed {
-                                match tokio::fs::read_to_string(&path).await {
-                                    Ok(contents) => {
-                                        replace_set(&whitelist, parse_whitelist_file(&contents)).await;
-                                        last_modified = Some(modified);
-                                        info!("Reloaded whitelist from {}", path.display());
-                                    }
-                                    Err(e) => {
-                                        warn!(
-                                            "Failed to read whitelist file {}: {}",
-                                            path.display(),
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Failed to get modification time for {}: {}",
-                                path.display(),
-                                e
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        warn!("Failed to stat whitelist file {}: {}", path.display(), e);
-                    }
-                }
-            }
-        }
     }
 }
