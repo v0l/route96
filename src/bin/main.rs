@@ -1,8 +1,9 @@
 use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use axum::middleware;
 use axum::{
     Router,
@@ -23,6 +24,7 @@ use route96::filesystem::FileStore;
 use route96::response_log::ResponseLogLayer;
 use route96::routes;
 use route96::settings::{Settings, WhitelistMode};
+use route96::startup::{check_config_readable, check_dir_writable};
 use route96::whitelist::Whitelist;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -48,13 +50,23 @@ async fn main() -> Result<(), Error> {
 
     let config_path = args.config.as_deref().unwrap_or("config.yaml").to_string();
 
+    check_config_readable(Path::new(&config_path))?;
+
     // ── Step 1: load initial settings from file + env only (no DB yet) ──────
     let builder = Config::builder()
         .add_source(config::File::with_name(&config_path))
         .add_source(config::Environment::with_prefix("APP"))
-        .build()?;
+        .build()
+        .with_context(|| format!("loading config {config_path}"))?;
 
-    let initial_settings: Settings = builder.try_deserialize()?;
+    let initial_settings: Settings = builder
+        .try_deserialize()
+        .with_context(|| format!("parsing config {config_path}"))?;
+
+    check_dir_writable(Path::new(&initial_settings.storage_dir))?;
+    if let Some(cold) = &initial_settings.cold_storage_dir {
+        check_dir_writable(Path::new(cold))?;
+    }
 
     let db = Database::new(&initial_settings.database).await?;
 

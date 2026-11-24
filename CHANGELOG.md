@@ -6,6 +6,12 @@ All notable changes to route96 are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The Docker image runs as uid 10001 instead of root (images since 17 Nov). Existing installs must hand their config file and data directory to that uid; see "Upgrading from images before 17 Nov" in the README. `/app/data` in the image is owned by uid 10001, so new named volumes get the right owner.
+
+### Fixed
+- Startup permission errors name the path, its owner and mode and the process uid instead of a bare `Permission denied (os error 13)`, and the Docker entrypoint prints the exact `chown` and `chmod` commands before exiting with code 1.
+
 ## [0.8.0] - 2026-11-09
 
 ### Security
