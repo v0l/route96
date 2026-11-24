@@ -701,7 +701,6 @@ impl Database {
         ReviewState::None
     }
 
-    #[cfg(feature = "labels")]
     pub fn term_parts(term: &str) -> Vec<String> {
         term.split('+')
             .map(|p| p.trim().to_lowercase())
