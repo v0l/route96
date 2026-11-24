@@ -22,6 +22,7 @@ pub mod processing;
 pub mod response_log;
 pub mod routes;
 pub mod settings;
+pub mod startup;
 pub mod whitelist;
 
 pub fn can_compress(mime_type: &str) -> bool {
