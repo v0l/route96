@@ -27,10 +27,14 @@ use serde::Serialize;
 #[cfg(feature = "media-compression")]
 use std::env::temp_dir;
 use std::io::SeekFrom;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
+#[cfg(feature = "media-compression")]
+use std::sync::LazyLock;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::sync::{Mutex, RwLock};
+#[cfg(feature = "media-compression")]
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio_util::io::ReaderStream;
 
 mod admin;

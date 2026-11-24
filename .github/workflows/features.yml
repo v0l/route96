@@ -82,3 +82,42 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets --features "${{ matrix.features }}" -- -D warnings
+
+  clippy-minimal:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - "blossom"
+          - "nip96"
+          - "blossom,nip96"
+          - "blossom,nip96,payments"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy-min-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-clippy-min-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+            libavfilter-dev libavdevice-dev pkg-config protobuf-compiler
+
+      - name: Clippy
+        run: cargo clippy --no-default-features --all-targets --features "${{ matrix.features }}" -- -D warnings

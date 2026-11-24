@@ -1012,6 +1012,7 @@ impl Database {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<Vec<FileUpload>, Error> {
+        #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
         let mut results: Vec<FileUpload> = match cursor {
             Some(cursor_hash) => {
                 let cursor_bytes = match hex::decode(cursor_hash) {

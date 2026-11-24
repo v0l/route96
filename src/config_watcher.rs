@@ -42,6 +42,7 @@ pub async fn build_settings(config_path: &str, db: &Database) -> anyhow::Result<
         .add_async_source(DbConfigSource { db: db.clone() });
 
     let built = builder.build_cloned().await?;
+    #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
     let mut settings: Settings = built.try_deserialize()?;
     #[cfg(feature = "media-compression")]
     crate::media::configure(

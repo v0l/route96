@@ -1,6 +1,8 @@
 use crate::auth::blossom::BlossomAuth;
 use crate::auth::nip98::Nip98Auth;
-use crate::background::cleanup::{RuleInfo, RuleSetting, default_heuristics, describe};
+#[cfg(feature = "labels")]
+use crate::background::cleanup::RuleSetting;
+use crate::background::cleanup::{RuleInfo, default_heuristics, describe};
 #[cfg(feature = "labels")]
 use crate::db::LabelModel;
 use crate::db::{
@@ -23,6 +25,7 @@ use sqlx::{Error, QueryBuilder, Row};
 use std::sync::Arc;
 
 /// Helper function to deserialize empty strings as None for Option<f32>
+#[cfg(feature = "labels")]
 fn deserialize_empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1308,12 +1311,14 @@ async fn admin_delete_files_bulk(
 }
 
 /// Query params for the similar-files endpoint.
+#[cfg(feature = "media-compression")]
 #[derive(Deserialize)]
 struct AdminSimilarFilesQuery {
     /// Maximum Hamming distance (default: `MAX_HAMMING_DISTANCE`).
     distance: Option<u32>,
 }
 
+#[cfg(feature = "media-compression")]
 #[derive(Serialize)]
 struct SimilarFile {
     #[serde(flatten)]
@@ -1472,6 +1477,7 @@ impl Database {
         q.push_bind(limit);
         q.push(" offset ");
         q.push_bind(offset);
+        #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
         let mut rows: Vec<FileUploadWithStats> = q.build_query_as().fetch_all(&self.pool).await?;
 
         let mut cq = QueryBuilder::new("select count(u.id) from uploads u where u.banned = false ");
@@ -1891,6 +1897,7 @@ async fn admin_get_label_flag_terms(
 }
 
 /// `PUT /admin/label-flag-terms` body.
+#[cfg(feature = "labels")]
 #[derive(serde::Deserialize)]
 struct SetLabelFlagTermsBody {
     terms: Vec<String>,
@@ -1952,6 +1959,7 @@ pub(crate) fn cleanup_rules(
     settings: &crate::settings::Settings,
     label_files_deleted: Option<u64>,
 ) -> Vec<RuleInfo> {
+    #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
     let mut rules = describe(&default_heuristics(), settings);
     #[cfg(feature = "labels")]
     {
@@ -2236,9 +2244,11 @@ mod tests {
 
     #[test]
     fn cleanup_rules_lists_every_rule_with_enabled_state() {
+        #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
         let mut s = default_settings();
         let names = |r: &[RuleInfo]| r.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
         let rules = cleanup_rules(&s, None);
+        #[cfg_attr(not(feature = "labels"), allow(unused_mut))]
         let mut expected = vec!["inactive", "expired", "zero_egress", "few_upload_non_media"];
         #[cfg(feature = "labels")]
         expected.push("label");

@@ -84,6 +84,7 @@ pub async fn start_background_tasks(
     file_stats: FileStatsTracker,
     #[cfg(feature = "payments")] client: Option<std::sync::Arc<dyn payments_rs::lightning::LightningNode>>,
 ) -> JoinSet<()> {
+    #[cfg(feature = "labels")]
     let settings_snap = settings.read().await.clone();
 
     let mut set = JoinSet::new();

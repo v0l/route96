@@ -182,6 +182,7 @@ enum BlossomResponse {
     BlobDescriptorOk(Json<BlobDescriptor>),
     BlobDescriptorList(Json<Vec<BlobDescriptor>>),
     /// BUD-12: identical media detected; 409 with X-Identical-Media header
+    #[cfg_attr(not(feature = "media-compression"), allow(dead_code))]
     IdenticalMedia(String),
 }
 
@@ -924,6 +925,7 @@ async fn process_stream<'p, S>(
     // If Some, this is the SHA-256 the client echoed back via X-Identical-Media,
     // acknowledging a prior 409 and requesting to skip deduplication.
     expect_hash: Option<Vec<u8>>,
+    #[cfg_attr(not(feature = "media-compression"), allow(unused_variables))]
     acknowledged_identical: Option<Vec<u8>>,
     // X-SHA-256 header value — if provided, actual file hash must match
     x_sha_256: Option<&str>,
