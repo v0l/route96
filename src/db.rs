@@ -2743,3 +2743,123 @@ mod user_list_tests {
         assert!(users[0].last_upload.is_some());
     }
 }
+
+#[cfg(test)]
+mod strict_mode_tests {
+    use super::*;
+    use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+    use std::str::FromStr;
+
+    const STRICT: &str = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION";
+
+    async fn strict_db() -> Database {
+        let url = std::env::var("ROUTE96_TEST_DATABASE")
+            .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
+        let name = format!("r96_strict_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::new(&url).await.unwrap();
+        admin
+            .pool
+            .execute(format!("create database {}", name).as_str())
+            .await
+            .unwrap();
+        let opts = MySqlConnectOptions::from_str(&format!("{}/{}", url, name))
+            .unwrap()
+            .pipes_as_concat(false)
+            .no_engine_substitution(false);
+        let pool = MySqlPoolOptions::new()
+            .max_connections(4)
+            .after_connect(|conn, _| {
+                Box::pin(async move {
+                    conn.execute(format!("set session sql_mode = '{}'", STRICT).as_str())
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect_with(opts)
+            .await
+            .unwrap();
+        let db = Database::from_pool(pool);
+        let mode: String = sqlx::query_scalar("select @@session.sql_mode")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert!(mode.contains("STRICT_TRANS_TABLES"), "sql_mode {mode}");
+        db
+    }
+
+    async fn paid_size(db: &Database, pk: u8) -> u64 {
+        sqlx::query_scalar("select paid_size from users where pubkey = ?")
+            .bind(vec![pk; 32])
+            .fetch_one(&db.pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn first_admin_setup_works_in_strict_mode() {
+        let db = strict_db().await;
+        db.migrate().await.unwrap();
+        let pk = vec![7u8; 32];
+        let (id, is_admin) = db.upsert_first_admin(&pk).await.unwrap();
+        assert!(is_admin);
+        let (again, still_admin) = db.upsert_first_admin(&pk).await.unwrap();
+        assert_eq!(again, id);
+        assert!(still_admin);
+        let (_, other_admin) = db.upsert_first_admin(&vec![8u8; 32]).await.unwrap();
+        assert!(!other_admin);
+        let user = db.get_user(&pk).await.unwrap();
+        assert!(user.is_admin);
+        assert_eq!(paid_size(&db, 7).await, 0);
+        db.config_set("public_url", "https://example.com").await.unwrap();
+        db.config_set("public_url", "https://example.org").await.unwrap();
+        assert!(
+            db.config_list()
+                .await
+                .unwrap()
+                .contains(&("public_url".to_string(), "https://example.org".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn first_admin_setup_promotes_existing_user_in_strict_mode() {
+        let db = strict_db().await;
+        db.migrate().await.unwrap();
+        let pk = vec![9u8; 32];
+        let id = db.upsert_user(&pk).await.unwrap();
+        let (admin_id, is_admin) = db.upsert_first_admin(&pk).await.unwrap();
+        assert_eq!(admin_id, id);
+        assert!(is_admin);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn migrating_database_with_users_keeps_rows() {
+        let db = strict_db().await;
+        let full = sqlx::migrate!("./migrations/");
+        let mut old = sqlx::migrate!("./migrations/");
+        old.migrations = full
+            .migrations
+            .iter()
+            .filter(|m| m.version < 20261118000000)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into();
+        old.run(&db.pool).await.unwrap();
+        sqlx::query("insert into users(pubkey, is_admin, paid_size) values(?, 1, 500), (?, 0, 0)")
+            .bind(vec![1u8; 32])
+            .bind(vec![2u8; 32])
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        full.run(&db.pool).await.unwrap();
+        let admin = db.get_user(&vec![1u8; 32]).await.unwrap();
+        assert!(admin.is_admin);
+        assert_eq!(paid_size(&db, 1).await, 500);
+        assert_eq!(paid_size(&db, 2).await, 0);
+        let (_, is_admin) = db.upsert_first_admin(&vec![3u8; 32]).await.unwrap();
+        assert!(!is_admin);
+        assert_eq!(paid_size(&db, 3).await, 0);
+    }
+}
