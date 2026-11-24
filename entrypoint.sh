@@ -11,6 +11,10 @@ for arg in "$@"; do
     fi
     prev="$arg"
 done
+case "$config" in
+    /*) ;;
+    *) config="$(pwd)/$config" ;;
+esac
 
 uid="$(id -u)"
 gid="$(id -g)"

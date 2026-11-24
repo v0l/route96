@@ -47,7 +47,7 @@ teardown
 setup
 chmod 000 "$work/config.yaml"
 run --config config.yaml
-expect "unreadable config exits 1" 1 "config file config.yaml is not readable"
+expect "unreadable config exits 1" 1 "config file $work/config.yaml is not readable"
 expect "unreadable config shows chmod 640" 1 "chmod 640"
 teardown
 

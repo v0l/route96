@@ -26,7 +26,8 @@ fn owner_note(path: &Path) -> String {
 }
 
 fn path_error(what: &str, path: &Path, err: io::Error) -> Error {
-    let mut msg = format!("{}: {} ({})", path.display(), err, owner_note(path));
+    let shown = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut msg = format!("{}: {} ({})", shown.display(), err, owner_note(path));
     if err.kind() == io::ErrorKind::PermissionDenied {
         msg.push_str(&format!(
             ". The {what} is not accessible to this user; see \"Upgrading from images before 17 Nov\" in the README"
