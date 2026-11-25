@@ -1,0 +1,743 @@
+label,class,group,images,text_sim,ctx_sim,reviewed
+abdomen,abdomen,activities and events,38,1.00,1.00,no
+abs,abs,activities and events,32,1.00,1.00,no
+back,back,activities and events,64,1.00,1.00,no
+bench,bench,activities and events,84,1.00,1.00,no
+cheerleader,cheerleader,activities and events,32,1.00,1.00,no
+christmas,christmas,activities and events,195,1.00,1.00,yes
+cigarette,cigarette,activities and events,35,1.00,1.00,no
+crib,crib,activities and events,32,1.00,1.00,no
+cross,cross,activities and events,76,1.00,1.00,no
+crying,crying,activities and events,32,1.00,1.00,no
+exercise,exercise,activities and events,40,1.00,1.00,no
+fitness,fitness,activities and events,95,1.00,1.00,yes
+gym,fitness,activities and events,77,0.74,0.54,yes
+friend,friend,activities and events,64,1.00,1.00,no
+hay,hay,activities and events,33,1.00,1.00,no
+kneeling,kneeling,activities and events,315,1.00,1.00,yes
+lying down,lying down,activities and events,265,1.00,1.00,yes
+military,military,activities and events,88,1.00,1.00,no
+nurse,nurse,activities and events,34,1.00,1.00,no
+sitting,sitting,activities and events,539,1.00,1.00,yes
+sleeping,sleeping,activities and events,61,1.00,1.00,no
+football,sport,activities and events,102,1.00,1.00,yes
+soccer,sport,activities and events,82,0.84,0.63,yes
+sports,sport,activities and events,82,0.80,0.73,yes
+basketball,sport,activities and events,53,0.78,0.46,yes
+squatting,squatting,activities and events,45,1.00,1.00,no
+swimming,swimming,activities and events,85,1.00,1.00,no
+teal,teal,activities and events,48,1.00,1.00,no
+thigh,thigh,activities and events,59,1.00,1.00,no
+walking,walking,activities and events,44,1.00,1.00,no
+weibo,weibo,activities and events,41,1.00,1.00,no
+western,western,activities and events,51,1.00,1.00,no
+yoga,yoga,activities and events,49,1.00,1.00,no
+yoga mat,yoga,activities and events,34,0.79,0.61,no
+alien,alien,animals,50,1.00,1.00,no
+animal,animal,animals,251,1.00,1.00,yes
+pet,animal,animals,71,0.76,0.49,via class
+mammal,animal,animals,36,0.78,0.56,via class
+arrow,arrow,animals,66,1.00,1.00,no
+bear,bear,animals,33,1.00,1.00,no
+bird,bird,animals,221,1.00,1.00,yes
+bunny ear,bunny ear,animals,84,1.00,1.00,no
+cat,cat,animals,391,1.00,1.00,yes
+cat ear,cat ear,animals,75,1.00,1.00,no
+chicken,chicken,animals,32,1.00,1.00,no
+dog,dog,animals,248,1.00,1.00,yes
+dragon,dragon,animals,33,1.00,1.00,no
+fox,fox,animals,58,1.00,1.00,no
+frog,frog,animals,66,1.00,1.00,no
+fur,fur,animals,38,1.00,1.00,no
+horse,horse,animals,67,1.00,1.00,no
+insect,insect,animals,31,1.00,1.00,no
+llama,llama,animals,96,1.00,1.00,no
+monster,monster,animals,53,1.00,1.00,no
+ostrich,ostrich,animals,65,1.00,1.00,no
+penguin,penguin,animals,41,1.00,1.00,no
+pigtail,pigtail,animals,43,1.00,1.00,no
+rabbit,rabbit,animals,72,1.00,1.00,no
+sheep,sheep,animals,54,1.00,1.00,no
+teddy bear,teddy bear,animals,36,1.00,1.00,no
+twin tail,twin tail,animals,30,1.00,1.00,no
+3d render,3d render,art and abstract,73,1.00,1.00,yes
+abstract,abstract,art and abstract,2468,1.00,1.00,yes
+abstract pattern,abstract,art and abstract,143,0.72,0.78,via class
+animation,animation,art and abstract,377,1.00,1.00,yes
+anime,anime,art and abstract,519,1.00,1.00,yes
+manga,anime,art and abstract,68,1.00,1.00,yes
+anime character,anime character,art and abstract,55,1.00,1.00,no
+art,art,art and abstract,139,1.00,1.00,yes
+classroom,classroom,art and abstract,56,1.00,1.00,no
+crystal,crystal,art and abstract,41,1.00,1.00,no
+digital art,digital art,art and abstract,1076,1.00,1.00,yes
+computer graphics,digital art,art and abstract,204,1.00,1.00,yes
+computer generated art,digital art,art and abstract,101,0.73,0.69,via class
+computer generated,digital art,art and abstract,80,0.75,0.87,via class
+computer art,digital art,art and abstract,42,0.85,0.60,via class
+computer generated image,digital art,art and abstract,30,0.77,0.78,via class
+drawing,drawing,art and abstract,371,1.00,1.00,yes
+sketch,drawing,art and abstract,282,0.74,0.86,via class
+sketchbook,drawing,art and abstract,30,0.80,0.65,via class
+fantasy,fantasy,art and abstract,131,1.00,1.00,yes
+fantasy art,fantasy art,art and abstract,34,1.00,1.00,no
+form,form,art and abstract,79,1.00,1.00,no
+fractal,fractal,art and abstract,2314,1.00,1.00,yes
+fractal art,fractal,art and abstract,110,0.87,0.79,via class
+geometric,geometric,art and abstract,80,1.00,1.00,no
+geometry,geometry,art and abstract,67,1.00,1.00,no
+graffiti,graffiti,art and abstract,84,1.00,1.00,no
+graphic design,graphic design,art and abstract,139,1.00,1.00,yes
+handwriting,handwriting,art and abstract,60,1.00,1.00,no
+illustration,illustration,art and abstract,744,1.00,1.00,yes
+julia set,julia set,art and abstract,983,1.00,1.00,yes
+low poly,low poly,art and abstract,191,1.00,1.00,yes
+low-poly,low poly,art and abstract,57,0.95,0.58,via class
+low poly art,low poly,art and abstract,39,0.79,0.51,via class
+mandelbrot set,mandelbrot set,art and abstract,1198,1.00,1.00,yes
+mathematical visualization,mathematical visualization,art and abstract,72,1.00,1.00,no
+mathematics,mathematics,art and abstract,409,1.00,1.00,yes
+mathematical art,mathematics,art and abstract,398,0.74,0.72,via class
+mathematical,mathematics,art and abstract,54,0.91,0.76,via class
+math,mathematics,art and abstract,33,0.91,0.53,via class
+midriff,midriff,art and abstract,35,1.00,1.00,no
+mural,mural,art and abstract,36,1.00,1.00,no
+painting,painting,art and abstract,221,1.00,1.00,yes
+pattern,pattern,art and abstract,696,1.00,1.00,yes
+mathematical pattern,pattern,art and abstract,530,0.81,0.59,via class
+geometric pattern,pattern,art and abstract,116,0.75,0.49,via class
+pixel art,pixel art,art and abstract,111,1.00,1.00,yes
+poster,poster,art and abstract,316,1.00,1.00,yes
+reflection,reflection,art and abstract,75,1.00,1.00,no
+spiral,spiral,art and abstract,104,1.00,1.00,yes
+static,static,art and abstract,45,1.00,1.00,no
+statue,statue,art and abstract,115,1.00,1.00,yes
+sculpture,statue,art and abstract,68,1.00,1.00,yes
+tile,tile,art and abstract,31,1.00,1.00,no
+bitcoin,bitcoin,bitcoin and crypto,1750,1.00,1.00,yes
+blockchain,blockchain,bitcoin and crypto,116,1.00,1.00,yes
+business,business,bitcoin and crypto,55,1.00,1.00,no
+chain,chain,bitcoin and crypto,52,1.00,1.00,no
+circuit board,circuit board,bitcoin and crypto,57,1.00,1.00,no
+coin,coin,bitcoin and crypto,86,1.00,1.00,no
+cryptocurrency,cryptocurrency,bitcoin and crypto,1059,1.00,1.00,yes
+currency,currency,bitcoin and crypto,34,1.00,1.00,no
+cyberpunk,cyberpunk,bitcoin and crypto,52,1.00,1.00,no
+cybersecurity,cybersecurity,bitcoin and crypto,68,1.00,1.00,no
+economics,economics,bitcoin and crypto,54,1.00,1.00,no
+finance,finance,bitcoin and crypto,317,1.00,1.00,yes
+financial data,financial data,bitcoin and crypto,59,1.00,1.00,no
+religion,religion,bitcoin and crypto,56,1.00,1.00,no
+steampunk,steampunk,bitcoin and crypto,35,1.00,1.00,no
+tradingview,tradingview,bitcoin and crypto,37,1.00,1.00,no
+transaction,transaction,bitcoin and crypto,40,1.00,1.00,no
+armor,armor,body and clothing,31,1.00,1.00,no
+backpack,backpack,body and clothing,59,1.00,1.00,no
+bag,bag,body and clothing,44,1.00,1.00,no
+beard,beard,body and clothing,286,1.00,1.00,yes
+mustache,beard,body and clothing,65,1.00,1.00,yes
+blonde hair,blonde hair,body and clothing,358,1.00,1.00,yes
+blonde,blonde hair,body and clothing,308,1.00,1.00,yes
+bodysuit,bodysuit,body and clothing,41,1.00,1.00,no
+bow,bow,body and clothing,53,1.00,1.00,no
+bow tie,bow tie,body and clothing,45,1.00,1.00,no
+braid,braid,body and clothing,37,1.00,1.00,no
+brand,brand,body and clothing,65,1.00,1.00,no
+chest,chest,body and clothing,94,1.00,1.00,no
+clothing,clothing,body and clothing,174,1.00,1.00,yes
+cosplay,cosplay,body and clothing,422,1.00,1.00,yes
+costume,cosplay,body and clothing,72,1.00,1.00,yes
+curly hair,curly hair,body and clothing,33,1.00,1.00,no
+denim shorts,denim shorts,body and clothing,35,1.00,1.00,no
+doll,doll,body and clothing,39,1.00,1.00,no
+dress,dress,body and clothing,426,1.00,1.00,yes
+white dress,dress,body and clothing,118,1.00,1.00,yes
+red dress,dress,body and clothing,75,1.00,1.00,yes
+fabric,fabric,body and clothing,49,1.00,1.00,no
+fashion,fashion,body and clothing,97,1.00,1.00,no
+female,female,body and clothing,88,1.00,1.00,no
+foot,foot,body and clothing,232,1.00,1.00,yes
+barefoot,foot,body and clothing,47,1.00,1.00,yes
+gear,gear,body and clothing,34,1.00,1.00,no
+glasses,glasses,body and clothing,478,1.00,1.00,yes
+glove,glove,body and clothing,71,1.00,1.00,no
+hair,hair,body and clothing,574,1.00,1.00,yes
+long hair,hair,body and clothing,247,1.00,1.00,yes
+black hair,hair,body and clothing,87,1.00,1.00,yes
+pink hair,hair,body and clothing,65,1.00,1.00,yes
+hand,hand,body and clothing,861,1.00,1.00,yes
+finger,hand,body and clothing,68,0.73,0.63,yes
+handbag,handbag,body and clothing,58,1.00,1.00,no
+hanfu,hanfu,body and clothing,67,1.00,1.00,no
+hat,hat,body and clothing,396,1.00,1.00,yes
+cowboy hat,hat,body and clothing,60,1.00,1.00,yes
+cap,hat,body and clothing,51,1.00,1.00,yes
+headband,headband,body and clothing,42,1.00,1.00,no
+helmet,helmet,body and clothing,92,1.00,1.00,yes
+high heel,high heel,body and clothing,530,1.00,1.00,yes
+heel,high heel,body and clothing,65,0.82,0.54,yes
+hoodie,hoodie,body and clothing,107,1.00,1.00,yes
+human body,human body,body and clothing,80,1.00,1.00,yes
+body,human body,body and clothing,50,0.80,0.63,yes
+jacket,jacket,body and clothing,140,1.00,1.00,yes
+leather jacket,jacket,body and clothing,41,1.00,1.00,yes
+jeans,jeans,body and clothing,204,1.00,1.00,yes
+necklace,jewelry,body and clothing,338,1.00,1.00,yes
+jewelry,jewelry,body and clothing,158,0.81,0.46,yes
+bracelet,jewelry,body and clothing,114,0.73,0.49,yes
+earring,jewelry,body and clothing,88,1.00,1.00,yes
+kimono,kimono,body and clothing,110,1.00,1.00,yes
+lace,lace,body and clothing,69,1.00,1.00,no
+leg,leg,body and clothing,554,1.00,1.00,yes
+locker,locker,body and clothing,42,1.00,1.00,no
+maid outfit,maid outfit,body and clothing,68,1.00,1.00,yes
+maid,maid outfit,body and clothing,64,0.82,0.52,yes
+makeup,makeup,body and clothing,67,1.00,1.00,no
+model,model,body and clothing,45,1.00,1.00,no
+muscle,muscle,body and clothing,68,1.00,1.00,yes
+muscular,muscle,body and clothing,43,0.88,0.62,via class
+navel,navel,body and clothing,30,1.00,1.00,no
+packaging,packaging,body and clothing,45,1.00,1.00,no
+pants,pants,body and clothing,52,1.00,1.00,no
+pantyhose,pantyhose,body and clothing,104,1.00,1.00,yes
+leggings,pantyhose,body and clothing,75,1.00,1.00,yes
+tights,pantyhose,body and clothing,39,1.00,1.00,yes
+ponytail,ponytail,body and clothing,45,1.00,1.00,no
+profile,profile,body and clothing,72,1.00,1.00,no
+robe,robe,body and clothing,56,1.00,1.00,no
+rug,rug,body and clothing,59,1.00,1.00,no
+sailor suit,sailor suit,body and clothing,52,1.00,1.00,no
+school uniform,school uniform,body and clothing,270,1.00,1.00,yes
+shirt,shirt,body and clothing,339,1.00,1.00,yes
+white shirt,shirt,body and clothing,194,1.00,1.00,yes
+t-shirt,shirt,body and clothing,150,0.80,0.48,yes
+white top,shirt,body and clothing,67,1.00,1.00,yes
+boot,shoe,body and clothing,141,1.00,1.00,yes
+shoe,shoe,body and clothing,128,0.74,0.45,yes
+sneaker,shoe,body and clothing,73,1.00,1.00,yes
+short hair,short hair,body and clothing,41,1.00,1.00,no
+shorts,shorts,body and clothing,118,1.00,1.00,yes
+skin,skin,body and clothing,326,1.00,1.00,yes
+skirt,skirt,body and clothing,294,1.00,1.00,yes
+soap,soap,body and clothing,32,1.00,1.00,no
+socks,socks,body and clothing,135,1.00,1.00,yes
+stockings,stockings,body and clothing,623,1.00,1.00,yes
+fishnet stockings,stockings,body and clothing,70,1.00,1.00,yes
+suit,suit,body and clothing,471,1.00,1.00,yes
+tie,suit,body and clothing,151,1.00,1.00,yes
+sunglasses,sunglasses,body and clothing,221,1.00,1.00,yes
+sweater,sweater,body and clothing,73,1.00,1.00,no
+bikini,swimwear,body and clothing,494,1.00,1.00,yes
+swimsuit,swimwear,body and clothing,162,0.75,0.63,yes
+swimwear,swimwear,body and clothing,59,0.81,0.57,yes
+tattoo,tattoo,body and clothing,475,1.00,1.00,yes
+torso,torso,body and clothing,157,1.00,1.00,yes
+traditional clothing,traditional clothing,body and clothing,39,1.00,1.00,no
+uniform,uniform,body and clothing,111,1.00,1.00,yes
+military uniform,uniform,body and clothing,51,1.00,1.00,yes
+wet hair,wet hair,body and clothing,43,1.00,1.00,no
+bar,bar,food and drink,41,1.00,1.00,no
+basket,basket,food and drink,32,1.00,1.00,no
+beer,beer,food and drink,53,1.00,1.00,no
+bowl,bowl,food and drink,64,1.00,1.00,no
+bread,bread,food and drink,47,1.00,1.00,no
+cake,cake,food and drink,36,1.00,1.00,no
+card,card,food and drink,74,1.00,1.00,no
+cheongsam,cheongsam,food and drink,41,1.00,1.00,no
+clock,clock,food and drink,54,1.00,1.00,no
+coffee,coffee,food and drink,150,1.00,1.00,yes
+coffee cup,coffee,food and drink,80,0.88,0.67,via class
+dessert,dessert,food and drink,30,1.00,1.00,no
+drink,drink,food and drink,54,1.00,1.00,no
+family,family,food and drink,34,1.00,1.00,no
+food,food,food and drink,246,1.00,1.00,yes
+fruit,fruit,food and drink,41,1.00,1.00,no
+game over,game over,food and drink,60,1.00,1.00,no
+ice,ice,food and drink,34,1.00,1.00,no
+key,key,food and drink,34,1.00,1.00,no
+meat,meat,food and drink,43,1.00,1.00,no
+menu,menu,food and drink,66,1.00,1.00,no
+money,money,food and drink,67,1.00,1.00,no
+mug,mug,food and drink,130,1.00,1.00,yes
+cup,mug,food and drink,98,1.00,1.00,yes
+mushroom,mushroom,food and drink,42,1.00,1.00,no
+party,party,food and drink,34,1.00,1.00,no
+payment,payment,food and drink,30,1.00,1.00,no
+pizza,pizza,food and drink,32,1.00,1.00,no
+plate,plate,food and drink,66,1.00,1.00,no
+puzzle,puzzle,food and drink,68,1.00,1.00,no
+restaurant,restaurant,food and drink,45,1.00,1.00,no
+ruin,ruin,food and drink,40,1.00,1.00,no
+saucer,saucer,food and drink,49,1.00,1.00,no
+smoke,smoke,food and drink,60,1.00,1.00,no
+spoon,spoon,food and drink,61,1.00,1.00,no
+tabby,tabby,food and drink,30,1.00,1.00,no
+toilet,toilet,food and drink,30,1.00,1.00,no
+tongue,tongue,food and drink,48,1.00,1.00,no
+vegetable,vegetable,food and drink,34,1.00,1.00,no
+advertisement,advertisement,memes and media,167,1.00,1.00,yes
+article,article,memes and media,83,1.00,1.00,no
+bubble,bubble,memes and media,31,1.00,1.00,no
+cartoon,cartoon,memes and media,1138,1.00,1.00,yes
+character,cartoon,memes and media,271,1.00,1.00,yes
+disney,cartoon,memes and media,64,1.00,1.00,yes
+cartoon character,cartoon,memes and media,62,0.73,0.49,via class
+comic,comic,memes and media,191,1.00,1.00,yes
+speech bubble,comic,memes and media,145,1.00,1.00,yes
+comic strip,comic,memes and media,67,0.75,0.58,via class
+comment,comment,memes and media,36,1.00,1.00,no
+conversation,conversation,memes and media,46,1.00,1.00,no
+education,education,memes and media,80,1.00,1.00,no
+galaxy,galaxy,memes and media,35,1.00,1.00,no
+gold,gold,memes and media,77,1.00,1.00,no
+japanese,japanese,memes and media,50,1.00,1.00,no
+meme,meme,memes and media,2478,1.00,1.00,yes
+humor,meme,memes and media,296,1.00,1.00,yes
+movie,movie,memes and media,113,1.00,1.00,yes
+movie still,movie still,memes and media,50,1.00,1.00,no
+film still,movie still,memes and media,31,0.89,0.46,no
+news,news,memes and media,252,1.00,1.00,yes
+headline,news,memes and media,146,1.00,1.00,yes
+news article,news,memes and media,116,0.78,0.51,via class
+pearl,pearl,memes and media,45,1.00,1.00,no
+play button,play button,memes and media,64,1.00,1.00,no
+playing card,playing card,memes and media,43,1.00,1.00,no
+podcast,podcast,memes and media,53,1.00,1.00,no
+political cartoon,political cartoon,memes and media,43,1.00,1.00,no
+politics,politics,memes and media,234,1.00,1.00,yes
+political,politics,memes and media,32,0.92,0.47,via class
+report,report,memes and media,41,1.00,1.00,no
+satire,satire,memes and media,70,1.00,1.00,no
+social media,social media,memes and media,722,1.00,1.00,yes
+social media post,social media,memes and media,284,0.80,0.65,via class
+twitter,social media,memes and media,143,0.74,0.52,via class
+tweet,social media,memes and media,94,0.82,0.50,via class
+kuzco,the emperor's new groove,memes and media,117,1.00,1.00,yes
+the emperor's new groove,the emperor's new groove,memes and media,100,1.00,1.00,yes
+pacha,the emperor's new groove,memes and media,75,1.00,1.00,yes
+yzma,the emperor's new groove,memes and media,57,1.00,1.00,yes
+kronk,the emperor's new groove,memes and media,49,1.00,1.00,yes
+video game,video game,memes and media,423,1.00,1.00,yes
+game,video game,memes and media,146,1.00,1.00,yes
+video game character,video game character,memes and media,44,1.00,1.00,no
+3d model,3d model,objects,35,1.00,1.00,no
+arm,arm,objects,39,1.00,1.00,no
+bathtub,bathtub,objects,147,1.00,1.00,yes
+bath,bathtub,objects,37,0.81,0.63,via class
+bed,bed,objects,1547,1.00,1.00,yes
+blanket,blanket,objects,107,1.00,1.00,yes
+bookshelf,bookshelf,objects,72,1.00,1.00,no
+bottle,bottle,objects,153,1.00,1.00,yes
+box,box,objects,87,1.00,1.00,no
+cabinet,cabinet,objects,35,1.00,1.00,no
+cable,cable,objects,31,1.00,1.00,no
+carpet,carpet,objects,31,1.00,1.00,no
+chair,chair,objects,487,1.00,1.00,yes
+computer,computer,objects,118,1.00,1.00,yes
+keyboard,computer,objects,98,1.00,1.00,yes
+couch,couch,objects,585,1.00,1.00,yes
+curtain,curtain,objects,205,1.00,1.00,yes
+door,door,objects,124,1.00,1.00,yes
+electronics,electronics,objects,75,1.00,1.00,no
+fence,fence,objects,110,1.00,1.00,yes
+furniture,furniture,objects,39,1.00,1.00,no
+glass,glass,objects,111,1.00,1.00,yes
+gun,gun,objects,117,1.00,1.00,yes
+headphones,headphones,objects,90,1.00,1.00,no
+knife,knife,objects,38,1.00,1.00,no
+lamp,lamp,objects,149,1.00,1.00,yes
+laptop,laptop,objects,165,1.00,1.00,yes
+machine,machine,objects,41,1.00,1.00,no
+microphone,microphone,objects,195,1.00,1.00,yes
+mirror,mirror,objects,232,1.00,1.00,yes
+notebook,notebook,objects,70,1.00,1.00,no
+office,office,objects,73,1.00,1.00,no
+pen,pen,objects,117,1.00,1.00,yes
+pencil,pencil,objects,73,1.00,1.00,no
+pillow,pillow,objects,349,1.00,1.00,yes
+plush toy,plush toy,objects,35,1.00,1.00,no
+rifle,rifle,objects,46,1.00,1.00,no
+robot,robot,objects,168,1.00,1.00,yes
+rope,rope,objects,54,1.00,1.00,no
+shelf,shelf,objects,40,1.00,1.00,no
+skull,skull,objects,49,1.00,1.00,no
+sword,sword,objects,58,1.00,1.00,no
+table,table,objects,583,1.00,1.00,yes
+desk,table,objects,99,1.00,1.00,yes
+towel,towel,objects,117,1.00,1.00,yes
+toy,toy,objects,61,1.00,1.00,no
+vase,vase,objects,31,1.00,1.00,no
+weapon,weapon,objects,36,1.00,1.00,no
+window,window,objects,404,1.00,1.00,yes
+wood,wood,objects,106,1.00,1.00,yes
+actor,actor,people,34,1.00,1.00,no
+asian,asian,people,58,1.00,1.00,no
+brazil,brazil,people,43,1.00,1.00,no
+concert,concert,people,59,1.00,1.00,no
+conference,conference,people,30,1.00,1.00,no
+couple,couple,people,124,1.00,1.00,yes
+cowboy,cowboy,people,55,1.00,1.00,no
+crowd,crowd,people,157,1.00,1.00,yes
+discord,discord,people,38,1.00,1.00,no
+face,face,people,604,1.00,1.00,yes
+face mask,face mask,people,33,1.00,1.00,no
+fan,fan,people,68,1.00,1.00,no
+group,group,people,49,1.00,1.00,no
+handshake,handshake,people,30,1.00,1.00,no
+head,head,people,34,1.00,1.00,no
+human,human,people,51,1.00,1.00,no
+man,man,people,2801,1.00,1.00,yes
+male,man,people,176,1.00,1.00,yes
+mask,mask,people,84,1.00,1.00,no
+movie scene,movie scene,people,55,1.00,1.00,no
+noise,noise,people,47,1.00,1.00,no
+number,number,people,45,1.00,1.00,no
+people,people,people,454,1.00,1.00,yes
+person,person,people,2750,1.00,1.00,yes
+police,police,people,30,1.00,1.00,no
+politician,politician,people,45,1.00,1.00,no
+portrait,portrait,people,1607,1.00,1.00,yes
+posing,posing,people,33,1.00,1.00,no
+protest,protest,people,59,1.00,1.00,no
+selfie,selfie,people,300,1.00,1.00,yes
+mirror selfie,selfie,people,88,1.00,1.00,yes
+smile,smile,people,583,1.00,1.00,yes
+soldier,soldier,people,106,1.00,1.00,yes
+speaker,speaker,people,34,1.00,1.00,no
+stage,stage,people,35,1.00,1.00,no
+standing,standing,people,56,1.00,1.00,no
+three woman,three woman,people,35,1.00,1.00,no
+top,top,people,39,1.00,1.00,no
+two woman,two woman,people,48,1.00,1.00,no
+video,video,people,31,1.00,1.00,no
+woman,woman,people,8801,1.00,1.00,yes
+architecture,architecture,places and nature,144,1.00,1.00,yes
+autumn,autumn,places and nature,49,1.00,1.00,no
+balcony,balcony,places and nature,37,1.00,1.00,no
+bathroom,bathroom,places and nature,179,1.00,1.00,yes
+beach,beach,places and nature,359,1.00,1.00,yes
+sand,beach,places and nature,94,1.00,1.00,yes
+bedroom,bedroom,places and nature,257,1.00,1.00,yes
+book cover,book cover,places and nature,58,1.00,1.00,no
+building,building,places and nature,485,1.00,1.00,yes
+castle,castle,places and nature,51,1.00,1.00,no
+church,church,places and nature,60,1.00,1.00,no
+cityscape,city,places and nature,114,1.00,1.00,yes
+city,city,places and nature,77,1.00,1.00,yes
+cloud,cloud,places and nature,310,1.00,1.00,yes
+desert,desert,places and nature,82,1.00,1.00,yes
+fire,fire,places and nature,119,1.00,1.00,yes
+fireplace,fireplace,places and nature,56,1.00,1.00,no
+floor,floor,places and nature,85,1.00,1.00,no
+flower,flower,places and nature,371,1.00,1.00,yes
+fog,fog,places and nature,59,1.00,1.00,no
+forest,forest,places and nature,321,0.75,0.61,yes
+garden,garden,places and nature,108,1.00,1.00,yes
+grass,grass,places and nature,316,1.00,1.00,yes
+field,grass,places and nature,81,1.00,1.00,yes
+grid,grid,places and nature,76,1.00,1.00,no
+hiker,hiker,places and nature,35,1.00,1.00,no
+hiking,hiking,places and nature,66,1.00,1.00,no
+hospital,hospital,places and nature,33,1.00,1.00,no
+house,house,places and nature,118,1.00,1.00,yes
+indoor,indoor,places and nature,599,1.00,1.00,yes
+interior,interior,places and nature,44,1.00,1.00,no
+jungle,jungle,places and nature,42,1.00,1.00,no
+kitchen,kitchen,places and nature,148,1.00,1.00,yes
+lake,lake,places and nature,116,1.00,1.00,yes
+landscape,landscape,places and nature,470,1.00,1.00,yes
+lantern,lantern,places and nature,35,1.00,1.00,no
+leaf,leaf,places and nature,115,1.00,1.00,yes
+mountain,mountain,places and nature,489,1.00,1.00,yes
+mountains,mountain,places and nature,72,0.88,0.57,via class
+cliff,mountain,places and nature,65,1.00,1.00,yes
+hill,mountain,places and nature,64,1.00,1.00,yes
+nature,nature,places and nature,205,1.00,1.00,yes
+night,night,places and nature,269,1.00,1.00,yes
+night sky,night sky,places and nature,48,1.00,1.00,no
+ocean,ocean,places and nature,288,1.00,1.00,yes
+sea,ocean,places and nature,100,0.87,0.62,yes
+outdoor,outdoor,places and nature,620,1.00,1.00,yes
+park,park,places and nature,48,1.00,1.00,no
+path,path,places and nature,56,1.00,1.00,no
+plant,plant,places and nature,355,1.00,1.00,yes
+pool,pool,places and nature,85,1.00,1.00,yes
+swimming pool,pool,places and nature,70,0.90,0.47,via class
+ring,ring,places and nature,74,1.00,1.00,no
+river,river,places and nature,124,1.00,1.00,yes
+road,road,places and nature,141,1.00,1.00,yes
+rock,rock,places and nature,255,1.00,1.00,yes
+roof,roof,places and nature,30,1.00,1.00,no
+rooftop,rooftop,places and nature,41,1.00,1.00,no
+setting,setting,places and nature,79,1.00,1.00,no
+shower,shower,places and nature,75,1.00,1.00,no
+sky,sky,places and nature,786,1.00,1.00,yes
+snow,snow,places and nature,302,1.00,1.00,yes
+winter,snow,places and nature,261,0.81,0.69,yes
+space,space,places and nature,105,1.00,1.00,yes
+moon,space,places and nature,91,1.00,1.00,yes
+stadium,stadium,places and nature,40,1.00,1.00,no
+stairs,stairs,places and nature,94,1.00,1.00,yes
+staircase,stairs,places and nature,42,0.92,0.36,yes
+stone,stone,places and nature,40,1.00,1.00,no
+stone wall,stone wall,places and nature,50,1.00,1.00,no
+street,street,places and nature,166,1.00,1.00,yes
+summer,summer,places and nature,73,1.00,1.00,no
+sunlight,sunlight,places and nature,38,1.00,1.00,no
+sunset,sunset,places and nature,382,1.00,1.00,yes
+tower,tower,places and nature,45,1.00,1.00,no
+tree,tree,places and nature,846,1.00,1.00,yes
+umbrella,umbrella,places and nature,40,1.00,1.00,no
+underwater,underwater,places and nature,106,1.00,1.00,yes
+valley,valley,places and nature,41,1.00,1.00,no
+vegetation,vegetation,places and nature,32,1.00,1.00,no
+wall,wall,places and nature,230,1.00,1.00,yes
+water,water,places and nature,506,1.00,1.00,yes
+android,android,screens and apps,52,1.00,1.00,no
+app,app,screens and apps,47,1.00,1.00,no
+apple,apple,screens and apps,33,1.00,1.00,no
+avatar,avatar,screens and apps,115,1.00,1.00,yes
+button,button,screens and apps,438,1.00,1.00,yes
+camera,camera,screens and apps,78,1.00,1.00,no
+chat,chat interface,screens and apps,215,1.00,1.00,yes
+chat interface,chat interface,screens and apps,172,1.00,1.00,yes
+messaging app,chat interface,screens and apps,76,1.00,1.00,yes
+chat application,chat interface,screens and apps,46,0.80,0.60,via class
+cherry blossom,cherry blossom,screens and apps,54,1.00,1.00,no
+code,code,screens and apps,137,1.00,1.00,yes
+terminal,code,screens and apps,80,1.00,1.00,yes
+programming,code,screens and apps,45,1.00,1.00,yes
+computer screen,computer screen,screens and apps,38,1.00,1.00,no
+dark mode,dark mode,screens and apps,579,1.00,1.00,yes
+dashboard,dashboard,screens and apps,152,1.00,1.00,yes
+dialog box,dialog box,screens and apps,37,1.00,1.00,no
+error message,error message,screens and apps,117,1.00,1.00,yes
+game interface,game interface,screens and apps,37,1.00,1.00,no
+game over screen,game over screen,screens and apps,34,1.00,1.00,no
+github,github,screens and apps,41,1.00,1.00,no
+google,google,screens and apps,47,1.00,1.00,no
+icon,icon,screens and apps,428,1.00,1.00,yes
+emoji,icon,screens and apps,88,1.00,1.00,yes
+app icon,icon,screens and apps,48,0.79,0.49,via class
+mobile app,mobile app,screens and apps,416,1.00,1.00,yes
+mobile interface,mobile app,screens and apps,273,1.00,1.00,yes
+mobile app interface,mobile app,screens and apps,94,0.88,0.58,yes
+mobile,mobile app,screens and apps,77,0.80,0.47,via class
+mobile game,mobile game,screens and apps,203,1.00,1.00,yes
+monitor,monitor,screens and apps,36,1.00,1.00,no
+movie poster,movie poster,screens and apps,31,1.00,1.00,no
+page,page,screens and apps,41,1.00,1.00,no
+photo,photo,screens and apps,39,1.00,1.00,no
+profile picture,profile picture,screens and apps,32,1.00,1.00,no
+screen,screen,screens and apps,192,1.00,1.00,yes
+television,screen,screens and apps,82,1.00,1.00,yes
+screenshot,screenshot,screens and apps,2952,1.00,1.00,yes
+mobile screenshot,screenshot,screens and apps,68,0.79,0.60,via class
+search bar,search bar,screens and apps,43,1.00,1.00,no
+settings menu,settings menu,screens and apps,31,1.00,1.00,no
+smartphone,smartphone,screens and apps,720,1.00,1.00,yes
+phone,smartphone,screens and apps,127,1.00,1.00,yes
+software,software,screens and apps,151,1.00,1.00,yes
+software interface,software,screens and apps,55,0.72,0.61,via class
+tatami,tatami,screens and apps,34,1.00,1.00,no
+user interface,user interface,screens and apps,1067,1.00,1.00,yes
+interface,user interface,screens and apps,390,0.74,0.57,yes
+web browser,web browser,screens and apps,53,1.00,1.00,no
+browser,web browser,screens and apps,38,0.91,0.45,no
+website,website,screens and apps,197,1.00,1.00,yes
+webpage,website,screens and apps,137,1.00,1.00,yes
+web application,website,screens and apps,69,1.00,1.00,yes
+web interface,website,screens and apps,66,0.75,0.56,yes
+album cover,album cover,style and colour,52,1.00,1.00,no
+back view,back view,style and colour,79,1.00,1.00,no
+background,background,style and colour,46,1.00,1.00,no
+black,black,style and colour,81,1.00,1.00,no
+black and white,black and white,style and colour,457,1.00,1.00,yes
+grayscale,black and white,style and colour,129,1.00,1.00,yes
+black background,black background,style and colour,101,1.00,1.00,yes
+dark background,black background,style and colour,82,1.00,1.00,yes
+black dress,black dress,style and colour,37,1.00,1.00,no
+blue,blue,style and colour,307,1.00,1.00,yes
+blue dress,blue dress,style and colour,36,1.00,1.00,no
+blue eye,blue eye,style and colour,32,1.00,1.00,no
+blue hair,blue hair,style and colour,35,1.00,1.00,no
+camouflage,camouflage,style and colour,32,1.00,1.00,no
+candle,candle,style and colour,90,1.00,1.00,no
+cardigan,cardigan,style and colour,37,1.00,1.00,no
+close-up,close-up,style and colour,58,1.00,1.00,yes
+close up,close-up,style and colour,44,0.90,0.51,yes
+colorful,colorful,style and colour,101,0.76,0.52,yes
+colorful pattern,colorful pattern,style and colour,36,1.00,1.00,no
+crown,crown,style and colour,53,1.00,1.00,no
+dark,dark,style and colour,59,1.00,1.00,no
+design,design,style and colour,40,1.00,1.00,no
+digital,digital,style and colour,49,1.00,1.00,no
+eye,eye,style and colour,96,1.00,1.00,no
+flame,flame,style and colour,53,1.00,1.00,no
+frame,frame,style and colour,32,1.00,1.00,no
+gradient,gradient,style and colour,65,1.00,1.00,no
+green,green,style and colour,184,1.00,1.00,yes
+guitar,guitar,style and colour,65,1.00,1.00,no
+history,history,style and colour,47,1.00,1.00,no
+ink,ink,style and colour,30,1.00,1.00,no
+light,light,style and colour,72,1.00,1.00,no
+lightning,lightning,style and colour,49,1.00,1.00,no
+looking back,looking back,style and colour,32,1.00,1.00,no
+minimalist,minimalist,style and colour,33,1.00,1.00,no
+music,music,style and colour,77,1.00,1.00,no
+neon,neon,style and colour,55,1.00,1.00,no
+orange,orange,style and colour,119,1.00,1.00,yes
+philosophy,philosophy,style and colour,38,1.00,1.00,no
+pink,pink,style and colour,158,1.00,1.00,yes
+pink dress,pink dress,style and colour,35,1.00,1.00,no
+plaid skirt,plaid skirt,style and colour,52,1.00,1.00,no
+presentation,presentation,style and colour,49,1.00,1.00,no
+psychedelic,psychedelic,style and colour,44,1.00,1.00,no
+purple,purple,style and colour,123,1.00,1.00,yes
+railing,railing,style and colour,36,1.00,1.00,no
+red,red,style and colour,104,1.00,1.00,yes
+red hair,red hair,style and colour,59,1.00,1.00,no
+retro,retro,style and colour,34,1.00,1.00,no
+rose,rose,style and colour,49,1.00,1.00,no
+sci-fi,sci-fi,style and colour,49,1.00,1.00,no
+shadow,shadow,style and colour,41,1.00,1.00,no
+silhouette,silhouette,style and colour,172,1.00,1.00,yes
+texture,texture,style and colour,121,1.00,1.00,yes
+title,title,style and colour,30,1.00,1.00,no
+vintage,vintage,style and colour,83,1.00,1.00,no
+watch,watch,style and colour,33,1.00,1.00,no
+white,white,style and colour,78,1.00,1.00,no
+white hair,white hair,style and colour,34,1.00,1.00,no
+yellow,yellow,style and colour,69,1.00,1.00,no
+ball,ball,symbols and logos,31,1.00,1.00,no
+banner,banner,symbols and logos,84,1.00,1.00,no
+branch,branch,symbols and logos,36,1.00,1.00,no
+branding,branding,symbols and logos,72,1.00,1.00,no
+brick wall,brick wall,symbols and logos,52,1.00,1.00,no
+circle,circle,symbols and logos,71,1.00,1.00,no
+emblem,emblem,symbols and logos,53,1.00,1.00,no
+flag,flag,symbols and logos,222,1.00,1.00,yes
+heart,heart,symbols and logos,102,1.00,1.00,yes
+jar,jar,symbols and logos,30,1.00,1.00,no
+jersey,jersey,symbols and logos,41,1.00,1.00,no
+leotard,leotard,symbols and logos,34,1.00,1.00,no
+logo,logo,symbols and logos,1146,1.00,1.00,yes
+message,message,symbols and logos,31,1.00,1.00,no
+nostr,nostr,symbols and logos,203,1.00,1.00,yes
+notification,notification,symbols and logos,65,1.00,1.00,no
+palm tree,palm tree,symbols and logos,92,1.00,1.00,no
+peace sign,peace sign,symbols and logos,30,1.00,1.00,no
+proof of burn,proof of burn,symbols and logos,33,1.00,1.00,no
+qr code,qr code,symbols and logos,541,1.00,1.00,yes
+seal,seal,symbols and logos,39,1.00,1.00,no
+sign,sign,symbols and logos,205,1.00,1.00,yes
+star,star,symbols and logos,140,1.00,1.00,yes
+sticker,sticker,symbols and logos,46,1.00,1.00,no
+symbol,symbol,symbols and logos,170,1.00,1.00,yes
+arabic text,arabic text,text and documents,289,1.00,1.00,yes
+arabic,arabic text,text and documents,248,0.86,0.66,yes
+book,book,text and documents,294,1.00,1.00,yes
+certificate,certificate,text and documents,472,1.00,1.00,yes
+burn certificate,certificate,text and documents,32,1.00,1.00,yes
+chart,chart,text and documents,291,1.00,1.00,yes
+graph,chart,text and documents,166,1.00,1.00,yes
+data visualization,chart,text and documents,112,1.00,1.00,yes
+statistics,chart,text and documents,88,1.00,1.00,yes
+bar chart,chart,text and documents,71,0.75,0.59,via class
+line chart,chart,text and documents,54,0.78,0.69,via class
+line graph,chart,text and documents,37,0.79,0.78,via class
+chinese text,chinese text,text and documents,197,1.00,1.00,yes
+chinese language,chinese text,text and documents,30,0.83,0.64,yes
+collage,collage,text and documents,52,1.00,1.00,no
+data,data,text and documents,59,1.00,1.00,no
+diagram,diagram,text and documents,130,1.00,1.00,yes
+document,document,text and documents,634,1.00,1.00,yes
+paper,document,text and documents,134,1.00,1.00,yes
+letter,document,text and documents,70,1.00,1.00,yes
+financial chart,financial chart,text and documents,95,1.00,1.00,yes
+candlestick chart,financial chart,text and documents,73,1.00,1.00,yes
+stock market,financial chart,text and documents,72,1.00,1.00,yes
+trading,financial chart,text and documents,65,1.00,1.00,yes
+stock chart,financial chart,text and documents,43,0.80,0.58,via class
+flowchart,flowchart,text and documents,33,1.00,1.00,no
+infographic,infographic,text and documents,428,1.00,1.00,yes
+japanese text,japanese text,text and documents,64,1.00,1.00,no
+label,label,text and documents,49,1.00,1.00,no
+list,list,text and documents,106,1.00,1.00,yes
+map,map,text and documents,314,1.00,1.00,yes
+newspaper,newspaper,text and documents,269,1.00,1.00,yes
+quote,quote,text and documents,295,1.00,1.00,yes
+student,student,text and documents,51,1.00,1.00,no
+text,text,text and documents,7003,1.00,1.00,yes
+text overlay,text overlay,text and documents,225,1.00,1.00,yes
+subtitle,text overlay,text and documents,104,1.00,1.00,yes
+typography,typography,text and documents,450,1.00,1.00,yes
+airplane,airplane,vehicles,166,1.00,1.00,yes
+aircraft,airplane,vehicles,42,0.90,0.48,via class
+antenna,antenna,vehicles,46,1.00,1.00,no
+balloon,balloon,vehicles,43,1.00,1.00,no
+boat,boat,vehicles,140,1.00,1.00,yes
+ship,boat,vehicles,62,1.00,1.00,yes
+sailboat,boat,vehicles,32,0.81,0.50,via class
+bridge,bridge,vehicles,83,1.00,1.00,no
+car,car,vehicles,452,1.00,1.00,yes
+car interior,car interior,vehicles,35,1.00,1.00,no
+fishnet,fishnet,vehicles,79,1.00,1.00,no
+flight tracker,flight tracker,vehicles,34,1.00,1.00,no
+network,network,vehicles,44,1.00,1.00,no
+pavement,pavement,vehicles,38,1.00,1.00,no
+rocket,rocket,vehicles,32,1.00,1.00,no
+tank top,tank top,vehicles,49,1.00,1.00,no
+train,train,vehicles,43,1.00,1.00,no
+motorcycle,vehicle,vehicles,74,1.00,1.00,yes
+vehicle,vehicle,vehicles,68,1.00,1.00,yes
+bicycle,vehicle,vehicles,65,1.00,1.00,yes
+truck,vehicle,vehicles,60,1.00,1.00,yes
+bus,vehicle,vehicles,36,1.00,1.00,yes
+wave,wave,vehicles,36,1.00,1.00,no
+wing,wing,vehicles,38,1.00,1.00,no
+snowflake,-,dropped ambiguous,107,1.00,1.00,yes
+chinese,-,dropped ambiguous text or people,382,1.00,1.00,yes
+portuguese,-,dropped language not visible,186,1.00,1.00,yes
+portuguese text,-,dropped language not visible,39,1.00,1.00,yes
+donald trump,-,dropped named person,108,1.00,1.00,yes
+technology,-,dropped not visual,260,1.00,1.00,yes
+artificial intelligence,-,dropped not visual,100,1.00,1.00,yes
+compliance,-,dropped not visual,93,1.00,1.00,yes
+test,-,dropped not visual,82,1.00,1.00,yes
+compliance test,-,dropped not visual,36,0.80,0.53,yes
+sun,-,dropped too few,87,0.73,0.47,yes
+graphic,-,dropped vague,276,1.00,1.00,yes
+score,-,dropped vague,115,1.00,1.00,yes
+wet,-,dropped vague,35,0.75,0.67,yes
+girl,-,excluded age,341,1.00,1.00,rule
+child,-,excluded age,122,1.00,1.00,rule
+boy,-,excluded age,94,1.00,1.00,rule
+anime girl,-,excluded age,91,0.80,0.60,rule
+baby,-,excluded age,56,1.00,1.00,rule
+schoolgirl,-,excluded age,43,0.73,0.52,rule
+adult,-,excluded age,40,1.00,1.00,rule
+nude,-,excluded nsfw,1399,1.00,1.00,rule
+lingerie,-,excluded nsfw,1099,1.00,1.00,rule
+underwear,-,excluded nsfw,679,1.00,1.00,rule
+penis,-,excluded nsfw,423,1.00,1.00,rule
+topless,-,excluded nsfw,395,1.00,1.00,rule
+breast,-,excluded nsfw,317,1.00,1.00,rule
+buttock,-,excluded nsfw,248,1.00,1.00,rule
+nudity,-,excluded nsfw,244,0.76,0.54,rule
+bra,-,excluded nsfw,178,0.73,0.46,rule
+shirtless,-,excluded nsfw,138,1.00,1.00,rule
+nude woman,-,excluded nsfw,117,0.76,0.58,rule
+male genitalia,-,excluded nsfw,114,1.00,1.00,rule
+pubic hair,-,excluded nsfw,91,1.00,1.00,rule
+cleavage,-,excluded nsfw,77,1.00,1.00,rule
+panty,-,excluded nsfw,61,1.00,1.00,rule
+thong,-,excluded nsfw,57,1.00,1.00,rule
+adult content,-,excluded nsfw,55,1.00,1.00,rule
+vulva,-,excluded nsfw,54,1.00,1.00,rule
+genitalia,-,excluded nsfw,50,0.89,0.76,rule
+nipple,-,excluded nsfw,44,0.77,0.52,rule
+sex toy,-,excluded nsfw,42,1.00,1.00,rule
+nsfw,-,excluded nsfw,38,1.00,1.00,rule
+genital,-,excluded nsfw,33,0.86,0.52,rule
+sex,-,excluded nsfw,33,1.00,1.00,rule

@@ -1,0 +1,324 @@
+label,class,group
+woman,woman,people
+man,man,people
+male,man,people
+person,person,people
+people,people,people
+face,face,people
+smile,smile,people
+crowd,crowd,people
+couple,couple,people
+portrait,portrait,people
+selfie,selfie,people
+mirror selfie,selfie,people
+soldier,soldier,people
+donald trump,-,dropped named person
+beard,beard,body and clothing
+hair,hair,body and clothing
+long hair,hair,body and clothing
+blonde,blonde hair,body and clothing
+blonde hair,blonde hair,body and clothing
+skin,skin,body and clothing
+leg,leg,body and clothing
+foot,foot,body and clothing
+barefoot,foot,body and clothing
+hand,hand,body and clothing
+finger,hand,body and clothing
+torso,torso,body and clothing
+human body,human body,body and clothing
+body,human body,body and clothing
+muscle,muscle,body and clothing
+tattoo,tattoo,body and clothing
+glasses,glasses,body and clothing
+sunglasses,sunglasses,body and clothing
+bikini,swimwear,body and clothing
+swimsuit,swimwear,body and clothing
+swimwear,swimwear,body and clothing
+stockings,stockings,body and clothing
+fishnet stockings,stockings,body and clothing
+pantyhose,pantyhose,body and clothing
+tights,pantyhose,body and clothing
+necklace,jewelry,body and clothing
+jewelry,jewelry,body and clothing
+bracelet,jewelry,body and clothing
+earring,jewelry,body and clothing
+shirt,shirt,body and clothing
+t-shirt,shirt,body and clothing
+white shirt,shirt,body and clothing
+suit,suit,body and clothing
+tie,suit,body and clothing
+dress,dress,body and clothing
+white dress,dress,body and clothing
+red dress,dress,body and clothing
+hat,hat,body and clothing
+cowboy hat,hat,body and clothing
+cap,hat,body and clothing
+skirt,skirt,body and clothing
+jeans,jeans,body and clothing
+clothing,clothing,body and clothing
+jacket,jacket,body and clothing
+leather jacket,jacket,body and clothing
+hoodie,hoodie,body and clothing
+socks,socks,body and clothing
+shorts,shorts,body and clothing
+maid outfit,maid outfit,body and clothing
+maid,maid outfit,body and clothing
+school uniform,school uniform,body and clothing
+uniform,uniform,body and clothing
+military uniform,uniform,body and clothing
+kimono,kimono,body and clothing
+cosplay,cosplay,body and clothing
+costume,cosplay,body and clothing
+helmet,helmet,body and clothing
+high heel,high heel,body and clothing
+heel,high heel,body and clothing
+shoe,shoe,body and clothing
+sneaker,shoe,body and clothing
+boot,shoe,body and clothing
+wet,-,dropped vague
+text,text,text and documents
+document,document,text and documents
+paper,document,text and documents
+letter,document,text and documents
+arabic text,arabic text,text and documents
+arabic,arabic text,text and documents
+chinese text,chinese text,text and documents
+chinese language,chinese text,text and documents
+chinese,-,dropped ambiguous text or people
+portuguese,-,dropped language not visible
+portuguese text,-,dropped language not visible
+certificate,certificate,text and documents
+burn certificate,certificate,text and documents
+typography,typography,text and documents
+infographic,infographic,text and documents
+chart,chart,text and documents
+graph,chart,text and documents
+data visualization,chart,text and documents
+statistics,chart,text and documents
+financial chart,financial chart,text and documents
+candlestick chart,financial chart,text and documents
+book,book,text and documents
+text overlay,text overlay,text and documents
+subtitle,text overlay,text and documents
+quote,quote,text and documents
+newspaper,newspaper,text and documents
+diagram,diagram,text and documents
+map,map,text and documents
+list,list,text and documents
+compliance,-,dropped not visual
+compliance test,-,dropped not visual
+test,-,dropped not visual
+screenshot,screenshot,screens and apps
+user interface,user interface,screens and apps
+interface,user interface,screens and apps
+smartphone,smartphone,screens and apps
+phone,smartphone,screens and apps
+mobile phone,smartphone,screens and apps
+mobile app,mobile app,screens and apps
+mobile interface,mobile app,screens and apps
+mobile app interface,mobile app,screens and apps
+icon,icon,screens and apps
+button,button,screens and apps
+window,window,objects
+chat interface,chat interface,screens and apps
+chat,chat interface,screens and apps
+messaging app,chat interface,screens and apps
+software,software,screens and apps
+mobile game,mobile game,screens and apps
+website,website,screens and apps
+webpage,website,screens and apps
+web application,website,screens and apps
+web interface,website,screens and apps
+screen,screen,screens and apps
+dashboard,dashboard,screens and apps
+avatar,avatar,screens and apps
+dark mode,dark mode,screens and apps
+code,code,screens and apps
+terminal,code,screens and apps
+programming,code,screens and apps
+error message,error message,screens and apps
+advertisement,advertisement,memes and media
+abstract,abstract,art and abstract
+fractal,fractal,art and abstract
+digital art,digital art,art and abstract
+computer graphics,digital art,art and abstract
+pattern,pattern,art and abstract
+mandelbrot set,mandelbrot set,art and abstract
+julia set,julia set,art and abstract
+mathematics,mathematics,art and abstract
+illustration,illustration,art and abstract
+anime,anime,art and abstract
+drawing,drawing,art and abstract
+animation,animation,art and abstract
+poster,poster,art and abstract
+painting,painting,art and abstract
+architecture,architecture,places and nature
+graphic design,graphic design,art and abstract
+art,art,art and abstract
+pixel art,pixel art,art and abstract
+spiral,spiral,art and abstract
+low poly,low poly,art and abstract
+3d render,3d render,art and abstract
+statue,statue,art and abstract
+sculpture,statue,art and abstract
+fantasy,fantasy,art and abstract
+graphic,-,dropped vague
+snowflake,-,dropped ambiguous
+technology,-,dropped not visual
+artificial intelligence,-,dropped not visual
+score,-,dropped vague
+cat,cat,animals
+dog,dog,animals
+animal,animal,animals
+bird,bird,animals
+flower,flower,places and nature
+flag,flag,symbols and logos
+star,star,symbols and logos
+heart,heart,symbols and logos
+logo,logo,symbols and logos
+sign,sign,symbols and logos
+symbol,symbol,symbols and logos
+qr code,qr code,symbols and logos
+nostr,nostr,symbols and logos
+bed,bed,objects
+sky,sky,places and nature
+outdoor,outdoor,places and nature
+indoor,indoor,places and nature
+mountain,mountain,places and nature
+building,building,places and nature
+landscape,landscape,places and nature
+sunset,sunset,places and nature
+sun,-,dropped too few
+snow,snow,places and nature
+winter,snow,places and nature
+ocean,ocean,places and nature
+sea,ocean,places and nature
+beach,beach,places and nature
+plant,plant,places and nature
+grass,grass,places and nature
+cloud,cloud,places and nature
+night,night,places and nature
+bedroom,bedroom,places and nature
+rock,rock,places and nature
+wall,wall,places and nature
+nature,nature,places and nature
+curtain,curtain,objects
+bathroom,bathroom,places and nature
+bathtub,bathtub,objects
+street,street,places and nature
+road,road,places and nature
+pool,pool,places and nature
+river,river,places and nature
+house,house,places and nature
+lake,lake,places and nature
+leaf,leaf,places and nature
+cityscape,city,places and nature
+city,city,places and nature
+garden,garden,places and nature
+space,space,places and nature
+tree,tree,places and nature
+forest,forest,places and nature
+water,water,places and nature
+underwater,underwater,places and nature
+fire,fire,places and nature
+kitchen,kitchen,places and nature
+stairs,stairs,places and nature
+staircase,stairs,places and nature
+couch,couch,objects
+table,table,objects
+chair,chair,objects
+pillow,pillow,objects
+towel,towel,objects
+blanket,blanket,objects
+mirror,mirror,objects
+microphone,microphone,objects
+robot,robot,objects
+laptop,laptop,objects
+computer,computer,objects
+lamp,lamp,objects
+door,door,objects
+gun,gun,objects
+glass,glass,objects
+fence,fence,objects
+wood,wood,objects
+bottle,bottle,objects
+pen,pen,objects
+car,car,vehicles
+airplane,airplane,vehicles
+boat,boat,vehicles
+food,food,food and drink
+coffee,coffee,food and drink
+mug,mug,food and drink
+cup,mug,food and drink
+bitcoin,bitcoin,bitcoin and crypto
+cryptocurrency,cryptocurrency,bitcoin and crypto
+finance,finance,bitcoin and crypto
+blockchain,blockchain,bitcoin and crypto
+politics,politics,memes and media
+meme,meme,memes and media
+humor,meme,memes and media
+cartoon,cartoon,memes and media
+character,cartoon,memes and media
+social media,social media,memes and media
+video game,video game,memes and media
+game,video game,memes and media
+news,news,memes and media
+headline,news,memes and media
+comic,comic,memes and media
+speech bubble,comic,memes and media
+movie,movie,memes and media
+the emperor's new groove,the emperor's new groove,memes and media
+kuzco,the emperor's new groove,memes and media
+pacha,the emperor's new groove,memes and media
+yzma,the emperor's new groove,memes and media
+kronk,the emperor's new groove,memes and media
+sitting,sitting,activities and events
+kneeling,kneeling,activities and events
+lying down,lying down,activities and events
+fitness,fitness,activities and events
+gym,fitness,activities and events
+football,sport,activities and events
+soccer,sport,activities and events
+sports,sport,activities and events
+basketball,sport,activities and events
+christmas,christmas,activities and events
+black and white,black and white,style and colour
+grayscale,black and white,style and colour
+blue,blue,style and colour
+colorful,colorful,style and colour
+green,green,style and colour
+pink,pink,style and colour
+purple,purple,style and colour
+orange,orange,style and colour
+red,red,style and colour
+silhouette,silhouette,style and colour
+texture,texture,style and colour
+black background,black background,style and colour
+dark background,black background,style and colour
+close-up,close-up,style and colour
+close up,close-up,style and colour
+mustache,beard,body and clothing
+black hair,hair,body and clothing
+pink hair,hair,body and clothing
+white top,shirt,body and clothing
+leggings,pantyhose,body and clothing
+desk,table,objects
+keyboard,computer,objects
+stock market,financial chart,text and documents
+trading,financial chart,text and documents
+ship,boat,vehicles
+truck,vehicle,vehicles
+vehicle,vehicle,vehicles
+motorcycle,vehicle,vehicles
+bicycle,vehicle,vehicles
+bus,vehicle,vehicles
+hill,mountain,places and nature
+cliff,mountain,places and nature
+sand,beach,places and nature
+desert,desert,places and nature
+field,grass,places and nature
+moon,space,places and nature
+manga,anime,art and abstract
+disney,cartoon,memes and media
+emoji,icon,screens and apps
+television,screen,screens and apps

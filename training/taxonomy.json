@@ -1,0 +1,3099 @@
+{
+ "version": "taxonomy-v1",
+ "source_model": "qwen3.5",
+ "min_images": 100,
+ "multi_label": "An image gets every class that any of its Qwen labels maps to after normalisation, so one image can have zero to five classes. A label that maps to no class is ignored. Training uses one sigmoid output per class.",
+ "excluded": {
+  "nsfw": "Nudity, sexual and underwear labels stay with the nsfw model, which has its own human reviewed training set and threshold.",
+  "age": "Age words (child, girl, boy, teen and similar) stay with the age model. Mixing them into a general classifier would duplicate the age signal without its review."
+ },
+ "counts": {
+  "images": 35181,
+  "images_with_a_class": 33811,
+  "classes": 210,
+  "excluded_labels": {
+   "dropped ambiguous": 1,
+   "dropped ambiguous text or people": 1,
+   "dropped language not visible": 2,
+   "dropped named person": 1,
+   "dropped not visual": 5,
+   "dropped too few": 1,
+   "dropped vague": 3,
+   "excluded age": 7,
+   "excluded nsfw": 24
+  }
+ },
+ "groups": [
+  "people",
+  "body and clothing",
+  "text and documents",
+  "screens and apps",
+  "art and abstract",
+  "animals",
+  "places and nature",
+  "objects",
+  "vehicles",
+  "food and drink",
+  "bitcoin and crypto",
+  "memes and media",
+  "symbols and logos",
+  "activities and events",
+  "style and colour"
+ ],
+ "classes": [
+  {
+   "name": "woman",
+   "group": "people",
+   "images": 8801,
+   "normalised": [
+    "woman"
+   ],
+   "members": [
+    "woman",
+    "women",
+    "Woman",
+    "Women"
+   ]
+  },
+  {
+   "name": "man",
+   "group": "people",
+   "images": 2959,
+   "normalised": [
+    "male",
+    "man"
+   ],
+   "members": [
+    "man",
+    "male",
+    "men",
+    "Man",
+    "Male",
+    "Men"
+   ]
+  },
+  {
+   "name": "person",
+   "group": "people",
+   "images": 2750,
+   "normalised": [
+    "person"
+   ],
+   "members": [
+    "person",
+    "Person"
+   ]
+  },
+  {
+   "name": "portrait",
+   "group": "people",
+   "images": 1607,
+   "normalised": [
+    "portrait"
+   ],
+   "members": [
+    "portrait",
+    "Portrait",
+    "portraits"
+   ]
+  },
+  {
+   "name": "face",
+   "group": "people",
+   "images": 604,
+   "normalised": [
+    "face"
+   ],
+   "members": [
+    "face",
+    "Face",
+    "faces"
+   ]
+  },
+  {
+   "name": "smile",
+   "group": "people",
+   "images": 583,
+   "normalised": [
+    "smile"
+   ],
+   "members": [
+    "smile",
+    "smiling",
+    "Smile",
+    "Smiling"
+   ]
+  },
+  {
+   "name": "people",
+   "group": "people",
+   "images": 454,
+   "normalised": [
+    "people"
+   ],
+   "members": [
+    "people",
+    "People"
+   ]
+  },
+  {
+   "name": "selfie",
+   "group": "people",
+   "images": 388,
+   "normalised": [
+    "mirror selfie",
+    "selfie"
+   ],
+   "members": [
+    "selfie",
+    "mirror selfie",
+    "mirror_selfie",
+    "Selfie"
+   ]
+  },
+  {
+   "name": "crowd",
+   "group": "people",
+   "images": 157,
+   "normalised": [
+    "crowd"
+   ],
+   "members": [
+    "crowd",
+    "Crowd"
+   ]
+  },
+  {
+   "name": "couple",
+   "group": "people",
+   "images": 124,
+   "normalised": [
+    "couple"
+   ],
+   "members": [
+    "couple",
+    "Couple",
+    "couples"
+   ]
+  },
+  {
+   "name": "soldier",
+   "group": "people",
+   "images": 106,
+   "normalised": [
+    "soldier"
+   ],
+   "members": [
+    "soldier",
+    "soldiers",
+    "Soldiers"
+   ]
+  },
+  {
+   "name": "hair",
+   "group": "body and clothing",
+   "images": 973,
+   "normalised": [
+    "black hair",
+    "hair",
+    "long hair",
+    "pink hair"
+   ],
+   "members": [
+    "hair",
+    "long hair",
+    "long_hair",
+    "black hair",
+    "black_hair",
+    "pink hair",
+    "pink_hair",
+    "Hair",
+    "Pink hair"
+   ]
+  },
+  {
+   "name": "hand",
+   "group": "body and clothing",
+   "images": 885,
+   "normalised": [
+    "finger",
+    "hand"
+   ],
+   "members": [
+    "hand",
+    "hands",
+    "finger",
+    "fingers",
+    "Hand",
+    "Hands",
+    "Finger"
+   ]
+  },
+  {
+   "name": "shirt",
+   "group": "body and clothing",
+   "images": 745,
+   "normalised": [
+    "shirt",
+    "t-shirt",
+    "white shirt",
+    "white top"
+   ],
+   "members": [
+    "shirt",
+    "white shirt",
+    "t-shirt",
+    "white top",
+    "white_shirt",
+    "white_top",
+    "tshirt",
+    "T-shirt",
+    "White shirt"
+   ]
+  },
+  {
+   "name": "stockings",
+   "group": "body and clothing",
+   "images": 693,
+   "normalised": [
+    "fishnet stockings",
+    "stockings"
+   ],
+   "members": [
+    "stockings",
+    "fishnet stockings",
+    "fishnet_stockings"
+   ]
+  },
+  {
+   "name": "blonde hair",
+   "group": "body and clothing",
+   "images": 666,
+   "normalised": [
+    "blonde",
+    "blonde hair"
+   ],
+   "members": [
+    "blonde",
+    "blonde_hair",
+    "blonde hair",
+    "Blonde",
+    "Blonde hair"
+   ]
+  },
+  {
+   "name": "swimwear",
+   "group": "body and clothing",
+   "images": 651,
+   "normalised": [
+    "bikini",
+    "swimsuit",
+    "swimwear"
+   ],
+   "members": [
+    "bikini",
+    "swimsuit",
+    "swimwear",
+    "Bikini",
+    "swimsuits",
+    "Swimsuit"
+   ]
+  },
+  {
+   "name": "jewelry",
+   "group": "body and clothing",
+   "images": 628,
+   "normalised": [
+    "bracelet",
+    "earring",
+    "jewelry",
+    "necklace"
+   ],
+   "members": [
+    "necklace",
+    "jewelry",
+    "bracelet",
+    "earring",
+    "earrings",
+    "bracelets",
+    "necklaces"
+   ]
+  },
+  {
+   "name": "dress",
+   "group": "body and clothing",
+   "images": 618,
+   "normalised": [
+    "dress",
+    "red dress",
+    "white dress"
+   ],
+   "members": [
+    "dress",
+    "white dress",
+    "red dress",
+    "dresses",
+    "white_dress",
+    "red_dress",
+    "Dress",
+    "white dresses",
+    "White dress"
+   ]
+  },
+  {
+   "name": "high heel",
+   "group": "body and clothing",
+   "images": 595,
+   "normalised": [
+    "heel",
+    "high heel"
+   ],
+   "members": [
+    "high heels",
+    "high_heels",
+    "heels",
+    "high heel",
+    "high_heel"
+   ]
+  },
+  {
+   "name": "leg",
+   "group": "body and clothing",
+   "images": 554,
+   "normalised": [
+    "leg"
+   ],
+   "members": [
+    "legs",
+    "leg"
+   ]
+  },
+  {
+   "name": "suit",
+   "group": "body and clothing",
+   "images": 510,
+   "normalised": [
+    "suit",
+    "tie"
+   ],
+   "members": [
+    "suit",
+    "tie",
+    "Suit",
+    "suits",
+    "Tie"
+   ]
+  },
+  {
+   "name": "hat",
+   "group": "body and clothing",
+   "images": 502,
+   "normalised": [
+    "cap",
+    "cowboy hat",
+    "hat"
+   ],
+   "members": [
+    "hat",
+    "cap",
+    "cowboy_hat",
+    "cowboy hat",
+    "hats",
+    "Hat",
+    "Cap"
+   ]
+  },
+  {
+   "name": "cosplay",
+   "group": "body and clothing",
+   "images": 481,
+   "normalised": [
+    "cosplay",
+    "costume"
+   ],
+   "members": [
+    "cosplay",
+    "costume",
+    "Cosplay",
+    "Costume"
+   ]
+  },
+  {
+   "name": "glasses",
+   "group": "body and clothing",
+   "images": 478,
+   "normalised": [
+    "glasses"
+   ],
+   "members": [
+    "glasses",
+    "Glasses"
+   ]
+  },
+  {
+   "name": "tattoo",
+   "group": "body and clothing",
+   "images": 475,
+   "normalised": [
+    "tattoo"
+   ],
+   "members": [
+    "tattoo",
+    "tattoos"
+   ]
+  },
+  {
+   "name": "beard",
+   "group": "body and clothing",
+   "images": 349,
+   "normalised": [
+    "beard",
+    "mustache"
+   ],
+   "members": [
+    "beard",
+    "mustache",
+    "Beard",
+    "Mustache",
+    "beards"
+   ]
+  },
+  {
+   "name": "skin",
+   "group": "body and clothing",
+   "images": 326,
+   "normalised": [
+    "skin"
+   ],
+   "members": [
+    "skin"
+   ]
+  },
+  {
+   "name": "shoe",
+   "group": "body and clothing",
+   "images": 323,
+   "normalised": [
+    "boot",
+    "shoe",
+    "sneaker"
+   ],
+   "members": [
+    "boots",
+    "shoes",
+    "shoe",
+    "sneakers",
+    "boot",
+    "sneaker"
+   ]
+  },
+  {
+   "name": "skirt",
+   "group": "body and clothing",
+   "images": 294,
+   "normalised": [
+    "skirt"
+   ],
+   "members": [
+    "skirt",
+    "skirts"
+   ]
+  },
+  {
+   "name": "school uniform",
+   "group": "body and clothing",
+   "images": 270,
+   "normalised": [
+    "school uniform"
+   ],
+   "members": [
+    "school uniform",
+    "school_uniform",
+    "school uniforms",
+    "School uniform",
+    "school_uniforms"
+   ]
+  },
+  {
+   "name": "foot",
+   "group": "body and clothing",
+   "images": 268,
+   "normalised": [
+    "barefoot",
+    "foot"
+   ],
+   "members": [
+    "feet",
+    "foot",
+    "barefoot"
+   ]
+  },
+  {
+   "name": "sunglasses",
+   "group": "body and clothing",
+   "images": 221,
+   "normalised": [
+    "sunglasses"
+   ],
+   "members": [
+    "sunglasses",
+    "Sunglasses"
+   ]
+  },
+  {
+   "name": "pantyhose",
+   "group": "body and clothing",
+   "images": 217,
+   "normalised": [
+    "leggings",
+    "pantyhose",
+    "tights"
+   ],
+   "members": [
+    "pantyhose",
+    "leggings",
+    "tights"
+   ]
+  },
+  {
+   "name": "jeans",
+   "group": "body and clothing",
+   "images": 204,
+   "normalised": [
+    "jeans"
+   ],
+   "members": [
+    "jeans"
+   ]
+  },
+  {
+   "name": "jacket",
+   "group": "body and clothing",
+   "images": 181,
+   "normalised": [
+    "jacket",
+    "leather jacket"
+   ],
+   "members": [
+    "jacket",
+    "leather_jacket",
+    "leather jacket",
+    "leather jackets",
+    "Leather jacket"
+   ]
+  },
+  {
+   "name": "clothing",
+   "group": "body and clothing",
+   "images": 174,
+   "normalised": [
+    "clothing"
+   ],
+   "members": [
+    "clothing"
+   ]
+  },
+  {
+   "name": "uniform",
+   "group": "body and clothing",
+   "images": 162,
+   "normalised": [
+    "military uniform",
+    "uniform"
+   ],
+   "members": [
+    "uniform",
+    "military_uniform",
+    "military uniform",
+    "uniforms",
+    "Uniform",
+    "Military uniform"
+   ]
+  },
+  {
+   "name": "torso",
+   "group": "body and clothing",
+   "images": 157,
+   "normalised": [
+    "torso"
+   ],
+   "members": [
+    "torso"
+   ]
+  },
+  {
+   "name": "socks",
+   "group": "body and clothing",
+   "images": 135,
+   "normalised": [
+    "socks"
+   ],
+   "members": [
+    "socks",
+    "Socks"
+   ]
+  },
+  {
+   "name": "human body",
+   "group": "body and clothing",
+   "images": 130,
+   "normalised": [
+    "body",
+    "human body"
+   ],
+   "members": [
+    "human_body",
+    "body",
+    "human body"
+   ]
+  },
+  {
+   "name": "maid outfit",
+   "group": "body and clothing",
+   "images": 128,
+   "normalised": [
+    "maid",
+    "maid outfit"
+   ],
+   "members": [
+    "maid",
+    "maid outfit",
+    "maid_outfit",
+    "maids"
+   ]
+  },
+  {
+   "name": "shorts",
+   "group": "body and clothing",
+   "images": 118,
+   "normalised": [
+    "shorts"
+   ],
+   "members": [
+    "shorts"
+   ]
+  },
+  {
+   "name": "muscle",
+   "group": "body and clothing",
+   "images": 110,
+   "normalised": [
+    "muscle",
+    "muscular"
+   ],
+   "members": [
+    "muscle",
+    "muscular",
+    "muscles"
+   ]
+  },
+  {
+   "name": "kimono",
+   "group": "body and clothing",
+   "images": 110,
+   "normalised": [
+    "kimono"
+   ],
+   "members": [
+    "kimono",
+    "Kimono"
+   ]
+  },
+  {
+   "name": "hoodie",
+   "group": "body and clothing",
+   "images": 107,
+   "normalised": [
+    "hoodie"
+   ],
+   "members": [
+    "hoodie",
+    "Hoodie"
+   ]
+  },
+  {
+   "name": "text",
+   "group": "text and documents",
+   "images": 7003,
+   "normalised": [
+    "text"
+   ],
+   "members": [
+    "text",
+    "Text"
+   ]
+  },
+  {
+   "name": "document",
+   "group": "text and documents",
+   "images": 816,
+   "normalised": [
+    "document",
+    "letter",
+    "paper"
+   ],
+   "members": [
+    "document",
+    "paper",
+    "letter",
+    "Document",
+    "letters",
+    "documents",
+    "Paper",
+    "Letter"
+   ]
+  },
+  {
+   "name": "arabic text",
+   "group": "text and documents",
+   "images": 537,
+   "normalised": [
+    "arabic",
+    "arabic text"
+   ],
+   "members": [
+    "arabic_text",
+    "arabic",
+    "arabic text",
+    "Arabic",
+    "Arabic text",
+    "Arabic_text"
+   ]
+  },
+  {
+   "name": "chart",
+   "group": "text and documents",
+   "images": 521,
+   "normalised": [
+    "bar chart",
+    "chart",
+    "data visualization",
+    "graph",
+    "line chart",
+    "line graph",
+    "statistics"
+   ],
+   "members": [
+    "chart",
+    "graph",
+    "statistics",
+    "data_visualization",
+    "data visualization",
+    "bar_chart",
+    "line_chart",
+    "line chart",
+    "bar chart",
+    "line_graph",
+    "Chart",
+    "line graph",
+    "Graph",
+    "Statistics",
+    "Bar chart",
+    "Data Visualization",
+    "charts",
+    "Line chart"
+   ]
+  },
+  {
+   "name": "certificate",
+   "group": "text and documents",
+   "images": 498,
+   "normalised": [
+    "burn certificate",
+    "certificate"
+   ],
+   "members": [
+    "certificate",
+    "burn_certificate",
+    "burn certificate"
+   ]
+  },
+  {
+   "name": "typography",
+   "group": "text and documents",
+   "images": 450,
+   "normalised": [
+    "typography"
+   ],
+   "members": [
+    "typography",
+    "Typography"
+   ]
+  },
+  {
+   "name": "infographic",
+   "group": "text and documents",
+   "images": 428,
+   "normalised": [
+    "infographic"
+   ],
+   "members": [
+    "infographic",
+    "Infographic"
+   ]
+  },
+  {
+   "name": "text overlay",
+   "group": "text and documents",
+   "images": 329,
+   "normalised": [
+    "subtitle",
+    "text overlay"
+   ],
+   "members": [
+    "text_overlay",
+    "subtitles",
+    "subtitle",
+    "text overlay",
+    "Subtitle",
+    "Subtitles",
+    "Text overlay",
+    "Text Overlay"
+   ]
+  },
+  {
+   "name": "map",
+   "group": "text and documents",
+   "images": 314,
+   "normalised": [
+    "map"
+   ],
+   "members": [
+    "map",
+    "Map"
+   ]
+  },
+  {
+   "name": "quote",
+   "group": "text and documents",
+   "images": 295,
+   "normalised": [
+    "quote"
+   ],
+   "members": [
+    "quote",
+    "Quote",
+    "QUOTES",
+    "quotes"
+   ]
+  },
+  {
+   "name": "book",
+   "group": "text and documents",
+   "images": 294,
+   "normalised": [
+    "book"
+   ],
+   "members": [
+    "book",
+    "books",
+    "Book"
+   ]
+  },
+  {
+   "name": "newspaper",
+   "group": "text and documents",
+   "images": 269,
+   "normalised": [
+    "newspaper"
+   ],
+   "members": [
+    "newspaper",
+    "Newspaper"
+   ]
+  },
+  {
+   "name": "chinese text",
+   "group": "text and documents",
+   "images": 227,
+   "normalised": [
+    "chinese language",
+    "chinese text"
+   ],
+   "members": [
+    "Chinese text",
+    "chinese_text",
+    "Chinese_text",
+    "Chinese language",
+    "chinese text",
+    "Chinese Text",
+    "Chinese_language",
+    "chinese_language"
+   ]
+  },
+  {
+   "name": "financial chart",
+   "group": "text and documents",
+   "images": 222,
+   "normalised": [
+    "candlestick chart",
+    "financial chart",
+    "stock chart",
+    "stock market",
+    "trading"
+   ],
+   "members": [
+    "trading",
+    "financial_chart",
+    "financial chart",
+    "candlestick chart",
+    "stock market",
+    "candlestick_chart",
+    "stock_market",
+    "stock_chart",
+    "stock chart",
+    "Trading",
+    "Candlestick chart",
+    "Financial Chart",
+    "Financial chart",
+    "Stock market",
+    "Stock Market"
+   ]
+  },
+  {
+   "name": "diagram",
+   "group": "text and documents",
+   "images": 130,
+   "normalised": [
+    "diagram"
+   ],
+   "members": [
+    "diagram",
+    "Diagram"
+   ]
+  },
+  {
+   "name": "list",
+   "group": "text and documents",
+   "images": 106,
+   "normalised": [
+    "list"
+   ],
+   "members": [
+    "list",
+    "List"
+   ]
+  },
+  {
+   "name": "screenshot",
+   "group": "screens and apps",
+   "images": 3020,
+   "normalised": [
+    "mobile screenshot",
+    "screenshot"
+   ],
+   "members": [
+    "screenshot",
+    "Screenshot",
+    "mobile_screenshot",
+    "mobile screenshot",
+    "Mobile screenshot",
+    "Mobile_screenshot",
+    "Mobile Screenshot"
+   ]
+  },
+  {
+   "name": "user interface",
+   "group": "screens and apps",
+   "images": 1446,
+   "normalised": [
+    "interface",
+    "user interface"
+   ],
+   "members": [
+    "user_interface",
+    "interface",
+    "user interface",
+    "app_interface",
+    "ui",
+    "User interface",
+    "app interface",
+    "User Interface",
+    "UI",
+    "Interface",
+    "App Interface"
+   ]
+  },
+  {
+   "name": "mobile app",
+   "group": "screens and apps",
+   "images": 860,
+   "normalised": [
+    "mobile",
+    "mobile app",
+    "mobile app interface",
+    "mobile interface"
+   ],
+   "members": [
+    "mobile_app",
+    "mobile_interface",
+    "mobile app",
+    "mobile interface",
+    "mobile",
+    "mobile app interface",
+    "mobile_app_interface",
+    "Mobile interface",
+    "Mobile App",
+    "Mobile Interface",
+    "Mobile app",
+    "Mobile App Interface",
+    "Mobile",
+    "Mobile app interface"
+   ]
+  },
+  {
+   "name": "smartphone",
+   "group": "screens and apps",
+   "images": 838,
+   "normalised": [
+    "phone",
+    "smartphone"
+   ],
+   "members": [
+    "smartphone",
+    "phone",
+    "mobile phone",
+    "mobile_phone",
+    "cell phone",
+    "cell_phone",
+    "Smartphone",
+    "Phone",
+    "Mobile phone",
+    "Mobile Phone"
+   ]
+  },
+  {
+   "name": "dark mode",
+   "group": "screens and apps",
+   "images": 579,
+   "normalised": [
+    "dark mode"
+   ],
+   "members": [
+    "dark_mode",
+    "dark_theme",
+    "dark mode",
+    "dark theme",
+    "Dark mode",
+    "Dark Mode"
+   ]
+  },
+  {
+   "name": "icon",
+   "group": "screens and apps",
+   "images": 534,
+   "normalised": [
+    "app icon",
+    "emoji",
+    "icon"
+   ],
+   "members": [
+    "icon",
+    "emoji",
+    "app_icon",
+    "app icon",
+    "Icon",
+    "icons",
+    "app_icons"
+   ]
+  },
+  {
+   "name": "website",
+   "group": "screens and apps",
+   "images": 450,
+   "normalised": [
+    "web application",
+    "web interface",
+    "webpage",
+    "website"
+   ],
+   "members": [
+    "website",
+    "webpage",
+    "web_application",
+    "web_interface",
+    "web_page",
+    "web application",
+    "web interface",
+    "web page",
+    "Website",
+    "Web Interface"
+   ]
+  },
+  {
+   "name": "chat interface",
+   "group": "screens and apps",
+   "images": 450,
+   "normalised": [
+    "chat",
+    "chat application",
+    "chat interface",
+    "messaging app"
+   ],
+   "members": [
+    "chat",
+    "chat_interface",
+    "messaging_app",
+    "chat_application",
+    "chat interface",
+    "chat application",
+    "messaging app",
+    "Chat",
+    "Chat interface"
+   ]
+  },
+  {
+   "name": "button",
+   "group": "screens and apps",
+   "images": 438,
+   "normalised": [
+    "button"
+   ],
+   "members": [
+    "button",
+    "buttons",
+    "Button"
+   ]
+  },
+  {
+   "name": "screen",
+   "group": "screens and apps",
+   "images": 270,
+   "normalised": [
+    "screen",
+    "television"
+   ],
+   "members": [
+    "screen",
+    "television",
+    "Screen",
+    "Television"
+   ]
+  },
+  {
+   "name": "code",
+   "group": "screens and apps",
+   "images": 216,
+   "normalised": [
+    "code",
+    "programming",
+    "terminal"
+   ],
+   "members": [
+    "code",
+    "terminal",
+    "programming",
+    "Code",
+    "Programming",
+    "Terminal"
+   ]
+  },
+  {
+   "name": "software",
+   "group": "screens and apps",
+   "images": 206,
+   "normalised": [
+    "software",
+    "software interface"
+   ],
+   "members": [
+    "software",
+    "software_interface",
+    "software interface",
+    "Software"
+   ]
+  },
+  {
+   "name": "mobile game",
+   "group": "screens and apps",
+   "images": 203,
+   "normalised": [
+    "mobile game"
+   ],
+   "members": [
+    "mobile_game",
+    "mobile game",
+    "Mobile game"
+   ]
+  },
+  {
+   "name": "dashboard",
+   "group": "screens and apps",
+   "images": 152,
+   "normalised": [
+    "dashboard"
+   ],
+   "members": [
+    "dashboard",
+    "Dashboard"
+   ]
+  },
+  {
+   "name": "error message",
+   "group": "screens and apps",
+   "images": 117,
+   "normalised": [
+    "error message"
+   ],
+   "members": [
+    "error_message",
+    "error message",
+    "Error message",
+    "Error Message"
+   ]
+  },
+  {
+   "name": "avatar",
+   "group": "screens and apps",
+   "images": 115,
+   "normalised": [
+    "avatar"
+   ],
+   "members": [
+    "avatar",
+    "Avatar",
+    "avatars"
+   ]
+  },
+  {
+   "name": "abstract",
+   "group": "art and abstract",
+   "images": 2611,
+   "normalised": [
+    "abstract",
+    "abstract pattern"
+   ],
+   "members": [
+    "abstract",
+    "abstract_art",
+    "abstract art",
+    "abstract_pattern",
+    "abstract pattern",
+    "Abstract",
+    "Abstract art",
+    "Abstract Art"
+   ]
+  },
+  {
+   "name": "fractal",
+   "group": "art and abstract",
+   "images": 2314,
+   "normalised": [
+    "fractal",
+    "fractal art"
+   ],
+   "members": [
+    "fractal",
+    "fractal_art",
+    "fractal art"
+   ]
+  },
+  {
+   "name": "digital art",
+   "group": "art and abstract",
+   "images": 1490,
+   "normalised": [
+    "computer art",
+    "computer generated",
+    "computer generated art",
+    "computer generated image",
+    "computer graphics",
+    "digital art"
+   ],
+   "members": [
+    "digital_art",
+    "digital art",
+    "computer_graphics",
+    "computer graphics",
+    "computer_generated_art",
+    "computer_generated",
+    "computer generated",
+    "computer art",
+    "computer_generated_image",
+    "computer generated art",
+    "computer_art",
+    "computer generated image",
+    "Digital Art",
+    "Digital art",
+    "Digital_art"
+   ]
+  },
+  {
+   "name": "pattern",
+   "group": "art and abstract",
+   "images": 1263,
+   "normalised": [
+    "geometric pattern",
+    "mathematical pattern",
+    "pattern"
+   ],
+   "members": [
+    "pattern",
+    "mathematical_pattern",
+    "mathematical pattern",
+    "geometric_pattern",
+    "geometric pattern"
+   ]
+  },
+  {
+   "name": "mandelbrot set",
+   "group": "art and abstract",
+   "images": 1198,
+   "normalised": [
+    "mandelbrot set"
+   ],
+   "members": [
+    "mandelbrot_set",
+    "mandelbrot set",
+    "mandelbrot",
+    "Mandelbrot set",
+    "Mandelbrot_set",
+    "Mandelbrot"
+   ]
+  },
+  {
+   "name": "julia set",
+   "group": "art and abstract",
+   "images": 983,
+   "normalised": [
+    "julia set"
+   ],
+   "members": [
+    "julia_set",
+    "julia set",
+    "Julia set",
+    "Julia_set",
+    "julia"
+   ]
+  },
+  {
+   "name": "mathematics",
+   "group": "art and abstract",
+   "images": 894,
+   "normalised": [
+    "math",
+    "mathematical",
+    "mathematical art",
+    "mathematics"
+   ],
+   "members": [
+    "mathematics",
+    "mathematical_art",
+    "mathematical art",
+    "mathematical",
+    "math",
+    "Mathematics"
+   ]
+  },
+  {
+   "name": "illustration",
+   "group": "art and abstract",
+   "images": 744,
+   "normalised": [
+    "illustration"
+   ],
+   "members": [
+    "illustration",
+    "Illustration"
+   ]
+  },
+  {
+   "name": "anime",
+   "group": "art and abstract",
+   "images": 567,
+   "normalised": [
+    "anime",
+    "manga"
+   ],
+   "members": [
+    "anime",
+    "manga",
+    "Anime",
+    "Manga"
+   ]
+  },
+  {
+   "name": "drawing",
+   "group": "art and abstract",
+   "images": 431,
+   "normalised": [
+    "drawing",
+    "sketch",
+    "sketchbook"
+   ],
+   "members": [
+    "drawing",
+    "sketch",
+    "sketchbook",
+    "Sketch"
+   ]
+  },
+  {
+   "name": "animation",
+   "group": "art and abstract",
+   "images": 377,
+   "normalised": [
+    "animation"
+   ],
+   "members": [
+    "animation",
+    "Animation"
+   ]
+  },
+  {
+   "name": "poster",
+   "group": "art and abstract",
+   "images": 316,
+   "normalised": [
+    "poster"
+   ],
+   "members": [
+    "poster",
+    "Poster",
+    "posters",
+    "Posters"
+   ]
+  },
+  {
+   "name": "low poly",
+   "group": "art and abstract",
+   "images": 287,
+   "normalised": [
+    "low poly",
+    "low poly art",
+    "low-poly"
+   ],
+   "members": [
+    "low_poly",
+    "low-poly",
+    "low poly",
+    "low_poly_art",
+    "low poly art"
+   ]
+  },
+  {
+   "name": "painting",
+   "group": "art and abstract",
+   "images": 221,
+   "normalised": [
+    "painting"
+   ],
+   "members": [
+    "painting",
+    "Painting",
+    "paintings"
+   ]
+  },
+  {
+   "name": "statue",
+   "group": "art and abstract",
+   "images": 150,
+   "normalised": [
+    "sculpture",
+    "statue"
+   ],
+   "members": [
+    "statue",
+    "sculpture",
+    "Statue",
+    "Sculpture",
+    "statues"
+   ]
+  },
+  {
+   "name": "graphic design",
+   "group": "art and abstract",
+   "images": 139,
+   "normalised": [
+    "graphic design"
+   ],
+   "members": [
+    "graphic_design",
+    "graphic design"
+   ]
+  },
+  {
+   "name": "art",
+   "group": "art and abstract",
+   "images": 139,
+   "normalised": [
+    "art"
+   ],
+   "members": [
+    "art",
+    "Art"
+   ]
+  },
+  {
+   "name": "fantasy",
+   "group": "art and abstract",
+   "images": 131,
+   "normalised": [
+    "fantasy"
+   ],
+   "members": [
+    "fantasy",
+    "Fantasy"
+   ]
+  },
+  {
+   "name": "pixel art",
+   "group": "art and abstract",
+   "images": 111,
+   "normalised": [
+    "pixel art"
+   ],
+   "members": [
+    "pixel_art",
+    "pixel art",
+    "Pixel art"
+   ]
+  },
+  {
+   "name": "spiral",
+   "group": "art and abstract",
+   "images": 104,
+   "normalised": [
+    "spiral"
+   ],
+   "members": [
+    "spiral"
+   ]
+  },
+  {
+   "name": "cat",
+   "group": "animals",
+   "images": 391,
+   "normalised": [
+    "cat"
+   ],
+   "members": [
+    "cat",
+    "kitten",
+    "cats",
+    "Cat"
+   ]
+  },
+  {
+   "name": "animal",
+   "group": "animals",
+   "images": 283,
+   "normalised": [
+    "animal",
+    "mammal",
+    "pet"
+   ],
+   "members": [
+    "animal",
+    "pet",
+    "mammal",
+    "animals"
+   ]
+  },
+  {
+   "name": "dog",
+   "group": "animals",
+   "images": 248,
+   "normalised": [
+    "dog"
+   ],
+   "members": [
+    "dog",
+    "puppy",
+    "Dog",
+    "dogs"
+   ]
+  },
+  {
+   "name": "bird",
+   "group": "animals",
+   "images": 221,
+   "normalised": [
+    "bird"
+   ],
+   "members": [
+    "bird",
+    "birds",
+    "Bird"
+   ]
+  },
+  {
+   "name": "tree",
+   "group": "places and nature",
+   "images": 846,
+   "normalised": [
+    "tree"
+   ],
+   "members": [
+    "tree",
+    "trees",
+    "Tree",
+    "Trees"
+   ]
+  },
+  {
+   "name": "sky",
+   "group": "places and nature",
+   "images": 786,
+   "normalised": [
+    "sky"
+   ],
+   "members": [
+    "sky",
+    "Sky"
+   ]
+  },
+  {
+   "name": "mountain",
+   "group": "places and nature",
+   "images": 654,
+   "normalised": [
+    "cliff",
+    "hill",
+    "mountain",
+    "mountains"
+   ],
+   "members": [
+    "mountain",
+    "mountains",
+    "cliff",
+    "hill",
+    "hills",
+    "cliffs",
+    "Mountain",
+    "Mountains"
+   ]
+  },
+  {
+   "name": "outdoor",
+   "group": "places and nature",
+   "images": 620,
+   "normalised": [
+    "outdoor"
+   ],
+   "members": [
+    "outdoor",
+    "outdoors",
+    "Outdoors"
+   ]
+  },
+  {
+   "name": "indoor",
+   "group": "places and nature",
+   "images": 599,
+   "normalised": [
+    "indoor"
+   ],
+   "members": [
+    "indoor",
+    "indoors"
+   ]
+  },
+  {
+   "name": "water",
+   "group": "places and nature",
+   "images": 506,
+   "normalised": [
+    "water"
+   ],
+   "members": [
+    "water",
+    "Water"
+   ]
+  },
+  {
+   "name": "building",
+   "group": "places and nature",
+   "images": 485,
+   "normalised": [
+    "building"
+   ],
+   "members": [
+    "building",
+    "buildings",
+    "Building"
+   ]
+  },
+  {
+   "name": "landscape",
+   "group": "places and nature",
+   "images": 470,
+   "normalised": [
+    "landscape"
+   ],
+   "members": [
+    "landscape",
+    "Landscape"
+   ]
+  },
+  {
+   "name": "snow",
+   "group": "places and nature",
+   "images": 434,
+   "normalised": [
+    "snow",
+    "winter"
+   ],
+   "members": [
+    "snow",
+    "winter",
+    "Winter"
+   ]
+  },
+  {
+   "name": "beach",
+   "group": "places and nature",
+   "images": 391,
+   "normalised": [
+    "beach",
+    "sand"
+   ],
+   "members": [
+    "beach",
+    "sand",
+    "Beach"
+   ]
+  },
+  {
+   "name": "sunset",
+   "group": "places and nature",
+   "images": 382,
+   "normalised": [
+    "sunset"
+   ],
+   "members": [
+    "sunset",
+    "Sunset"
+   ]
+  },
+  {
+   "name": "ocean",
+   "group": "places and nature",
+   "images": 375,
+   "normalised": [
+    "ocean",
+    "sea"
+   ],
+   "members": [
+    "ocean",
+    "sea"
+   ]
+  },
+  {
+   "name": "grass",
+   "group": "places and nature",
+   "images": 374,
+   "normalised": [
+    "field",
+    "grass"
+   ],
+   "members": [
+    "grass",
+    "field",
+    "Field"
+   ]
+  },
+  {
+   "name": "flower",
+   "group": "places and nature",
+   "images": 371,
+   "normalised": [
+    "flower"
+   ],
+   "members": [
+    "flower",
+    "flowers",
+    "Flowers",
+    "Flower"
+   ]
+  },
+  {
+   "name": "plant",
+   "group": "places and nature",
+   "images": 355,
+   "normalised": [
+    "plant"
+   ],
+   "members": [
+    "plant",
+    "plants",
+    "Plant"
+   ]
+  },
+  {
+   "name": "forest",
+   "group": "places and nature",
+   "images": 321,
+   "normalised": [
+    "forest"
+   ],
+   "members": [
+    "forest",
+    "Forest"
+   ]
+  },
+  {
+   "name": "cloud",
+   "group": "places and nature",
+   "images": 310,
+   "normalised": [
+    "cloud"
+   ],
+   "members": [
+    "cloud",
+    "clouds",
+    "Clouds",
+    "Cloud"
+   ]
+  },
+  {
+   "name": "night",
+   "group": "places and nature",
+   "images": 269,
+   "normalised": [
+    "night"
+   ],
+   "members": [
+    "night",
+    "Night"
+   ]
+  },
+  {
+   "name": "bedroom",
+   "group": "places and nature",
+   "images": 257,
+   "normalised": [
+    "bedroom"
+   ],
+   "members": [
+    "bedroom"
+   ]
+  },
+  {
+   "name": "rock",
+   "group": "places and nature",
+   "images": 255,
+   "normalised": [
+    "rock"
+   ],
+   "members": [
+    "rock",
+    "rocks",
+    "Rock"
+   ]
+  },
+  {
+   "name": "wall",
+   "group": "places and nature",
+   "images": 230,
+   "normalised": [
+    "wall"
+   ],
+   "members": [
+    "wall"
+   ]
+  },
+  {
+   "name": "nature",
+   "group": "places and nature",
+   "images": 205,
+   "normalised": [
+    "nature"
+   ],
+   "members": [
+    "nature",
+    "Nature"
+   ]
+  },
+  {
+   "name": "city",
+   "group": "places and nature",
+   "images": 190,
+   "normalised": [
+    "city",
+    "cityscape"
+   ],
+   "members": [
+    "cityscape",
+    "city",
+    "Cityscape",
+    "City",
+    "cities"
+   ]
+  },
+  {
+   "name": "space",
+   "group": "places and nature",
+   "images": 185,
+   "normalised": [
+    "moon",
+    "space"
+   ],
+   "members": [
+    "space",
+    "moon",
+    "Space",
+    "Moon"
+   ]
+  },
+  {
+   "name": "bathroom",
+   "group": "places and nature",
+   "images": 179,
+   "normalised": [
+    "bathroom"
+   ],
+   "members": [
+    "bathroom",
+    "Bathroom"
+   ]
+  },
+  {
+   "name": "street",
+   "group": "places and nature",
+   "images": 166,
+   "normalised": [
+    "street"
+   ],
+   "members": [
+    "street",
+    "Street"
+   ]
+  },
+  {
+   "name": "pool",
+   "group": "places and nature",
+   "images": 154,
+   "normalised": [
+    "pool",
+    "swimming pool"
+   ],
+   "members": [
+    "pool",
+    "swimming pool",
+    "swimming_pool"
+   ]
+  },
+  {
+   "name": "kitchen",
+   "group": "places and nature",
+   "images": 148,
+   "normalised": [
+    "kitchen"
+   ],
+   "members": [
+    "kitchen",
+    "Kitchen"
+   ]
+  },
+  {
+   "name": "architecture",
+   "group": "places and nature",
+   "images": 144,
+   "normalised": [
+    "architecture"
+   ],
+   "members": [
+    "architecture",
+    "Architecture"
+   ]
+  },
+  {
+   "name": "road",
+   "group": "places and nature",
+   "images": 141,
+   "normalised": [
+    "road"
+   ],
+   "members": [
+    "road",
+    "roads"
+   ]
+  },
+  {
+   "name": "stairs",
+   "group": "places and nature",
+   "images": 135,
+   "normalised": [
+    "staircase",
+    "stairs"
+   ],
+   "members": [
+    "stairs",
+    "staircase"
+   ]
+  },
+  {
+   "name": "river",
+   "group": "places and nature",
+   "images": 124,
+   "normalised": [
+    "river"
+   ],
+   "members": [
+    "river",
+    "River",
+    "rivers"
+   ]
+  },
+  {
+   "name": "fire",
+   "group": "places and nature",
+   "images": 119,
+   "normalised": [
+    "fire"
+   ],
+   "members": [
+    "fire",
+    "Fire"
+   ]
+  },
+  {
+   "name": "house",
+   "group": "places and nature",
+   "images": 118,
+   "normalised": [
+    "house"
+   ],
+   "members": [
+    "house",
+    "houses",
+    "Houses"
+   ]
+  },
+  {
+   "name": "lake",
+   "group": "places and nature",
+   "images": 116,
+   "normalised": [
+    "lake"
+   ],
+   "members": [
+    "lake",
+    "Lake"
+   ]
+  },
+  {
+   "name": "leaf",
+   "group": "places and nature",
+   "images": 115,
+   "normalised": [
+    "leaf"
+   ],
+   "members": [
+    "leaves",
+    "leaf",
+    "Leaves"
+   ]
+  },
+  {
+   "name": "garden",
+   "group": "places and nature",
+   "images": 108,
+   "normalised": [
+    "garden"
+   ],
+   "members": [
+    "garden",
+    "Garden"
+   ]
+  },
+  {
+   "name": "underwater",
+   "group": "places and nature",
+   "images": 106,
+   "normalised": [
+    "underwater"
+   ],
+   "members": [
+    "underwater"
+   ]
+  },
+  {
+   "name": "bed",
+   "group": "objects",
+   "images": 1547,
+   "normalised": [
+    "bed"
+   ],
+   "members": [
+    "bed",
+    "Bed"
+   ]
+  },
+  {
+   "name": "table",
+   "group": "objects",
+   "images": 679,
+   "normalised": [
+    "desk",
+    "table"
+   ],
+   "members": [
+    "table",
+    "desk",
+    "Table",
+    "Desk",
+    "tables",
+    "desks"
+   ]
+  },
+  {
+   "name": "couch",
+   "group": "objects",
+   "images": 585,
+   "normalised": [
+    "couch"
+   ],
+   "members": [
+    "sofa",
+    "couch"
+   ]
+  },
+  {
+   "name": "chair",
+   "group": "objects",
+   "images": 487,
+   "normalised": [
+    "chair"
+   ],
+   "members": [
+    "chair",
+    "chairs",
+    "Chair"
+   ]
+  },
+  {
+   "name": "window",
+   "group": "objects",
+   "images": 404,
+   "normalised": [
+    "window"
+   ],
+   "members": [
+    "window",
+    "Windows",
+    "windows",
+    "Window"
+   ]
+  },
+  {
+   "name": "pillow",
+   "group": "objects",
+   "images": 349,
+   "normalised": [
+    "pillow"
+   ],
+   "members": [
+    "pillow",
+    "pillows",
+    "Pillow"
+   ]
+  },
+  {
+   "name": "mirror",
+   "group": "objects",
+   "images": 232,
+   "normalised": [
+    "mirror"
+   ],
+   "members": [
+    "mirror",
+    "Mirror"
+   ]
+  },
+  {
+   "name": "computer",
+   "group": "objects",
+   "images": 207,
+   "normalised": [
+    "computer",
+    "keyboard"
+   ],
+   "members": [
+    "computer",
+    "keyboard",
+    "Keyboard",
+    "computers",
+    "Computers",
+    "Computer"
+   ]
+  },
+  {
+   "name": "curtain",
+   "group": "objects",
+   "images": 205,
+   "normalised": [
+    "curtain"
+   ],
+   "members": [
+    "curtain",
+    "curtains"
+   ]
+  },
+  {
+   "name": "microphone",
+   "group": "objects",
+   "images": 195,
+   "normalised": [
+    "microphone"
+   ],
+   "members": [
+    "microphone",
+    "Microphone",
+    "microphones",
+    "Microphones"
+   ]
+  },
+  {
+   "name": "bathtub",
+   "group": "objects",
+   "images": 183,
+   "normalised": [
+    "bath",
+    "bathtub"
+   ],
+   "members": [
+    "bathtub",
+    "bath"
+   ]
+  },
+  {
+   "name": "robot",
+   "group": "objects",
+   "images": 168,
+   "normalised": [
+    "robot"
+   ],
+   "members": [
+    "robot",
+    "robots"
+   ]
+  },
+  {
+   "name": "laptop",
+   "group": "objects",
+   "images": 165,
+   "normalised": [
+    "laptop"
+   ],
+   "members": [
+    "laptop",
+    "Laptop"
+   ]
+  },
+  {
+   "name": "bottle",
+   "group": "objects",
+   "images": 153,
+   "normalised": [
+    "bottle"
+   ],
+   "members": [
+    "bottle",
+    "bottles",
+    "Bottle"
+   ]
+  },
+  {
+   "name": "lamp",
+   "group": "objects",
+   "images": 149,
+   "normalised": [
+    "lamp"
+   ],
+   "members": [
+    "lamp"
+   ]
+  },
+  {
+   "name": "door",
+   "group": "objects",
+   "images": 124,
+   "normalised": [
+    "door"
+   ],
+   "members": [
+    "door",
+    "doors"
+   ]
+  },
+  {
+   "name": "gun",
+   "group": "objects",
+   "images": 117,
+   "normalised": [
+    "gun"
+   ],
+   "members": [
+    "gun",
+    "guns",
+    "Gun"
+   ]
+  },
+  {
+   "name": "towel",
+   "group": "objects",
+   "images": 117,
+   "normalised": [
+    "towel"
+   ],
+   "members": [
+    "towel",
+    "towels"
+   ]
+  },
+  {
+   "name": "pen",
+   "group": "objects",
+   "images": 117,
+   "normalised": [
+    "pen"
+   ],
+   "members": [
+    "pen",
+    "pens"
+   ]
+  },
+  {
+   "name": "glass",
+   "group": "objects",
+   "images": 111,
+   "normalised": [
+    "glass"
+   ],
+   "members": [
+    "glass",
+    "Glass"
+   ]
+  },
+  {
+   "name": "fence",
+   "group": "objects",
+   "images": 110,
+   "normalised": [
+    "fence"
+   ],
+   "members": [
+    "fence"
+   ]
+  },
+  {
+   "name": "blanket",
+   "group": "objects",
+   "images": 107,
+   "normalised": [
+    "blanket"
+   ],
+   "members": [
+    "blanket"
+   ]
+  },
+  {
+   "name": "wood",
+   "group": "objects",
+   "images": 106,
+   "normalised": [
+    "wood"
+   ],
+   "members": [
+    "wood",
+    "Wood"
+   ]
+  },
+  {
+   "name": "car",
+   "group": "vehicles",
+   "images": 452,
+   "normalised": [
+    "car"
+   ],
+   "members": [
+    "car",
+    "cars",
+    "Car"
+   ]
+  },
+  {
+   "name": "vehicle",
+   "group": "vehicles",
+   "images": 285,
+   "normalised": [
+    "bicycle",
+    "bus",
+    "motorcycle",
+    "truck",
+    "vehicle"
+   ],
+   "members": [
+    "motorcycle",
+    "vehicle",
+    "bicycle",
+    "truck",
+    "bus",
+    "Bicycle",
+    "bicycles"
+   ]
+  },
+  {
+   "name": "boat",
+   "group": "vehicles",
+   "images": 220,
+   "normalised": [
+    "boat",
+    "sailboat",
+    "ship"
+   ],
+   "members": [
+    "boat",
+    "ship",
+    "sailboat",
+    "boats",
+    "Ship",
+    "Boats",
+    "ships"
+   ]
+  },
+  {
+   "name": "airplane",
+   "group": "vehicles",
+   "images": 188,
+   "normalised": [
+    "aircraft",
+    "airplane"
+   ],
+   "members": [
+    "airplane",
+    "aircraft"
+   ]
+  },
+  {
+   "name": "food",
+   "group": "food and drink",
+   "images": 246,
+   "normalised": [
+    "food"
+   ],
+   "members": [
+    "food",
+    "Food",
+    "foods"
+   ]
+  },
+  {
+   "name": "coffee",
+   "group": "food and drink",
+   "images": 223,
+   "normalised": [
+    "coffee",
+    "coffee cup"
+   ],
+   "members": [
+    "coffee",
+    "coffee cup",
+    "coffee_cup"
+   ]
+  },
+  {
+   "name": "mug",
+   "group": "food and drink",
+   "images": 218,
+   "normalised": [
+    "cup",
+    "mug"
+   ],
+   "members": [
+    "mug",
+    "cup",
+    "Mug",
+    "cups"
+   ]
+  },
+  {
+   "name": "bitcoin",
+   "group": "bitcoin and crypto",
+   "images": 1750,
+   "normalised": [
+    "bitcoin"
+   ],
+   "members": [
+    "bitcoin",
+    "Bitcoin",
+    "BTC",
+    "bitCOIN",
+    "bitcoins",
+    "btc"
+   ]
+  },
+  {
+   "name": "cryptocurrency",
+   "group": "bitcoin and crypto",
+   "images": 1059,
+   "normalised": [
+    "cryptocurrency"
+   ],
+   "members": [
+    "cryptocurrency",
+    "Cryptocurrency",
+    "crypto"
+   ]
+  },
+  {
+   "name": "finance",
+   "group": "bitcoin and crypto",
+   "images": 317,
+   "normalised": [
+    "finance"
+   ],
+   "members": [
+    "finance",
+    "Finance"
+   ]
+  },
+  {
+   "name": "blockchain",
+   "group": "bitcoin and crypto",
+   "images": 116,
+   "normalised": [
+    "blockchain"
+   ],
+   "members": [
+    "blockchain",
+    "Blockchain"
+   ]
+  },
+  {
+   "name": "meme",
+   "group": "memes and media",
+   "images": 2569,
+   "normalised": [
+    "humor",
+    "meme"
+   ],
+   "members": [
+    "meme",
+    "humor",
+    "Meme",
+    "memes",
+    "Humor"
+   ]
+  },
+  {
+   "name": "cartoon",
+   "group": "memes and media",
+   "images": 1366,
+   "normalised": [
+    "cartoon",
+    "cartoon character",
+    "character",
+    "disney"
+   ],
+   "members": [
+    "cartoon",
+    "character",
+    "Cartoon",
+    "Disney",
+    "cartoon_character",
+    "disney",
+    "cartoon character",
+    "characters",
+    "Character",
+    "cartoon_characters",
+    "Cartoon character",
+    "Characters",
+    "Cartoon Character",
+    "cartoon characters"
+   ]
+  },
+  {
+   "name": "social media",
+   "group": "memes and media",
+   "images": 1095,
+   "normalised": [
+    "social media",
+    "social media post",
+    "tweet",
+    "twitter"
+   ],
+   "members": [
+    "social_media",
+    "social media",
+    "social_media_post",
+    "twitter",
+    "social media post",
+    "tweet",
+    "Twitter",
+    "Social Media",
+    "Social Media Post",
+    "Social media",
+    "Social media post",
+    "Tweet",
+    "Social_media_post"
+   ]
+  },
+  {
+   "name": "video game",
+   "group": "memes and media",
+   "images": 564,
+   "normalised": [
+    "game",
+    "video game"
+   ],
+   "members": [
+    "video_game",
+    "video game",
+    "game",
+    "Video game",
+    "Video Game",
+    "video games"
+   ]
+  },
+  {
+   "name": "news",
+   "group": "memes and media",
+   "images": 433,
+   "normalised": [
+    "headline",
+    "news",
+    "news article"
+   ],
+   "members": [
+    "news",
+    "headline",
+    "news_article",
+    "news article",
+    "News",
+    "Headline",
+    "News article",
+    "headlines",
+    "News Article",
+    "news_articles"
+   ]
+  },
+  {
+   "name": "comic",
+   "group": "memes and media",
+   "images": 350,
+   "normalised": [
+    "comic",
+    "comic strip",
+    "speech bubble"
+   ],
+   "members": [
+    "comic",
+    "speech_bubble",
+    "speech bubble",
+    "comic strip",
+    "comic_strip",
+    "Comic strip"
+   ]
+  },
+  {
+   "name": "politics",
+   "group": "memes and media",
+   "images": 266,
+   "normalised": [
+    "political",
+    "politics"
+   ],
+   "members": [
+    "politics",
+    "Politics",
+    "political",
+    "Political"
+   ]
+  },
+  {
+   "name": "the emperor's new groove",
+   "group": "memes and media",
+   "images": 205,
+   "normalised": [
+    "kronk",
+    "kuzco",
+    "pacha",
+    "the emperor's new groove",
+    "yzma"
+   ],
+   "members": [
+    "Kuzco",
+    "The Emperor's New Groove",
+    "Pacha",
+    "Yzma",
+    "Kronk",
+    "kuzco",
+    "kronk",
+    "pacha",
+    "yzma",
+    "the emperor's new groove",
+    "YZMA"
+   ]
+  },
+  {
+   "name": "advertisement",
+   "group": "memes and media",
+   "images": 167,
+   "normalised": [
+    "advertisement"
+   ],
+   "members": [
+    "advertisement",
+    "Advertisement"
+   ]
+  },
+  {
+   "name": "movie",
+   "group": "memes and media",
+   "images": 113,
+   "normalised": [
+    "movie"
+   ],
+   "members": [
+    "movie",
+    "Movie"
+   ]
+  },
+  {
+   "name": "logo",
+   "group": "symbols and logos",
+   "images": 1146,
+   "normalised": [
+    "logo"
+   ],
+   "members": [
+    "logo",
+    "Logo",
+    "logos"
+   ]
+  },
+  {
+   "name": "qr code",
+   "group": "symbols and logos",
+   "images": 541,
+   "normalised": [
+    "qr code"
+   ],
+   "members": [
+    "qr_code",
+    "QR code",
+    "qr code",
+    "QR_code",
+    "QR Code"
+   ]
+  },
+  {
+   "name": "flag",
+   "group": "symbols and logos",
+   "images": 222,
+   "normalised": [
+    "flag"
+   ],
+   "members": [
+    "flag",
+    "flags",
+    "Flag",
+    "Flags"
+   ]
+  },
+  {
+   "name": "sign",
+   "group": "symbols and logos",
+   "images": 205,
+   "normalised": [
+    "sign"
+   ],
+   "members": [
+    "sign",
+    "Sign",
+    "signs"
+   ]
+  },
+  {
+   "name": "nostr",
+   "group": "symbols and logos",
+   "images": 203,
+   "normalised": [
+    "nostr"
+   ],
+   "members": [
+    "nostr",
+    "Nostr",
+    "NOSTR"
+   ]
+  },
+  {
+   "name": "symbol",
+   "group": "symbols and logos",
+   "images": 170,
+   "normalised": [
+    "symbol"
+   ],
+   "members": [
+    "symbol",
+    "Symbol"
+   ]
+  },
+  {
+   "name": "star",
+   "group": "symbols and logos",
+   "images": 140,
+   "normalised": [
+    "star"
+   ],
+   "members": [
+    "star",
+    "stars",
+    "Stars",
+    "Star"
+   ]
+  },
+  {
+   "name": "heart",
+   "group": "symbols and logos",
+   "images": 102,
+   "normalised": [
+    "heart"
+   ],
+   "members": [
+    "heart",
+    "Heart",
+    "hearts"
+   ]
+  },
+  {
+   "name": "sitting",
+   "group": "activities and events",
+   "images": 539,
+   "normalised": [
+    "sitting"
+   ],
+   "members": [
+    "sitting",
+    "Sitting"
+   ]
+  },
+  {
+   "name": "kneeling",
+   "group": "activities and events",
+   "images": 315,
+   "normalised": [
+    "kneeling"
+   ],
+   "members": [
+    "kneeling",
+    "Kneeling"
+   ]
+  },
+  {
+   "name": "lying down",
+   "group": "activities and events",
+   "images": 265,
+   "normalised": [
+    "lying down"
+   ],
+   "members": [
+    "lying down",
+    "lying_down"
+   ]
+  },
+  {
+   "name": "sport",
+   "group": "activities and events",
+   "images": 223,
+   "normalised": [
+    "basketball",
+    "football",
+    "soccer",
+    "sports"
+   ],
+   "members": [
+    "football",
+    "sports",
+    "soccer",
+    "basketball",
+    "Basketball",
+    "Football",
+    "Soccer"
+   ]
+  },
+  {
+   "name": "christmas",
+   "group": "activities and events",
+   "images": 195,
+   "normalised": [
+    "christmas"
+   ],
+   "members": [
+    "christmas",
+    "Christmas"
+   ]
+  },
+  {
+   "name": "fitness",
+   "group": "activities and events",
+   "images": 145,
+   "normalised": [
+    "fitness",
+    "gym"
+   ],
+   "members": [
+    "fitness",
+    "gym"
+   ]
+  },
+  {
+   "name": "black and white",
+   "group": "style and colour",
+   "images": 585,
+   "normalised": [
+    "black and white",
+    "grayscale"
+   ],
+   "members": [
+    "black_and_white",
+    "black and white",
+    "grayscale",
+    "monochrome",
+    "Black and white",
+    "Black and White"
+   ]
+  },
+  {
+   "name": "blue",
+   "group": "style and colour",
+   "images": 307,
+   "normalised": [
+    "blue"
+   ],
+   "members": [
+    "blue",
+    "Blue"
+   ]
+  },
+  {
+   "name": "green",
+   "group": "style and colour",
+   "images": 184,
+   "normalised": [
+    "green"
+   ],
+   "members": [
+    "green",
+    "Green"
+   ]
+  },
+  {
+   "name": "black background",
+   "group": "style and colour",
+   "images": 182,
+   "normalised": [
+    "black background",
+    "dark background"
+   ],
+   "members": [
+    "dark_background",
+    "black_background",
+    "black background",
+    "dark background",
+    "Black background"
+   ]
+  },
+  {
+   "name": "silhouette",
+   "group": "style and colour",
+   "images": 172,
+   "normalised": [
+    "silhouette"
+   ],
+   "members": [
+    "silhouette",
+    "Silhouette",
+    "silhouettes"
+   ]
+  },
+  {
+   "name": "pink",
+   "group": "style and colour",
+   "images": 158,
+   "normalised": [
+    "pink"
+   ],
+   "members": [
+    "pink",
+    "Pink"
+   ]
+  },
+  {
+   "name": "purple",
+   "group": "style and colour",
+   "images": 123,
+   "normalised": [
+    "purple"
+   ],
+   "members": [
+    "purple",
+    "Purple"
+   ]
+  },
+  {
+   "name": "texture",
+   "group": "style and colour",
+   "images": 121,
+   "normalised": [
+    "texture"
+   ],
+   "members": [
+    "texture"
+   ]
+  },
+  {
+   "name": "orange",
+   "group": "style and colour",
+   "images": 119,
+   "normalised": [
+    "orange"
+   ],
+   "members": [
+    "orange",
+    "Orange",
+    "oranges"
+   ]
+  },
+  {
+   "name": "red",
+   "group": "style and colour",
+   "images": 104,
+   "normalised": [
+    "red"
+   ],
+   "members": [
+    "red",
+    "Red"
+   ]
+  },
+  {
+   "name": "close-up",
+   "group": "style and colour",
+   "images": 102,
+   "normalised": [
+    "close up",
+    "close-up"
+   ],
+   "members": [
+    "close-up",
+    "close_up",
+    "Close-up"
+   ]
+  },
+  {
+   "name": "colorful",
+   "group": "style and colour",
+   "images": 101,
+   "normalised": [
+    "colorful"
+   ],
+   "members": [
+    "colorful"
+   ]
+  }
+ ]
+}
