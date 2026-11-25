@@ -12,6 +12,7 @@ DATA = HERE / "data" / "taxonomy"
 MERGES = HERE / "taxonomy_merges.csv"
 DECISIONS = HERE / "taxonomy_decisions.csv"
 OUT = HERE / "taxonomy.json"
+HARD_NEGATIVE = "hard negative"
 IMAGE_MIMES = ("image/jpeg", "image/png", "image/webp", "image/gif")
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -248,7 +249,7 @@ def read_merges(path, reviewed_only=False):
     if not path.exists():
         return {}
     with open(path) as f:
-        rows = list(csv.DictReader(f))
+        rows = [r for r in csv.DictReader(f) if r["group"].strip() != HARD_NEGATIVE]
     if reviewed_only:
         rows = [r for r in rows if r.get("reviewed", "yes") != "no"]
     return {r["label"]: (r["class"].strip(), r["group"].strip()) for r in rows}
@@ -293,6 +294,17 @@ def propose(args):
     rows.sort(key=lambda r: (r[1] == "-", r[2], r[1], -r[3]))
     write_merges(Path(args.out), rows)
     print(f"{len(images)} images, {len(counts)} normalised labels, {len(vocab)} candidates written to {args.out}")
+
+
+def read_hard_negatives(path=DECISIONS):
+    if not path.exists():
+        return []
+    with open(path) as f:
+        return [
+            (r["label"].strip(), r["class"].strip())
+            for r in csv.DictReader(f)
+            if r["group"].strip() == HARD_NEGATIVE
+        ]
 
 
 def labels_to_classes(raw_labels, lookup):

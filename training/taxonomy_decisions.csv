@@ -1,4 +1,16 @@
 label,class,group
+cat,dog,hard negative
+dog,cat,hard negative
+mandelbrot set,julia set,hard negative
+julia set,mandelbrot set,hard negative
+mobile app,website,hard negative
+website,mobile app,hard negative
+indoor,outdoor,hard negative
+outdoor,indoor,hard negative
+sitting,lying down,hard negative
+lying down,sitting,hard negative
+black and white,colorful,hard negative
+colorful,black and white,hard negative
 woman,woman,people
 man,man,people
 male,man,people
