@@ -48,9 +48,21 @@ fn main() -> Result<()> {
     let model = Classifier::load(&args[1], &PathBuf::from(&args[2]), &device)?;
     if let Some(check) = args.get(3) {
         let tensors = candle_core::safetensors::load(check, &device)?;
-        let got = model.forward(&tensors["x"])?;
+        let xs = &tensors["x"];
+        model.forward(&xs.narrow(0, 0, 2)?)?;
+        let started = Instant::now();
+        let got = model.forward(xs)?;
+        let seconds = started.elapsed().as_secs_f64();
+        let images = xs.dim(0)? as f64;
         let diff = (got - &tensors["logits"])?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
-        println!("{{\"check_max_abs_diff\": {diff}}}");
+        let threads = candle_core::utils::get_num_threads();
+        println!(
+            "{{\"kind\": \"{}\", \"device\": \"candle cpu\", \"threads\": {threads}, \"batch\": {images}, \"check_max_abs_diff\": {diff}, \"images_per_second\": {:.2}, \"images_per_second_per_core\": {:.2}}}",
+            args[1],
+            images / seconds,
+            images / seconds / threads as f64
+        );
+        return Ok(());
     }
     let threads = candle_core::utils::get_num_threads();
     for batch in [1usize, 8] {
