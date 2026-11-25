@@ -161,6 +161,18 @@ def save_checkpoint(model, space, out, name):
         (path / "config.json").write_text(json.dumps(cfg, indent=1))
     else:
         model.save_pretrained(path, safe_serialization=True)
+    save_parity_fixture(model, path)
+
+
+@torch.no_grad()
+def save_parity_fixture(model, path):
+    was_training = model.training
+    model.eval()
+    device = next(model.parameters()).device
+    x = torch.randn(2, 3, 224, 224, generator=torch.Generator().manual_seed(0))
+    logits = logits_of(model.float(), x.to(device)).cpu()
+    save_file({"x": x.contiguous(), "logits": logits.contiguous()}, path / "parity.safetensors")
+    model.train(was_training)
 
 
 def train_finetune(args, model, space, train_rows, data_dir, val_loader, device, out, generator):

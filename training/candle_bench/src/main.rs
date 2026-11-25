@@ -1,0 +1,74 @@
+use std::path::PathBuf;
+use std::time::Instant;
+
+use anyhow::{bail, Result};
+use candle_core::{DType, Device, Module, Tensor};
+use candle_nn::VarBuilder;
+use candle_transformers::models::{siglip, vit};
+
+enum Classifier {
+    Vit(vit::Model),
+    Siglip(siglip::VisionModel, candle_nn::Linear),
+}
+
+impl Classifier {
+    fn load(kind: &str, dir: &PathBuf, device: &Device) -> Result<Self> {
+        let config: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("config.json"))?)?;
+        let classes = config["id2label"].as_object().map(|m| m.len()).unwrap_or(0);
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[dir.join("model.safetensors")], DType::F32, device)? };
+        Ok(match kind {
+            "vit" => {
+                let cfg: vit::Config = serde_json::from_value(config)?;
+                Classifier::Vit(vit::Model::new(&cfg, classes, vb)?)
+            }
+            "siglip" => {
+                let cfg: siglip::VisionConfig = serde_json::from_value(config)?;
+                let backbone = siglip::VisionModel::new(&cfg, true, vb.pp("vision_model"))?;
+                let head = candle_nn::linear(cfg.hidden_size, classes, vb.pp("classifier"))?;
+                Classifier::Siglip(backbone, head)
+            }
+            _ => bail!("kind must be vit or siglip"),
+        })
+    }
+
+    fn forward(&self, xs: &Tensor) -> Result<Tensor> {
+        Ok(match self {
+            Classifier::Vit(m) => m.forward(xs)?,
+            Classifier::Siglip(b, h) => b.forward(xs)?.apply(h)?,
+        })
+    }
+}
+
+fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 3 {
+        bail!("usage: taxonomy-candle-bench <vit|siglip> <checkpoint dir> [check.safetensors]");
+    }
+    let device = Device::Cpu;
+    let model = Classifier::load(&args[1], &PathBuf::from(&args[2]), &device)?;
+    if let Some(check) = args.get(3) {
+        let tensors = candle_core::safetensors::load(check, &device)?;
+        let got = model.forward(&tensors["x"])?;
+        let diff = (got - &tensors["logits"])?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
+        println!("{{\"check_max_abs_diff\": {diff}}}");
+    }
+    let threads = candle_core::utils::get_num_threads();
+    for batch in [1usize, 8] {
+        let xs = Tensor::randn(0f32, 1f32, (batch, 3, 224, 224), &device)?;
+        model.forward(&xs)?;
+        let rounds = if batch == 1 { 10 } else { 3 };
+        let started = Instant::now();
+        for _ in 0..rounds {
+            model.forward(&xs)?;
+        }
+        let seconds = started.elapsed().as_secs_f64();
+        let images = (batch * rounds) as f64;
+        println!(
+            "{{\"kind\": \"{}\", \"device\": \"candle cpu\", \"threads\": {threads}, \"batch\": {batch}, \"images_per_second\": {:.2}, \"ms_per_image\": {:.1}}}",
+            args[1],
+            images / seconds,
+            1000.0 * seconds / images
+        );
+    }
+    Ok(())
+}
