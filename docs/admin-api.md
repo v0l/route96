@@ -470,6 +470,16 @@ next reload.
 
 ## Label auto-delete
 
+### `GET|POST /admin/label-models`, `DELETE /admin/label-models/{name}`
+
+List, add or remove label models. `POST` takes `name`, `model_type` (`vit`, `generic_llm` or `taxonomy`), the type's fields, and optional `label_exclude` (comma separated) and `min_confidence`.
+
+- `vit`: `hf_repo`.
+- `generic_llm`: `api_url`, `llm_model`, optional `api_key` and `prompt`.
+- `taxonomy`: `head_path` (a `head.safetensors` with `weight`, `bias`, `thresholds` and the class names in its metadata, from `training/export_head.py`) or `hf_repo` (a repo holding `head.safetensors`), and optional `backbone` (a Hugging Face repo or a local folder with `config.json` and `model.safetensors`, default `google/siglip2-base-patch16-224`). Each class above its trained threshold (and above `min_confidence` when set) is stored with its probability as the confidence. There is no taxonomy model unless one is added, so it is off by default.
+
+Taxonomy labels describe an image and are not a moderation signal: flag terms, delete terms and the purge below skip them. To act on one on purpose, prefix the term with the model name, for example `taxonomy-v1:nude`. A term with a `model:` prefix applies only to that model.
+
 ### `GET|PUT|DELETE /admin/label-delete-terms`
 
 Read, replace (`{ "terms": ["gore"] }`) or clear the terms that delete a file when the labeler applies a matching label (case-insensitive substring, score at least `label_delete_min_confidence`, default 0.8). Join parts with `+` to require a combination: `beach+dog` deletes only a file that has a label containing `beach` and a label containing `dog`, each scoring at least the minimum confidence (the audit confidence is the lowest of the parts). Reviewed files are deleted too and the hash is banned. `label_delete_dry_run` (default `true`) only records and flags matches.

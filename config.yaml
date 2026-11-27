@@ -52,6 +52,12 @@ label_models:
   #   prompt: "Focus on clothing items"
   #   max_image_pixels: 1800000
   #   name: "my-llm-labeler"
+  # Closed vocabulary classifier (off unless listed). Its labels never flag or
+  # delete a file unless a term is scoped to it, e.g. "taxonomy-v1:nude".
+  # - type: taxonomy
+  #   name: "taxonomy-v1"
+  #   head_path: "./data/models/taxonomy-v1/head.safetensors"
+  #   backbone: "google/siglip2-base-patch16-224"
   #   label_exclude:
   #     - "unknown"
   #   min_confidence: 0.5

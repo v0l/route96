@@ -12,6 +12,8 @@ interface LabelModelInput {
   name: string;
   model_type: string;
   hf_repo: string;
+  head_path: string;
+  backbone: string;
   api_url: string;
   llm_model: string;
   api_key: string;
@@ -654,6 +656,8 @@ function LabelModels({
     name: "",
     model_type: "",
     hf_repo: "",
+    head_path: "",
+    backbone: "",
     api_url: "",
     llm_model: "",
     api_key: "",
@@ -701,6 +705,15 @@ function LabelModels({
       return;
     }
 
+    if (
+      newModel.model_type === "taxonomy" &&
+      !newModel.head_path &&
+      !newModel.hf_repo
+    ) {
+      setError("Taxonomy model requires a head path or HuggingFace repo ID");
+      return;
+    }
+
     try {
       setSaving(true);
       setError(undefined);
@@ -710,6 +723,8 @@ function LabelModels({
         name: "",
         model_type: "",
         hf_repo: "",
+        head_path: "",
+        backbone: "",
         api_url: "",
         llm_model: "",
         api_key: "",
@@ -744,6 +759,61 @@ function LabelModels({
               placeholder="e.g., google/vit-base-patch16-224"
               className={inputCls()}
             />
+          </div>
+        </>
+      );
+    }
+    if (newModel.model_type === "taxonomy") {
+      return (
+        <>
+          <p className="text-xs text-neutral-500 mb-2">
+            Taxonomy labels describe an image. They never flag or delete a
+            file unless a flag or delete term names the model, for example
+            taxonomy-v1:nude.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">
+                Head path (head.safetensors)
+              </label>
+              <input
+                type="text"
+                value={newModel.head_path}
+                onChange={(e) =>
+                  setNewModel({ ...newModel, head_path: e.target.value })
+                }
+                placeholder="/models/taxonomy-v1/head.safetensors"
+                className={inputCls("w-full")}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">
+                Or HuggingFace repo with head.safetensors
+              </label>
+              <input
+                type="text"
+                value={newModel.hf_repo}
+                onChange={(e) =>
+                  setNewModel({ ...newModel, hf_repo: e.target.value })
+                }
+                placeholder="e.g., v0l/route96-taxonomy-v1"
+                className={inputCls("w-full")}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">
+                Backbone (optional)
+              </label>
+              <input
+                type="text"
+                value={newModel.backbone}
+                onChange={(e) =>
+                  setNewModel({ ...newModel, backbone: e.target.value })
+                }
+                placeholder="google/siglip2-base-patch16-224"
+                className={inputCls("w-full")}
+              />
+            </div>
           </div>
         </>
       );
@@ -843,7 +913,7 @@ function LabelModels({
         <p className="text-xs text-neutral-500 mb-3">
           Configure AI models for automatic image labeling. Supported types:
           vit (vision transformer), generic_llm (generic text labeler), and
-          custom (custom API endpoint).
+          taxonomy (closed vocabulary classifier, off until added here).
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
@@ -866,6 +936,7 @@ function LabelModels({
             <option value="">Select type</option>
             <option value="vit">ViT (Vision Transformer)</option>
             <option value="generic_llm">Generic LLM</option>
+            <option value="taxonomy">Taxonomy (SigLIP2 + head)</option>
           </select>
         </div>
 

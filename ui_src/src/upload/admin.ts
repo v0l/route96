@@ -80,6 +80,8 @@ export interface AddLabelModelRequest {
   name: string;
   model_type: string;
   hf_repo?: string;
+  head_path?: string;
+  backbone?: string;
   api_url?: string;
   llm_model?: string;
   api_key?: string;
