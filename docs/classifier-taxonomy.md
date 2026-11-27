@@ -2,7 +2,42 @@
 
 Issue #1407. Status: steps 1 to 4 done (taxonomy, label quality, export, training, issue #1441). Wiring into the media worker and the Qwen comparison are a later issue.
 
-Issue #1508 rebuilt the taxonomy as `taxonomy-v2` from fresh counts with a 50 image floor and new groups; see [Taxonomy v2](#taxonomy-v2-issue-1508). The training results further down are for v1 (210 classes) and need a new export and training run on v2.
+Issue #1508 rebuilt the taxonomy as `taxonomy-v2` from fresh counts with a 50 image floor and new groups; see [Taxonomy v2](#taxonomy-v2-issue-1508). Issue #1450 added the adult group on the owner's request (27 Nov) and retrained on v2; see [Adult group](#adult-group-issue-1450) and [v2 training](#v2-training-issue-1450). The training results under v1 further down are the 25 Nov run on 210 classes.
+
+## Adult group (issue #1450)
+
+The owner asked on 27 Nov for the adult labels in the taxonomy. They are now a group named `adult`, built like every other group: the same 50 image floor, the same normalisation and the same reviewed merges of near duplicates. The fetch was redone on 27 Nov (204,742 label rows, 36,398 images), so the taxonomy has 328 classes and 35,611 images (98%) get at least one.
+
+| class | images | members merged in |
+|---|---|---|
+| nude | 1781 | nudity, nude woman |
+| lingerie | 1102 | |
+| underwear | 685 | |
+| penis | 476 | male genitalia |
+| topless | 388 | |
+| breast | 338 | nipple |
+| buttock | 261 | |
+| bra | 178 | |
+| shirtless | 140 | |
+| pubic hair | 99 | |
+| genitalia | 86 | genital |
+| cleavage | 77 | |
+| sex | 70 | nsfw |
+| panty | 61 | |
+| thong | 57 | |
+| vulva | 55 | |
+
+`sex toy` (42) is a reviewed candidate under the floor. Decision rows for spellings under 30 images (naked, erect penis, black bra, oral sex and similar) are in `taxonomy_decisions.csv` so they join their class once they reach the candidate floor; today they are below it and do not count. `rope` stays dropped as nsfw adjacent, and `chain` stays dropped as ambiguous.
+
+How the code keeps the group apart: `ADULT_TERMS` in `taxonomy.py` (the old nsfw regex) no longer excludes anything. `class_map` only accepts a label or class that matches it when its group is `adult`, and no other label can go into an adult class, so `nude woman` can never land in `woman` and `lingerie` cannot become clothing. Tests: `test_build_taxonomy_keeps_adult_labels_in_the_adult_group`, `test_committed_taxonomy_has_an_adult_group_without_age_words` (the adult group exists, has nude with nudity and nude woman merged, has no age word in any name, member or spelling, and no class outside the group has an adult word).
+
+### Age stays out
+
+The age exclusion is unchanged: girl, child, boy, baby, schoolgirl, anime girl, adult and the rest still go to `excluded age` and never become a class or a member of one. Age is safety relevant, Qwen's age words are loose (`girl` for adult women), and the dedicated age model owns it with its own review. An adult class that also carried an age word would be the one combination the server must never produce, so the age rule wins over the adult group: `adult content` (55) matches the age word `adult` and stays excluded, and a decision row that maps an age word into an adult class is refused (`test_build_taxonomy_never_takes_an_age_label`).
+
+### Moderation is unchanged
+
+The nsfw ViT (`v0l/route96-nsfw-vit224`), its threshold and its moderation path do not change. The adult classes describe an image; they are not a moderation signal. When the taxonomy model is wired into the media worker, its labels must never be matched against `label_flag_terms` or `label_delete_terms` (`src/background/label_files.rs`, `run_batch`). Today `run_batch` matches the terms against every new label of every label model, so the wiring step has to skip taxonomy labels there, with a test that a taxonomy `nude` or `breast` neither flags nor deletes a file.
 
 ## Taxonomy v2 (issue #1508)
 
@@ -274,7 +309,7 @@ New drops at 50 or more images:
 | number, dark, light | 64, 59, 78 | too vague to learn |
 | education, cybersecurity, religion, business, economics, podcast | 81, 68, 57, 56, 54, 56 | topics, not visible things |
 
-The nsfw and age regexes are unchanged; 24 nsfw and 7 age candidates are still routed out.
+The nsfw and age regexes are unchanged; 24 nsfw and 7 age candidates are still routed out. (Superseded by #1450: the nsfw candidates are now the adult group, see above.)
 
 ### Candidates with 30 to 49 images, for the owner to pick
 
