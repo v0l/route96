@@ -48,6 +48,19 @@ enum Commands {
         #[arg(long, default_missing_value = "true", num_args = 0..=1)]
         dry_run: Option<bool>,
     },
+
+    #[cfg(feature = "labels")]
+    Label {
+        #[arg(long)]
+        head: PathBuf,
+        #[arg(long)]
+        backbone: Option<String>,
+        #[arg(long, default_value = "./data/models")]
+        models_dir: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        dir: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -60,6 +73,18 @@ async fn main() -> Result<(), Error> {
     env_logger::init();
 
     let args: Args = Args::parse();
+
+    #[cfg(feature = "labels")]
+    if let Commands::Label {
+        head,
+        backbone,
+        models_dir,
+        out,
+        dir,
+    } = &args.command
+    {
+        return label_dir(head, backbone.as_deref(), models_dir, out, dir);
+    }
 
     let builder = Config::builder()
         .add_source(config::File::with_name(if let Some(ref c) = args.config {
@@ -208,7 +233,70 @@ async fn main() -> Result<(), Error> {
             })
             .await?;
         }
+        #[cfg(feature = "labels")]
+        Commands::Label { .. } => unreachable!(),
     }
+    Ok(())
+}
+
+#[cfg(feature = "labels")]
+fn label_dir(
+    head: &Path,
+    backbone: Option<&str>,
+    models_dir: &Path,
+    out: &Path,
+    dir: &Path,
+) -> Result<(), Error> {
+    use route96::processing::labeling::TaxonomyModel;
+    use std::io::Write;
+    let model = TaxonomyModel::resolve(
+        models_dir,
+        Some(head),
+        None,
+        backbone,
+        candle_core::Device::Cpu,
+    )?;
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    files.sort();
+    let mut w = std::io::BufWriter::new(std::fs::File::create(out)?);
+    writeln!(w, "file\tmime\tms\tlabels")?;
+    let started = std::time::Instant::now();
+    let mut done = 0usize;
+    for path in &files {
+        let mime = infer::get_from_path(path)?
+            .map(|m| m.mime_type())
+            .unwrap_or("application/octet-stream");
+        let t = std::time::Instant::now();
+        let labels = match model.run(path, mime, 0.0) {
+            Ok(l) => {
+                let mut l: Vec<(String, f32)> = l.into_iter().collect();
+                l.sort_by(|a, b| b.1.total_cmp(&a.1));
+                l.iter()
+                    .map(|(c, p)| format!("{c}={p:.4}"))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            }
+            Err(e) => format!("error: {e}"),
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        writeln!(w, "{name}\t{mime}\t{}\t{labels}", t.elapsed().as_millis())?;
+        done += 1;
+        if done.is_multiple_of(50) {
+            info!("{done}/{} labelled", files.len());
+        }
+    }
+    w.flush()?;
+    let secs = started.elapsed().as_secs_f64();
+    println!(
+        "{{\"files\": {done}, \"seconds\": {secs:.1}, \"ms_per_file\": {:.1}, \"threads\": {}}}",
+        1000.0 * secs / done.max(1) as f64,
+        candle_core::utils::get_num_threads()
+    );
     Ok(())
 }
 
