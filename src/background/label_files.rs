@@ -1,7 +1,9 @@
 use super::{BatchResult, next_sleep};
-use crate::db::{Database, FileLabel, LabelDeletion, ReviewState};
+use crate::db::{Database, FileLabel, LabelDeletion, LabelModelScope, ReviewState};
 use crate::filesystem::FileStore;
-use crate::processing::labeling::{GenericLlmLabeler, MediaLabeler, VitLabeler};
+use crate::processing::labeling::{
+    GenericLlmLabeler, MediaLabeler, TaxonomyLabeler, TaxonomyModel, VitLabeler,
+};
 use crate::settings::{LabelModelConfig, LabelerType, Settings};
 use candle_core::Device;
 use log::{error, info, warn};
@@ -31,6 +33,56 @@ impl DeletePolicy {
             dry_run: s.label_delete_dry_run.unwrap_or(true),
         }
     }
+
+    fn for_model(&self, model: &str, moderates: bool) -> Self {
+        Self {
+            terms: terms_for_model(&self.terms, model, moderates),
+            ..self.clone()
+        }
+    }
+}
+
+pub fn terms_for_model(terms: &[String], model: &str, moderates: bool) -> Vec<String> {
+    let model = model.to_lowercase();
+    terms
+        .iter()
+        .filter_map(|t| {
+            let trimmed = t.trim();
+            match trimmed.split_once(':') {
+                Some((scope, rest)) if scope.trim().to_lowercase() == model => {
+                    Some(rest.trim().to_string())
+                }
+                Some(_) => None,
+                None if moderates => Some(trimmed.to_string()),
+                None => None,
+            }
+        })
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+pub const TAXONOMY_MODEL_NAME: &str = "taxonomy-v1";
+
+pub fn purge_scope(term: &str, models: &[LabelModelConfig]) -> (String, LabelModelScope) {
+    let term = term.trim();
+    let lower = term.to_lowercase();
+    let scoped = models.iter().map(|m| m.name.as_str()).find_map(|name| {
+        lower
+            .strip_prefix(&format!("{}:", name.to_lowercase()))
+            .map(|rest| (rest.trim().to_string(), LabelModelScope::Only(name.to_string())))
+    });
+    if let Some(found) = scoped {
+        return found;
+    }
+    let mut skip: Vec<String> = models
+        .iter()
+        .filter(|m| !m.moderates())
+        .map(|m| m.name.clone())
+        .collect();
+    if !skip.iter().any(|m| m == TAXONOMY_MODEL_NAME) {
+        skip.push(TAXONOMY_MODEL_NAME.to_string());
+    }
+    (term.to_string(), LabelModelScope::Except(skip))
 }
 
 pub(crate) struct DeleteMatch {
@@ -180,6 +232,35 @@ impl LabelFiles {
                     }
                 }
             }
+            LabelerType::Taxonomy {
+                head_path,
+                hf_repo,
+                backbone,
+            } => {
+                info!("Loading taxonomy label model '{}'", cfg.name);
+                let device = Device::cuda_if_available(0).unwrap_or_else(|e| {
+                    error!("Failed to initialize CUDA device: {}", e);
+                    Device::Cpu
+                });
+                match TaxonomyModel::resolve(
+                    models_dir,
+                    head_path.as_deref(),
+                    hf_repo.as_deref(),
+                    backbone.as_deref(),
+                    device,
+                ) {
+                    Ok(model) => Some(Box::new(TaxonomyLabeler::new(
+                        model,
+                        cfg.name.clone(),
+                        cfg.label_exclude.clone(),
+                        cfg.min_confidence,
+                    ))),
+                    Err(e) => {
+                        error!("Failed to load label model '{}': {}", cfg.name, e);
+                        None
+                    }
+                }
+            }
             LabelerType::GenericLlm {
                 api_url,
                 model,
@@ -221,6 +302,9 @@ impl LabelFiles {
         shutdown: &CancellationToken,
     ) -> BatchResult {
         let model_name = labeler.name().to_string();
+        let flag_terms = terms_for_model(label_flag_terms, &model_name, labeler.moderates());
+        let label_flag_terms = flag_terms.as_slice();
+        let delete = &delete.for_model(&model_name, labeler.moderates());
         if !delete.dry_run {
             Self::apply_pending(db, fs, &model_name, delete).await;
         }
@@ -297,7 +381,7 @@ impl LabelFiles {
                                 score,
                                 elapsed,
                             );
-                            (FileLabel::new(label, model_name.clone()), score)
+                            (FileLabel::scored(label, model_name.clone(), score), score)
                         })
                         .collect::<Vec<_>>()
                 }
@@ -594,6 +678,139 @@ mod tests {
         }
     }
 
+    struct TaxonomyFixed;
+
+    impl MediaLabeler for TaxonomyFixed {
+        fn name(&self) -> &str {
+            TAXONOMY_MODEL_NAME
+        }
+
+        fn label_exclude(&self) -> &[String] {
+            &[]
+        }
+
+        fn min_confidence(&self) -> f32 {
+            0.0
+        }
+
+        fn label_file(
+            &self,
+            _path: &Path,
+            _mime_type: &str,
+        ) -> Result<HashMap<String, f32>, LabelError> {
+            Ok(HashMap::from([
+                ("nude".to_string(), 0.95),
+                ("breast".to_string(), 0.9),
+            ]))
+        }
+
+        fn moderates(&self) -> bool {
+            false
+        }
+    }
+
+    async fn run_taxonomy(db: &Database, fs: &FileStore, terms: &[&str]) {
+        let terms: Vec<String> = terms.iter().map(|t| t.to_string()).collect();
+        let labeler: Arc<Box<dyn MediaLabeler + Send + Sync>> = Arc::new(Box::new(TaxonomyFixed));
+        let delete = DeletePolicy {
+            terms: terms.clone(),
+            min_confidence: 0.8,
+            dry_run: false,
+        };
+        LabelFiles::run_batch(labeler, db, fs, &terms, &delete, &CancellationToken::new()).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn taxonomy_nude_neither_flags_nor_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"taxonomy", ReviewState::None).await;
+
+        run_taxonomy(&db, &fs, &["nude", "breast", "nsfw"]).await;
+
+        assert!(fs.get(&id).exists());
+        let f = db.get_file(&id).await.unwrap().unwrap();
+        assert!(!f.banned);
+        assert_eq!(f.review_state, ReviewState::None);
+        assert!(db.list_label_deletions(None, 0, 10).await.unwrap().is_empty());
+        let mut labels = db.get_file_labels(&id).await.unwrap();
+        labels.sort_by(|a, b| a.label.cmp(&b.label));
+        let stored: Vec<(String, String, Option<f32>)> = labels
+            .into_iter()
+            .map(|l| (l.label, l.model, l.confidence))
+            .collect();
+        assert_eq!(
+            stored,
+            vec![
+                ("breast".to_string(), TAXONOMY_MODEL_NAME.to_string(), Some(0.9)),
+                ("nude".to_string(), TAXONOMY_MODEL_NAME.to_string(), Some(0.95)),
+            ]
+        );
+
+        let models: Vec<LabelModelConfig> = serde_json::from_value(serde_json::json!([
+            {"name": "nsfw", "type": "vit", "hf_repo": "v0l/route96-nsfw-vit224"},
+            {"name": TAXONOMY_MODEL_NAME, "type": "taxonomy", "head_path": "/x"}
+        ]))
+        .unwrap();
+        let (term, scope) = purge_scope("nude", &models);
+        assert!(db.files_with_label_matching(&term, &scope).await.unwrap().is_empty());
+        let (term, scope) = purge_scope("taxonomy-v1:nude", &models);
+        assert_eq!(db.files_with_label_matching(&term, &scope).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn taxonomy_term_set_on_purpose_flags_and_deletes() {
+        let dir = tempfile::tempdir().unwrap();
+        let fs = test_store(dir.path());
+        let db = test_db().await;
+        let id = add_owned(&db, &fs, b"scoped", ReviewState::None).await;
+
+        run_taxonomy(&db, &fs, &["Taxonomy-v1:nude"]).await;
+
+        assert!(!fs.get(&id).exists());
+        assert!(db.is_file_banned(&id).await.unwrap());
+        let rows = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, TAXONOMY_MODEL_NAME);
+        assert_eq!(rows[0].term, "nude");
+    }
+
+    #[test]
+    fn scoped_terms_reach_only_their_model() {
+        let terms: Vec<String> = ["gore", "taxonomy-v1: nude", "NSFW:porn", "taxonomy-v1:"]
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        assert_eq!(terms_for_model(&terms, "taxonomy-v1", false), ["nude"]);
+        assert_eq!(terms_for_model(&terms, "nsfw", true), ["gore", "porn"]);
+        assert_eq!(terms_for_model(&terms, "vit224", true), ["gore"]);
+    }
+
+    #[test]
+    fn purge_scope_skips_taxonomy_models_unless_named() {
+        let models: Vec<LabelModelConfig> = serde_json::from_value(serde_json::json!([
+            {"name": "nsfw", "type": "vit", "hf_repo": "v0l/route96-nsfw-vit224"},
+            {"name": "tax2", "type": "taxonomy", "hf_repo": "v0l/route96-taxonomy"}
+        ]))
+        .unwrap();
+        assert!(models[0].moderates());
+        assert!(!models[1].moderates());
+        assert_eq!(
+            purge_scope(" gore ", &models),
+            (
+                "gore".to_string(),
+                LabelModelScope::Except(vec!["tax2".to_string(), TAXONOMY_MODEL_NAME.to_string()])
+            )
+        );
+        assert_eq!(
+            purge_scope("TAX2:nude", &models),
+            ("nude".to_string(), LabelModelScope::Only("tax2".to_string()))
+        );
+    }
+
     fn policy(dry_run: bool) -> DeletePolicy {
         DeletePolicy {
             terms: vec!["gore".to_string()],
@@ -761,7 +978,10 @@ mod tests {
                 .unwrap();
         }
 
-        let files = db.files_with_label_matching("gore").await.unwrap();
+        let files = db
+            .files_with_label_matching("gore", &LabelModelScope::Except(vec![]))
+            .await
+            .unwrap();
         assert_eq!(files.len(), 3);
         for (id, label, model) in files {
             let hit = DeleteMatch {
@@ -781,7 +1001,12 @@ mod tests {
         let rows = db.list_label_deletions(Some(false), 0, 10).await.unwrap();
         assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.reason == "label:gore (admin purge)"));
-        assert!(db.files_with_label_matching("100%").await.unwrap().is_empty());
+        assert!(
+            db.files_with_label_matching("100%", &LabelModelScope::Except(vec![]))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

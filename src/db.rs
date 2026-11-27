@@ -182,6 +182,8 @@ pub struct FileLabel {
     pub label: String,
     pub created: DateTime<Utc>,
     pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
 }
 
 #[cfg(feature = "labels")]
@@ -192,8 +194,23 @@ impl FileLabel {
             label,
             created: Utc::now(),
             model,
+            confidence: None,
         }
     }
+
+    pub fn scored(label: String, model: String, confidence: f32) -> Self {
+        Self {
+            confidence: Some(confidence),
+            ..Self::new(label, model)
+        }
+    }
+}
+
+#[cfg(feature = "labels")]
+#[derive(Clone, Debug, PartialEq)]
+pub enum LabelModelScope {
+    Except(Vec<String>),
+    Only(String),
 }
 
 #[cfg(feature = "labels")]
@@ -653,10 +670,11 @@ impl Database {
         #[cfg(feature = "labels")]
         for lbl in &file.labels {
             let q3 =
-                sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
+                sqlx::query("insert ignore into upload_labels(file,label,model,confidence) values(?,?,?,?)")
                     .bind(&file.id)
                     .bind(&lbl.label)
-                    .bind(&lbl.model);
+                    .bind(&lbl.model)
+                    .bind(lbl.confidence);
             tx.execute(q3).await?;
         }
 
@@ -1440,12 +1458,16 @@ impl Database {
     /// Insert a single label for a file (ignores duplicates).
     #[cfg(feature = "labels")]
     pub async fn add_file_label(&self, file_id: &[u8], label: &FileLabel) -> Result<(), Error> {
-        sqlx::query("insert ignore into upload_labels(file,label,model) values(?,?,?)")
-            .bind(file_id)
-            .bind(&label.label)
-            .bind(&label.model)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "insert into upload_labels(file,label,model,confidence) values(?,?,?,?) \
+             on duplicate key update confidence = coalesce(values(confidence), confidence)",
+        )
+        .bind(file_id)
+        .bind(&label.label)
+        .bind(&label.model)
+        .bind(label.confidence)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1651,6 +1673,7 @@ impl Database {
     pub async fn files_with_label_matching(
         &self,
         term: &str,
+        scope: &LabelModelScope,
     ) -> Result<Vec<(Vec<u8>, String, String)>, Error> {
         let Some(parts) = self
             .resolve_label_filter(&Some(term.to_string()))
@@ -1658,6 +1681,19 @@ impl Database {
             .filter(|p| !p.is_empty())
         else {
             return Ok(Vec::new());
+        };
+        let push_skip = |qb: &mut sqlx::QueryBuilder<'_, sqlx::MySql>, alias: &str| {
+            let (op, models) = match scope {
+                LabelModelScope::Except(m) if m.is_empty() => return,
+                LabelModelScope::Except(m) => ("not in", m.clone()),
+                LabelModelScope::Only(m) => ("in", vec![m.clone()]),
+            };
+            qb.push(format!(" and {alias}.model {op} ("));
+            let mut sep = qb.separated(", ");
+            for m in models {
+                sep.push_bind(m);
+            }
+            sep.push_unseparated(")");
         };
         let mut qb = sqlx::QueryBuilder::<sqlx::MySql>::new(
             "select l.file, min(l.label), min(l.model) from upload_labels l \
@@ -1669,13 +1705,16 @@ impl Database {
             sep.push_bind(n.as_str());
         }
         sep.push_unseparated(")");
+        push_skip(&mut qb, "l");
         for names in &parts[1..] {
             qb.push(" and exists (select 1 from upload_labels l2 where l2.file = l.file and l2.label in (");
             let mut sep = qb.separated(", ");
             for n in names {
                 sep.push_bind(n.as_str());
             }
-            sep.push_unseparated("))");
+            sep.push_unseparated(")");
+            push_skip(&mut qb, "l2");
+            qb.push(")");
         }
         qb.push(" group by l.file order by l.file");
         qb.build_query_as().fetch_all(&self.pool).await

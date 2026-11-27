@@ -15,8 +15,8 @@ use async_openai::{
 };
 use base64::Engine;
 use candle_core::{D, DType, Device, IndexOp, Tensor};
-use candle_nn::VarBuilder;
-use candle_transformers::models::vit;
+use candle_nn::{Module, VarBuilder};
+use candle_transformers::models::{siglip, vit};
 use hf_hub::api::sync::{Api, ApiBuilder};
 use log::{debug, info, warn};
 use nostr::serde_json;
@@ -164,6 +164,10 @@ pub trait MediaLabeler: Send + Sync {
 
     /// Classify a file on disk and return `(label, confidence)` pairs.
     fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError>;
+
+    fn moderates(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Deserialize)]
@@ -605,6 +609,234 @@ impl MediaLabeler for GenericLlmLabeler {
     }
 }
 
+pub const TAXONOMY_BACKBONE: &str = "google/siglip2-base-patch16-224";
+const TAXONOMY_HEAD_FILE: &str = "head.safetensors";
+const SAFETENSORS_MAX_HEADER: u64 = 64 * 1024 * 1024;
+
+fn hf_file(models_dir: &Path, repo: &str, file: &str) -> Result<PathBuf> {
+    let api: Api = ApiBuilder::new()
+        .with_cache_dir(models_dir.to_path_buf())
+        .build()?;
+    Ok(api.model(repo.to_string()).get(file)?)
+}
+
+fn safetensors_metadata(path: &Path) -> Result<HashMap<String, String>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut len = [0u8; 8];
+    file.read_exact(&mut len)?;
+    let len = u64::from_le_bytes(len);
+    if len > SAFETENSORS_MAX_HEADER {
+        return Err(Error::msg(format!("safetensors header too large: {len}")));
+    }
+    let mut header = vec![0u8; len as usize];
+    file.read_exact(&mut header)?;
+    let header: serde_json::Value = serde_json::from_slice(&header)?;
+    Ok(header
+        .get("__metadata__")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_default())
+}
+
+struct TaxonomyHead {
+    linear: candle_nn::Linear,
+    classes: Vec<String>,
+    thresholds: Vec<f32>,
+}
+
+impl TaxonomyHead {
+    fn load(path: &Path, hidden_size: usize, device: &Device) -> Result<Self> {
+        let classes: Vec<String> = serde_json::from_str(
+            safetensors_metadata(path)?
+                .get("classes")
+                .ok_or_else(|| Error::msg("head has no classes in its metadata"))?,
+        )?;
+        let mut tensors = candle_core::safetensors::load(path, device)?;
+        let mut take = |name: &str| {
+            tensors
+                .remove(name)
+                .ok_or_else(|| Error::msg(format!("head has no '{name}' tensor")))
+                .and_then(|t| Ok(t.to_dtype(DType::F32)?))
+        };
+        let weight = take("weight")?;
+        let bias = take("bias")?;
+        let thresholds = take("thresholds")?.to_vec1::<f32>()?;
+        let n = classes.len();
+        if weight.dims() != [n, hidden_size] || bias.dims() != [n] || thresholds.len() != n {
+            return Err(Error::msg(format!(
+                "head shapes disagree: {} classes, weight {:?}, bias {:?}, {} thresholds, tower width {}",
+                n,
+                weight.dims(),
+                bias.dims(),
+                thresholds.len(),
+                hidden_size
+            )));
+        }
+        Ok(Self {
+            linear: candle_nn::Linear::new(weight, Some(bias)),
+            classes,
+            thresholds,
+        })
+    }
+}
+
+pub struct TaxonomyModel {
+    backbone: siglip::VisionModel,
+    head: TaxonomyHead,
+    device: Device,
+}
+
+impl TaxonomyModel {
+    pub fn load(backbone_dir: &Path, head_path: &Path, device: Device) -> Result<Self> {
+        Self::load_files(
+            &backbone_dir.join("config.json"),
+            &backbone_dir.join("model.safetensors"),
+            head_path,
+            device,
+        )
+    }
+
+    fn load_files(
+        config_path: &Path,
+        weights_path: &Path,
+        head_path: &Path,
+        device: Device,
+    ) -> Result<Self> {
+        info!(
+            "Loading taxonomy model {:?} with head {:?} on {:?}",
+            weights_path, head_path, device
+        );
+        let config: serde_json::Value = serde_json::from_slice(&std::fs::read(config_path)?)?;
+        let vision = config.get("vision_config").cloned().unwrap_or(config);
+        let cfg: siglip::VisionConfig = serde_json::from_value(vision)?;
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)?
+        };
+        let backbone = siglip::VisionModel::new(&cfg, true, vb.pp("vision_model"))?;
+        let head = TaxonomyHead::load(head_path, cfg.hidden_size, &device)?;
+        Ok(Self {
+            backbone,
+            head,
+            device,
+        })
+    }
+
+    pub fn resolve(
+        models_dir: &Path,
+        head_path: Option<&Path>,
+        hf_repo: Option<&str>,
+        backbone: Option<&str>,
+        device: Device,
+    ) -> Result<Self> {
+        let head = match (head_path, hf_repo) {
+            (Some(p), _) => p.to_path_buf(),
+            (None, Some(repo)) => hf_file(models_dir, repo, TAXONOMY_HEAD_FILE)?,
+            (None, None) => {
+                return Err(Error::msg("taxonomy model needs head_path or hf_repo"));
+            }
+        };
+        let backbone = backbone.unwrap_or(TAXONOMY_BACKBONE);
+        let local = Path::new(backbone);
+        if local.is_dir() {
+            return Self::load(local, &head, device);
+        }
+        let config = hf_file(models_dir, backbone, "config.json")?;
+        let weights = hf_file(models_dir, backbone, "model.safetensors")?;
+        Self::load_files(&config, &weights, &head, device)
+    }
+
+    pub fn classes(&self) -> &[String] {
+        &self.head.classes
+    }
+
+    fn mean_probabilities(&self, frames: &[Tensor]) -> Result<Vec<f32>> {
+        let xs = Tensor::stack(frames, 0)?.to_device(&self.device)?;
+        let logits = self.backbone.forward(&xs)?.apply(&self.head.linear)?;
+        Ok(candle_nn::ops::sigmoid(&logits)?
+            .mean(0)?
+            .to_vec1::<f32>()?)
+    }
+
+    fn labels_over_threshold(&self, probs: &[f32], min_confidence: f32) -> HashMap<String, f32> {
+        self.head
+            .classes
+            .iter()
+            .zip(&self.head.thresholds)
+            .zip(probs)
+            .filter(|((_, t), p)| **p >= t.max(min_confidence))
+            .map(|((c, _), p)| (c.clone(), *p))
+            .collect()
+    }
+
+    pub fn run(
+        &self,
+        path: &Path,
+        mime_type: &str,
+        min_confidence: f32,
+    ) -> Result<HashMap<String, f32>, LabelError> {
+        let normalization = Normalization::default();
+        let frames = if mime_type.starts_with("video/") {
+            extract_video_frames(path, &normalization, &Device::Cpu)?
+        } else if mime_type.starts_with("image/svg") {
+            Vec::new()
+        } else {
+            vec![load_frame_224(path, &normalization, &Device::Cpu)?]
+        };
+        if frames.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let probs = self
+            .mean_probabilities(&frames)
+            .map_err(LabelError::Ffmpeg)?;
+        Ok(self.labels_over_threshold(&probs, min_confidence))
+    }
+}
+
+pub struct TaxonomyLabeler {
+    model: TaxonomyModel,
+    name: String,
+    label_exclude: Vec<String>,
+    min_confidence: f32,
+}
+
+impl TaxonomyLabeler {
+    pub fn new(
+        model: TaxonomyModel,
+        name: String,
+        label_exclude: Vec<String>,
+        min_confidence: Option<f32>,
+    ) -> Self {
+        Self {
+            model,
+            name,
+            label_exclude,
+            min_confidence: min_confidence.unwrap_or(0.0),
+        }
+    }
+}
+
+impl MediaLabeler for TaxonomyLabeler {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn label_exclude(&self) -> &[String] {
+        &self.label_exclude
+    }
+
+    fn min_confidence(&self) -> f32 {
+        self.min_confidence
+    }
+
+    fn label_file(&self, path: &Path, mime_type: &str) -> Result<HashMap<String, f32>, LabelError> {
+        self.model.run(path, mime_type, self.min_confidence)
+    }
+
+    fn moderates(&self) -> bool {
+        false
+    }
+}
+
 /// Convenience function: load a model from disk/HF and label one file.
 /// Prefer loading models once with [`VitModel::load_from_dir`] and calling
 /// [`VitModel::run`] directly when processing multiple files.
@@ -902,5 +1134,196 @@ mod tests {
         // Second load should hit the cache (no network needed)
         VitModel::load_from_dir(&models_dir, DEFAULT_HF_REPO, Device::Cpu)
             .expect("second load from cache should succeed");
+    }
+
+    fn write_safetensors(
+        path: &Path,
+        tensors: &[(&str, Vec<usize>, Vec<f32>)],
+        metadata: &[(&str, String)],
+    ) {
+        let mut header = serde_json::Map::new();
+        let meta: serde_json::Map<String, serde_json::Value> = metadata
+            .iter()
+            .map(|(k, v)| (k.to_string(), serde_json::Value::String(v.clone())))
+            .collect();
+        header.insert("__metadata__".to_string(), serde_json::Value::Object(meta));
+        let mut data = Vec::new();
+        for (name, shape, values) in tensors {
+            let start = data.len();
+            data.extend(values.iter().flat_map(|v| v.to_le_bytes()));
+            header.insert(
+                name.to_string(),
+                serde_json::json!({"dtype": "F32", "shape": shape, "data_offsets": [start, data.len()]}),
+            );
+        }
+        let mut header = serde_json::to_vec(&header).unwrap();
+        while header.len() % 8 != 0 {
+            header.push(b' ');
+        }
+        let mut out = (header.len() as u64).to_le_bytes().to_vec();
+        out.extend(header);
+        out.extend(data);
+        std::fs::write(path, out).unwrap();
+    }
+
+    const TINY_HIDDEN: usize = 8;
+
+    fn tiny_taxonomy(dir: &Path, biases: &[(&str, f32, f32)]) -> (PathBuf, PathBuf) {
+        let backbone = dir.join("backbone");
+        std::fs::create_dir_all(&backbone).unwrap();
+        let config = serde_json::json!({
+            "vision_config": {
+                "hidden_size": TINY_HIDDEN,
+                "intermediate_size": 16,
+                "num_hidden_layers": 1,
+                "num_attention_heads": 2,
+                "image_size": 224,
+                "patch_size": 16
+            }
+        });
+        std::fs::write(backbone.join("config.json"), config.to_string()).unwrap();
+        let cfg: siglip::VisionConfig =
+            serde_json::from_value(config["vision_config"].clone()).unwrap();
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &Device::Cpu);
+        siglip::VisionModel::new(&cfg, true, vb.pp("vision_model")).unwrap();
+        varmap.save(backbone.join("model.safetensors")).unwrap();
+
+        let n = biases.len();
+        let names: Vec<&str> = biases.iter().map(|(c, _, _)| *c).collect();
+        let head = dir.join("head.safetensors");
+        write_safetensors(
+            &head,
+            &[
+                ("weight", vec![n, TINY_HIDDEN], vec![0.0; n * TINY_HIDDEN]),
+                ("bias", vec![n], biases.iter().map(|(_, b, _)| *b).collect()),
+                ("thresholds", vec![n], biases.iter().map(|(_, _, t)| *t).collect()),
+            ],
+            &[
+                ("classes", serde_json::to_string(&names).unwrap()),
+                ("base", TAXONOMY_BACKBONE.to_string()),
+            ],
+        );
+        (backbone, head)
+    }
+
+    fn sigmoid(x: f32) -> f32 {
+        1.0 / (1.0 + (-x).exp())
+    }
+
+    #[test]
+    fn taxonomy_model_loads_and_labels_classes_over_their_thresholds() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backbone, head) = tiny_taxonomy(
+            dir.path(),
+            &[("cat", 3.0, 0.5), ("dog", -3.0, 0.5), ("sky", 0.0, 0.4), ("nude", 0.0, 0.6)],
+        );
+        let model = TaxonomyModel::load(&backbone, &head, Device::Cpu).unwrap();
+        assert_eq!(model.classes(), ["cat", "dog", "sky", "nude"]);
+        let labeler = TaxonomyLabeler::new(model, "taxonomy-v1".to_string(), vec![], None);
+        assert_eq!(labeler.name(), "taxonomy-v1");
+        assert!(!labeler.moderates());
+
+        let image =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data/glass_sculpture.webp");
+        let labels = labeler.label_file(&image, "image/webp").unwrap();
+        let mut names: Vec<&String> = labels.keys().collect();
+        names.sort();
+        assert_eq!(names, ["cat", "sky"]);
+        assert!((labels["cat"] - sigmoid(3.0)).abs() < 1e-5, "{labels:?}");
+        assert!((labels["sky"] - 0.5).abs() < 1e-5, "{labels:?}");
+    }
+
+    #[test]
+    fn taxonomy_min_confidence_raises_the_class_thresholds() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backbone, head) =
+            tiny_taxonomy(dir.path(), &[("cat", 3.0, 0.5), ("sky", 0.0, 0.4)]);
+        let model = TaxonomyModel::load(&backbone, &head, Device::Cpu).unwrap();
+        let labeler = TaxonomyLabeler::new(model, "t".to_string(), vec![], Some(0.6));
+        let image =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data/glass_sculpture.webp");
+        let labels = labeler.label_file(&image, "image/webp").unwrap();
+        assert_eq!(labels.keys().collect::<Vec<_>>(), ["cat"]);
+        assert!(labeler.label_file(&image, "image/svg+xml").unwrap().is_empty());
+    }
+
+    #[test]
+    fn taxonomy_head_that_disagrees_with_the_tower_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backbone, _) = tiny_taxonomy(dir.path(), &[("cat", 0.0, 0.5)]);
+        let bad = dir.path().join("bad.safetensors");
+        write_safetensors(
+            &bad,
+            &[
+                ("weight", vec![2, TINY_HIDDEN], vec![0.0; 2 * TINY_HIDDEN]),
+                ("bias", vec![2], vec![0.0; 2]),
+                ("thresholds", vec![2], vec![0.5; 2]),
+            ],
+            &[("classes", r#"["cat"]"#.to_string())],
+        );
+        let err = TaxonomyModel::load(&backbone, &bad, Device::Cpu)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("disagree"), "{err}");
+        let no_classes = dir.path().join("no_classes.safetensors");
+        write_safetensors(&no_classes, &[("bias", vec![1], vec![0.0])], &[]);
+        assert!(TaxonomyModel::load(&backbone, &no_classes, Device::Cpu).is_err());
+        assert!(
+            TaxonomyModel::resolve(dir.path(), None, None, None, Device::Cpu).is_err(),
+            "a taxonomy entry without a head must not load"
+        );
+    }
+
+    #[test]
+    fn taxonomy_resolve_takes_a_local_backbone_and_head_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backbone, head) = tiny_taxonomy(dir.path(), &[("cat", 1.0, 0.5)]);
+        let model = TaxonomyModel::resolve(
+            dir.path(),
+            Some(&head),
+            None,
+            Some(backbone.to_str().unwrap()),
+            Device::Cpu,
+        )
+        .unwrap();
+        assert_eq!(model.classes(), ["cat"]);
+    }
+
+    #[test]
+    fn taxonomy_video_averages_frame_probabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let (backbone, head) = tiny_taxonomy(dir.path(), &[("cat", 2.0, 0.5)]);
+        let model = TaxonomyModel::load(&backbone, &head, Device::Cpu).unwrap();
+        let labels = model.run(&get_test_video(), "video/mp4", 0.0).unwrap();
+        assert!((labels["cat"] - sigmoid(2.0)).abs() < 1e-5, "{labels:?}");
+    }
+
+    #[test]
+    #[ignore = "needs ROUTE96_TAXONOMY_HEAD (head.safetensors from training/export_head.py)"]
+    fn taxonomy_v1_labels_the_glass_sculpture() {
+        let head = PathBuf::from(std::env::var("ROUTE96_TAXONOMY_HEAD").unwrap());
+        let backbone = std::env::var("ROUTE96_TAXONOMY_BACKBONE").ok();
+        let model = TaxonomyModel::resolve(
+            &test_models_dir(),
+            Some(&head),
+            None,
+            backbone.as_deref(),
+            Device::Cpu,
+        )
+        .unwrap();
+        let labeler = TaxonomyLabeler::new(model, "taxonomy-v1".to_string(), vec![], None);
+        let image =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-data/glass_sculpture.webp");
+        let labels = labeler.label_file(&image, "image/webp").unwrap();
+        println!("taxonomy-v1 labels: {labels:?}");
+        for expected in ["statue", "abstract"] {
+            assert!(labels.contains_key(expected), "{labels:?}");
+        }
+        for adult in ["nude", "breast", "lingerie", "sex"] {
+            assert!(!labels.contains_key(adult), "{labels:?}");
+        }
+        assert!(labels.values().all(|p| (0.0..=1.0).contains(p)));
     }
 }

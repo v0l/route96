@@ -294,6 +294,13 @@ pub struct LabelModelConfig {
     pub min_confidence: Option<f32>,
 }
 
+#[cfg(feature = "labels")]
+impl LabelModelConfig {
+    pub fn moderates(&self) -> bool {
+        !matches!(self.labeler_type, LabelerType::Taxonomy { .. })
+    }
+}
+
 /// The labeling backend type. Uses `#[serde(tag = "type")]` so each variant
 /// is selected by a `"type"` key in the YAML config.
 #[cfg(feature = "labels")]
@@ -319,6 +326,14 @@ pub enum LabelerType {
         /// Qwen3-VL on vLLM rejects images of 2,097,152 pixels or more.
         #[serde(default)]
         max_image_pixels: Option<u64>,
+    },
+    Taxonomy {
+        #[serde(default)]
+        head_path: Option<PathBuf>,
+        #[serde(default)]
+        hf_repo: Option<String>,
+        #[serde(default)]
+        backbone: Option<String>,
     },
 }
 

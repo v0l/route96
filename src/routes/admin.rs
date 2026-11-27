@@ -1720,6 +1720,10 @@ struct AddLabelModelBody {
     api_key: Option<String>,
     /// Custom prompt (optional, for generic_llm type)
     prompt: Option<String>,
+    #[serde(default)]
+    head_path: Option<String>,
+    #[serde(default)]
+    backbone: Option<String>,
     /// Labels to exclude (comma-separated)
     label_exclude: Option<String>,
     /// Minimum confidence threshold (optional)
@@ -1813,8 +1817,32 @@ async fn admin_add_label_model(
             }
             config
         }
+        "taxonomy" => {
+            let pick = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            let head_path = pick(body.head_path);
+            let hf_repo = pick(body.hf_repo);
+            if head_path.is_none() && hf_repo.is_none() {
+                return AdminResponse::error("Taxonomy model requires head_path or hf_repo");
+            }
+            let mut config = serde_json::json!({
+                "name": name.clone(),
+                "type": "taxonomy",
+            });
+            if let Some(p) = head_path {
+                config["head_path"] = serde_json::json!(p);
+            }
+            if let Some(r) = hf_repo {
+                config["hf_repo"] = serde_json::json!(r);
+            }
+            if let Some(b) = pick(body.backbone) {
+                config["backbone"] = serde_json::json!(b);
+            }
+            config
+        }
         _ => {
-            return AdminResponse::error("Invalid model_type. Use 'vit' or 'generic_llm'");
+            return AdminResponse::error(
+                "Invalid model_type. Use 'vit', 'generic_llm' or 'taxonomy'",
+            );
         }
     };
 
@@ -2139,7 +2167,9 @@ async fn admin_count_label_purge(
     if q.term.trim().is_empty() {
         return AdminResponse::error("Term cannot be empty");
     }
-    match state.db.files_with_label_matching(q.term.trim()).await {
+    let models = state.settings().await.label_models.unwrap_or_default();
+    let (term, scope) = crate::background::label_files::purge_scope(&q.term, &models);
+    match state.db.files_with_label_matching(&term, &scope).await {
         Ok(files) => AdminResponse::success(files.len()),
         Err(e) => AdminResponse::error(&format!("Failed to count matching files: {}", e)),
     }
@@ -2159,7 +2189,9 @@ async fn admin_purge_label(
     if term.is_empty() {
         return AdminResponse::error("Term cannot be empty");
     }
-    let files = match state.db.files_with_label_matching(&term).await {
+    let models = state.settings().await.label_models.unwrap_or_default();
+    let (match_term, scope) = crate::background::label_files::purge_scope(&term, &models);
+    let files = match state.db.files_with_label_matching(&match_term, &scope).await {
         Ok(f) => f,
         Err(e) => return AdminResponse::error(&format!("Failed to find matching files: {}", e)),
     };

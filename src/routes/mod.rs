@@ -298,6 +298,10 @@ pub async fn get_props(
                             name: model,
                             model_type: Some("llm".to_string()),
                         },
+                        crate::settings::LabelerType::Taxonomy { .. } => LabelModelInfo {
+                            name: m.name,
+                            model_type: Some("taxonomy".to_string()),
+                        },
                     })
                     .collect(),
             }
