@@ -4,6 +4,8 @@ from pathlib import Path
 import numpy as np
 
 from taxonomy import (
+    GROUPS,
+    MIN_IMAGES,
     build_taxonomy,
     class_lookup,
     excluded_reason,
@@ -109,15 +111,74 @@ def test_min_images_drops_small_classes():
     assert [c["name"] for c in t["classes"]] == ["dog"]
 
 
+def test_build_taxonomy_honours_min_images_and_lists_candidates():
+    images = {f"i{n}": {"dog"} for n in range(5)}
+    images.update({f"j{n}": {"llama"} for n in range(3)})
+    images.update({f"k{n}": {"frog"} for n in range(2)})
+    images.update({f"m{n}": {"ostrich"} for n in range(3)})
+    merges = {"dog": ("dog", "animals"), "llama": ("llama", "animals"), "frog": ("frog", "animals")}
+    proposals = {**merges, "ostrich": ("ostrich", "animals"), "nude": ("-", "excluded nsfw")}
+    t = build_taxonomy(images, merges, min_images=4, proposals=proposals, candidate_min=3)
+    assert t["min_images"] == 4
+    assert t["candidate_min"] == 3
+    assert [c["name"] for c in t["classes"]] == ["dog"]
+    assert all(c["images"] >= 4 for c in t["classes"])
+    assert t["candidates"] == [
+        {"name": "llama", "group": "animals", "images": 3, "reviewed": True},
+        {"name": "ostrich", "group": "animals", "images": 3, "reviewed": False},
+    ]
+
+
+def test_build_taxonomy_never_takes_an_excluded_label():
+    images = {
+        "a": {"woman", "nude woman"},
+        "b": {"nude", "lingerie"},
+        "c": {"anime girl", "woman"},
+        "d": {"nude"},
+    }
+    merges = {
+        "woman": ("woman", "people"),
+        "nude woman": ("woman", "people"),
+        "anime girl": ("woman", "people"),
+        "nude": ("nude", "people"),
+        "lingerie": ("underwear", "body and clothing"),
+    }
+    t = build_taxonomy(images, merges, min_images=1, proposals=merges)
+    assert [c["name"] for c in t["classes"]] == ["woman"]
+    assert t["classes"][0]["normalised"] == ["woman"]
+    assert t["classes"][0]["images"] == 2
+    assert t["candidates"] == []
+    for c in t["classes"]:
+        assert not any(excluded_reason(n) for n in c["normalised"] + c["members"])
+
+
 def test_committed_taxonomy_is_consistent():
     t = json.loads((HERE / "taxonomy.json").read_text())
     names = [c["name"] for c in t["classes"]]
     assert len(names) == len(set(names))
-    assert 150 <= len(names) <= 300
+    assert 150 <= len(names) <= 400
     seen = set()
     for c in t["classes"]:
         assert c["group"] in t["groups"]
         assert c["images"] >= t["min_images"]
         assert not excluded_reason(c["name"])
+        assert not any(excluded_reason(n) for n in c["normalised"])
         assert not seen & set(c["normalised"])
         seen |= set(c["normalised"])
+    assert t["min_images"] == MIN_IMAGES
+    assert set(t["groups"]) <= set(GROUPS)
+    for c in t["candidates"]:
+        assert t["candidate_min"] <= c["images"] < t["min_images"]
+        assert c["name"] not in names
+        assert not excluded_reason(c["name"])
+
+
+def test_committed_taxonomy_groups_keep_poses_colours_and_events_apart():
+    t = json.loads((HERE / "taxonomy.json").read_text())
+    group = {c["name"]: c["group"] for c in t["classes"]}
+    for name in ["sitting", "lying down", "kneeling", "back view", "close-up", "selfie"]:
+        assert group[name] == "pose and framing"
+    for name in ["black", "white", "gold", "yellow", "blue", "black and white"]:
+        assert group[name] == "colour"
+    assert group["christmas"] == "seasons and events"
+    assert group["sport"] == "activities and sport"

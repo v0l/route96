@@ -15,13 +15,19 @@ OUT = HERE / "taxonomy.json"
 HARD_NEGATIVE = "hard negative"
 IMAGE_MIMES = ("image/jpeg", "image/png", "image/webp", "image/gif")
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+VERSION = "taxonomy-v2"
+MIN_IMAGES = 50
+CANDIDATE_MIN = 30
 
 GROUPS = [
     "people",
+    "pose and framing",
     "body and clothing",
     "text and documents",
     "screens and apps",
     "art and abstract",
+    "visual style",
+    "colour",
     "animals",
     "places and nature",
     "objects",
@@ -30,25 +36,28 @@ GROUPS = [
     "bitcoin and crypto",
     "memes and media",
     "symbols and logos",
-    "activities and events",
-    "style and colour",
+    "activities and sport",
+    "seasons and events",
 ]
 GROUP_PROMPTS = {
     "people": "people, a person, a face, a crowd",
+    "pose and framing": "sitting, lying down, kneeling, a back view, a close up, a selfie, a portrait",
     "body and clothing": "clothes, garments, hair, body parts, accessories",
     "text and documents": "text, a document, a letter, a certificate, a chart",
     "screens and apps": "a screenshot of an app, a website or a user interface",
     "art and abstract": "abstract art, a drawing, a painting, a fractal, a pattern",
+    "visual style": "a visual style, vintage, neon, a silhouette, a texture",
+    "colour": "a colour, red, blue, black, white, gold, black and white",
     "animals": "an animal, a pet, a bird",
     "places and nature": "a place, a landscape, a room, nature, weather",
     "objects": "an object, furniture, a tool, a device",
     "vehicles": "a car, a vehicle, a plane, a boat",
     "food and drink": "food, a meal, a drink",
-    "bitcoin and crypto": "bitcoin, cryptocurrency, trading, blockchain",
+    "bitcoin and crypto": "bitcoin, cryptocurrency, trading, blockchain, money",
     "memes and media": "a meme, a comic, a movie, a video game, a news story",
     "symbols and logos": "a logo, a symbol, a flag, a sign",
-    "activities and events": "sitting, lying down, sport, exercise, a holiday",
-    "style and colour": "a colour, black and white, a visual style",
+    "activities and sport": "sport, exercise, swimming, hiking",
+    "seasons and events": "christmas, summer, a holiday, a concert, a protest",
 }
 
 EXCLUDED_NSFW = re.compile(
@@ -319,10 +328,15 @@ def class_lookup(taxonomy):
     return lookup
 
 
-def build_taxonomy(images, merges, min_images):
-    norm = normalised_images(images)
-    members = raw_members(images)
-    class_of = {l: (c, g) for l, (c, g) in merges.items() if c and c != "-"}
+def class_map(rows):
+    return {
+        l: (c, g)
+        for l, (c, g) in rows.items()
+        if c and c != "-" and not excluded_reason(l) and not excluded_reason(c)
+    }
+
+
+def images_per_class(norm, class_of):
     class_images = defaultdict(set)
     for sha, labels in norm.items():
         for l in labels:
@@ -332,6 +346,14 @@ def build_taxonomy(images, merges, min_images):
     for label, (cls, group) in class_of.items():
         if label == cls or cls not in group_of:
             group_of[cls] = group
+    return class_images, group_of
+
+
+def build_taxonomy(images, merges, min_images, proposals=None, candidate_min=CANDIDATE_MIN):
+    norm = normalised_images(images)
+    members = raw_members(images)
+    class_of = class_map(merges)
+    class_images, group_of = images_per_class(norm, class_of)
     classes = []
     for cls, shas in class_images.items():
         if len(shas) < min_images:
@@ -355,10 +377,12 @@ def build_taxonomy(images, merges, min_images):
     for label, (cls, group) in merges.items():
         if cls == "-":
             excluded[group] += 1
+    kept = {c["name"] for c in classes}
     return {
-        "version": "taxonomy-v1",
+        "version": VERSION,
         "source_model": "qwen3.5",
         "min_images": min_images,
+        "candidate_min": candidate_min,
         "multi_label": "An image gets every class that any of its Qwen labels maps to after normalisation, so one image can have zero to five classes. A label that maps to no class is ignored. Training uses one sigmoid output per class.",
         "excluded": {
             "nsfw": "Nudity, sexual and underwear labels stay with the nsfw model, which has its own human reviewed training set and threshold.",
@@ -372,13 +396,26 @@ def build_taxonomy(images, merges, min_images):
         },
         "groups": [g for g in GROUPS if any(c["group"] == g for c in classes)],
         "classes": classes,
+        "candidates": candidate_classes(norm, merges, proposals or {}, kept, candidate_min, min_images),
     }
+
+
+def candidate_classes(norm, merges, proposals, kept, candidate_min, min_images):
+    reviewed = {c for c, _ in merges.values()}
+    class_images, group_of = images_per_class(norm, class_map({**proposals, **merges}))
+    out = [
+        {"name": cls, "group": group_of[cls], "images": len(shas), "reviewed": cls in reviewed}
+        for cls, shas in class_images.items()
+        if cls not in kept and candidate_min <= len(shas) < min_images
+    ]
+    return sorted(out, key=lambda c: (-c["images"], c["name"]))
 
 
 def build(args):
     images = read_images(Path(args.labels))
     merges = read_merges(Path(args.merges), reviewed_only=True)
-    taxonomy = build_taxonomy(images, merges, args.min_images)
+    proposals = read_merges(Path(args.merges))
+    taxonomy = build_taxonomy(images, merges, args.min_images, proposals, args.candidate_min)
     with open(args.out, "w") as f:
         json.dump(taxonomy, f, indent=1, ensure_ascii=False)
         f.write("\n")
@@ -425,12 +462,13 @@ def main():
     a.add_argument("--labels", default=str(DATA / "labels.tsv"))
     a.add_argument("--decisions", default=str(DECISIONS))
     a.add_argument("--out", default=str(MERGES))
-    a.add_argument("--candidate-min", type=int, default=30)
+    a.add_argument("--candidate-min", type=int, default=CANDIDATE_MIN)
     b = sub.add_parser("build")
     b.add_argument("--labels", default=str(DATA / "labels.tsv"))
     b.add_argument("--merges", default=str(MERGES))
     b.add_argument("--out", default=str(OUT))
-    b.add_argument("--min-images", type=int, default=100)
+    b.add_argument("--min-images", type=int, default=MIN_IMAGES)
+    b.add_argument("--candidate-min", type=int, default=CANDIDATE_MIN)
     args = p.parse_args()
     {"fetch": fetch, "propose": propose, "build": build}[args.cmd](args)
 
