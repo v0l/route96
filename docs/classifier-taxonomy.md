@@ -2,6 +2,289 @@
 
 Issue #1407. Status: steps 1 to 4 done (taxonomy, label quality, export, training, issue #1441). Wiring into the media worker and the Qwen comparison are a later issue.
 
+Issue #1508 rebuilt the taxonomy as `taxonomy-v2` from fresh counts with a 50 image floor and new groups; see [Taxonomy v2](#taxonomy-v2-issue-1508). The training results further down are for v1 (210 classes) and need a new export and training run on v2.
+
+## Taxonomy v2 (issue #1508)
+
+### Recount
+
+Read only from production on 27 Nov with `python3 training/taxonomy.py fetch` (one `select` on `upload_labels` joined to `uploads`, through the `kubectl exec` helper in `export_dataset.py`; the password comes from the pod environment). Nothing was written. Same normalisation as v1.
+
+| | v1 (25 Nov) | v2 (27 Nov) |
+|---|---|---|
+| Qwen (`qwen3.5`) label rows | 195,852 | 204,723 |
+| images (jpeg, png, webp, gif) with Qwen labels | 35,181 | 36,394 |
+| raw labels on those images | 176,064 | 182,098 |
+| distinct labels after normalisation | 14,330 | 14,375 |
+| candidates (30 or more images) | 742 | 769 |
+| image floor for a class (`min_images`) | 100 | 50 |
+| classes | 210 | 312 |
+| images with at least one class | 33,811 (96%) | 35,537 (98%) |
+| raw label rows covered by a class | 63% | 69% (125,899) |
+
+Qwen labelled 1,213 more images since v1. All Qwen labelled files, videos included, are now 40,929.
+
+Class size: smallest 52 images, median 169, largest 9,027 (woman). 141 classes have 200 or more images.
+
+### Settings
+
+`taxonomy.py` has `MIN_IMAGES = 50` and `CANDIDATE_MIN = 30`, both written to `taxonomy.json` as `min_images` and `candidate_min`, and `VERSION = "taxonomy-v2"`. The json now has a `candidates` list: every class from the merge table with 30 to 49 images that is not in the taxonomy and not excluded, with its suggested group and whether a person reviewed it. `build_taxonomy` also refuses any label or class name that `excluded_reason` matches, even if a decision row maps it to a class, so an nsfw or age word cannot slip in through a merge. Tests: `test_build_taxonomy_honours_min_images_and_lists_candidates`, `test_build_taxonomy_never_takes_an_excluded_label`, `test_committed_taxonomy_is_consistent` (every class at or over `min_images`, no excluded name or member, every candidate between the two floors) and `test_committed_taxonomy_groups_keep_poses_colours_and_events_apart`.
+
+### Classes per group
+
+| group | v1 | v2 | examples |
+|---|---|---|---|
+| people | 11 | 10 | woman 9027, man 3127, person 2923, face 636, people 631, smile 581, soldier, crowd, couple, cowboy |
+| pose and framing | new | 9 | portrait 1610, sitting 538, selfie 394, kneeling 315, lying down 266, back view 110, close-up, sleeping, standing |
+| body and clothing | 35 | 52 | hair 1070, hand 946, shirt 824, jewelry 710, stockings, bag, mask, sweater, eye, helmet, cat ear, bunny ear |
+| text and documents | 16 | 18 | text 7509, document 862, chart 674, certificate 541, japanese text, handwriting |
+| screens and apps | 16 | 20 | screenshot 3152, user interface 1562, mobile app 973, setting, profile page, menu, notification |
+| art and abstract | 20 | 25 | abstract 2677, fractal 2374, digital art 1520, geometric, monster, graffiti, grid, 3d render |
+| visual style | new | 7 | silhouette 175, texture 123, sci-fi 97, vintage 85, reflection 76, neon 55, collage 54 |
+| colour | new | 14 | black and white 597, blue 314, green 187, black background 187, pink, orange, purple, red, colorful, gold, black, white, yellow, gradient |
+| animals | 4 | 11 | cat 401, animal 283, dog 255, bird 223, llama 97, rabbit 73, horse 73, frog 71, ostrich 65, fox 58, sheep 55 |
+| places and nature | 38 | 51 | tree 869, sky 807, mountain 665, sun, floor, palm tree, bridge, path, desert, shower, office, church, castle |
+| objects | 23 | 44 | bed 1575, table 719, couch 595, toy, card, box, electronics, candle, headphones, rug, bench, camera, notebook |
+| vehicles | 4 | 4 | car 471, vehicle 292, boat 229, airplane 169 |
+| food and drink | 3 | 7 | food 260, mug 230, coffee 223, drink 102, plate 71, bowl 71, spoon 63 |
+| bitcoin and crypto | 4 | 6 | bitcoin 1920, cryptocurrency 1142, finance 371, blockchain 123, money 103, coin 90 |
+| memes and media | 10 | 13 | meme 2622, cartoon 1400, social media 1132, music 123, satire 97, puzzle 72 |
+| symbols and logos | 8 | 11 | logo 1275, qr code 585, sign 287, flag 236, circle 86, arrow 84, cross 78 |
+| activities and sport | new | 4 | sport 253, fitness 174, hiking 101, swimming 86 |
+| seasons and events | new | 6 | winter 261, christmas 196, summer 72, presentation 71, protest 59, concert 59 |
+| activities and events | 6 | gone | split into pose and framing, activities and sport, seasons and events |
+| style and colour | 12 | gone | split into colour and visual style |
+
+Vehicles stay at 4: no new vehicle label reaches 50 (train 45, aircraft 35 is now merged into airplane, rocket 31).
+
+### What changed in the groups
+
+| class | v1 group | v2 group |
+|---|---|---|
+| sitting, kneeling, lying down | activities and events | pose and framing |
+| portrait, selfie | people | pose and framing |
+| close-up | style and colour | pose and framing |
+| black and white, blue, green, black background, pink, orange, purple, red, colorful | style and colour | colour |
+| silhouette, texture | style and colour | visual style |
+| sport, fitness | activities and events | activities and sport |
+| christmas | activities and events | seasons and events |
+
+Colour is its own group, so the partial loss in `multilabel.py` (which treats classes in the same group as an image's positive as negatives) now pits colours against colours and poses against poses, not a colour against an object. `winter` was merged into `snow` in v1; it is now its own class under seasons and events, so snow drops from 434 to 304 images. Every v1 class kept its members otherwise; only small count changes from relabelled images.
+
+Every class's group was read once. Choices worth knowing for a reviewer:
+
+- `profile` is not a pose here: Qwen's `profile` sits with screenshot, social media and avatar, so it became `profile page` under screens and apps. Side views have no label of their own; `looking back`, `rear view` and `from behind` join `back view`.
+- `back` (the body part, 66) stays separate from `back view` (79): they share no image.
+- `eye`, `mask`, `helmet`, `bag` are body and clothing; `fan` (hand fans, seen with hanfu), `card`, `toy`, `crown`, `skull` are objects; `presentation` and `concert` are events.
+
+### Cat ear and bunny ear
+
+Kept as two classes in body and clothing, with a hard negative pair in `taxonomy_decisions.csv`. They never appear on the same image (0 of 77 and 84), and both sit with woman and cosplay, not with animals, so they are costume headwear, not animals. An "animal ears" class would hide a split the labels draw cleanly, and the hard negative pair teaches it. `rabbit ear` (8) joins `bunny ear`; `animal ear` (12), `fox ear` (6) and `bunny girl` (24) stay out.
+
+### Merges added
+
+| class | members merged in |
+|---|---|
+| people | group, two woman, three woman, friend |
+| woman | female |
+| person | human |
+| soldier | military |
+| cowboy | western |
+| back view | looking back, rear view, from behind |
+| torso | chest |
+| leg | thigh |
+| hair | red hair |
+| mask | face mask |
+| sweater | cardigan |
+| robe | bathrobe |
+| school uniform | sailor suit |
+| skirt | plaid skirt |
+| pants | trousers |
+| shirt | tank top |
+| bag | handbag, backpack |
+| jewelry | ring |
+| japanese text | japanese |
+| book | book cover |
+| chart | data |
+| financial chart | financial data, tradingview, technical analysis |
+| news | article |
+| user interface | form |
+| setting | settings menu |
+| button | play button |
+| website | web browser, browser |
+| avatar | profile picture |
+| screen | computer screen |
+| computer | monitor, computer monitor |
+| mathematics | mathematical art, mathematical, math, mathematical visualization |
+| geometric | geometry |
+| monster | alien, creature |
+| sci-fi | cyberpunk |
+| rabbit | bunny |
+| cat | tabby |
+| path | trail |
+| fire | flame |
+| wall | brick wall, stone wall |
+| flower | cherry blossom |
+| space | galaxy, planet |
+| night | night sky |
+| toy | teddy bear, plush toy, doll |
+| box | packaging |
+| electronics | circuit board |
+| card | playing card |
+| gun | rifle, weapon |
+| skull | bone, skeleton |
+| rug | carpet |
+| airplane | aircraft |
+| drink | beer, wine |
+| money | currency, dollar bill |
+| satire | political cartoon, caricature |
+| music | album cover, vinyl record |
+| movie | movie scene, movie still, film still |
+| video game | game over, game over screen |
+| logo | branding, brand, emblem |
+| sign | banner |
+| hiking | hiker |
+| fitness | yoga, yoga mat, exercise, workout |
+| autumn | autumn foliage, autumn leaf (47 images, a candidate) |
+| winter | winter clothing, winter landscape |
+| presentation | conference |
+
+### Classes added (102)
+
+| class | group | images |
+|---|---|---|
+| cowboy | people | 91 |
+| back view | pose and framing | 110 |
+| sleeping | pose and framing | 61 |
+| standing | pose and framing | 56 |
+| bag | body and clothing | 160 |
+| mask | body and clothing | 131 |
+| sweater | body and clothing | 112 |
+| eye | body and clothing | 106 |
+| helmet | body and clothing | 101 |
+| fashion | body and clothing | 97 |
+| bunny ear | body and clothing | 84 |
+| fishnet | body and clothing | 80 |
+| cat ear | body and clothing | 77 |
+| glove | body and clothing | 77 |
+| makeup | body and clothing | 70 |
+| lace | body and clothing | 69 |
+| hanfu | body and clothing | 67 |
+| back | body and clothing | 66 |
+| pants | body and clothing | 59 |
+| bow | body and clothing | 55 |
+| robe | body and clothing | 55 |
+| japanese text | text and documents | 114 |
+| handwriting | text and documents | 62 |
+| setting | screens and apps | 115 |
+| profile page | screens and apps | 74 |
+| menu | screens and apps | 72 |
+| notification | screens and apps | 68 |
+| geometric | art and abstract | 145 |
+| monster | art and abstract | 90 |
+| graffiti | art and abstract | 83 |
+| grid | art and abstract | 82 |
+| 3d render | art and abstract | 72 |
+| sci-fi | visual style | 97 |
+| vintage | visual style | 85 |
+| reflection | visual style | 76 |
+| neon | visual style | 55 |
+| collage | visual style | 54 |
+| gold | colour | 81 |
+| black | colour | 81 |
+| white | colour | 79 |
+| yellow | colour | 71 |
+| gradient | colour | 67 |
+| llama | animals | 97 |
+| rabbit | animals | 73 |
+| horse | animals | 73 |
+| frog | animals | 71 |
+| ostrich | animals | 65 |
+| fox | animals | 58 |
+| sheep | animals | 55 |
+| sun | places and nature | 93 |
+| floor | places and nature | 92 |
+| palm tree | places and nature | 91 |
+| bridge | places and nature | 90 |
+| path | places and nature | 85 |
+| desert | places and nature | 83 |
+| shower | places and nature | 76 |
+| office | places and nature | 73 |
+| smoke | places and nature | 66 |
+| church | places and nature | 62 |
+| fog | places and nature | 59 |
+| classroom | places and nature | 56 |
+| castle | places and nature | 53 |
+| toy | objects | 168 |
+| card | objects | 129 |
+| box | objects | 126 |
+| electronics | objects | 125 |
+| candle | objects | 97 |
+| headphones | objects | 92 |
+| rug | objects | 90 |
+| bench | objects | 84 |
+| camera | objects | 82 |
+| notebook | objects | 77 |
+| pencil | objects | 75 |
+| bookshelf | objects | 73 |
+| fan | objects | 71 |
+| guitar | objects | 65 |
+| sword | objects | 63 |
+| clock | objects | 62 |
+| fireplace | objects | 56 |
+| crown | objects | 56 |
+| board game | objects | 53 |
+| skull | objects | 53 |
+| label | objects | 52 |
+| drink | food and drink | 102 |
+| plate | food and drink | 71 |
+| bowl | food and drink | 71 |
+| spoon | food and drink | 63 |
+| money | bitcoin and crypto | 103 |
+| coin | bitcoin and crypto | 90 |
+| music | memes and media | 123 |
+| satire | memes and media | 97 |
+| puzzle | memes and media | 72 |
+| circle | symbols and logos | 86 |
+| arrow | symbols and logos | 84 |
+| cross | symbols and logos | 78 |
+| hiking | activities and sport | 101 |
+| swimming | activities and sport | 86 |
+| winter | seasons and events | 261 |
+| summer | seasons and events | 72 |
+| presentation | seasons and events | 71 |
+| protest | seasons and events | 59 |
+| concert | seasons and events | 59 |
+
+No v1 class was removed.
+
+### Dropped list, checked against the new counts
+
+The v1 drops stay dropped; none of them was dropped for its count except `sun`, which now has 93 images and is a class. donald trump 108, chinese 386, portuguese 186, portuguese text 31, compliance 93, compliance test 36, test 82, technology 262, artificial intelligence 100, graphic 288, score 118, wet 35, snowflake 112 (mostly on fractals, so ambiguous).
+
+New drops at 50 or more images:
+
+| label | images | why |
+|---|---|---|
+| asian | 58 | ethnicity, not a thing in the picture |
+| student | 51 | seen with girl and schoolgirl; age adjacent, left to the age model |
+| rope | 56 | seen with shibari and bondage; nsfw adjacent |
+| chain | 53 | half nsfw (with nipple clamp), half blockchain |
+| android | 53 | the robot and the phone OS, no single meaning |
+| number, dark, light | 64, 59, 78 | too vague to learn |
+| education, cybersecurity, religion, business, economics, podcast | 81, 68, 57, 56, 54, 56 | topics, not visible things |
+
+The nsfw and age regexes are unchanged; 24 nsfw and 7 age candidates are still routed out.
+
+### Candidates with 30 to 49 images, for the owner to pick
+
+None of these is in the taxonomy. To add one, put a row `label,class,group` in `training/taxonomy_decisions.csv` and either lower `--min-images` or merge it into a class; then run `propose` and `build`. The list is also in `taxonomy.json` under `candidates` (183 entries; the suggested group there comes from the embedding and is not reviewed, except autumn).
+
+digital 49, fabric 49, jersey 49, rose 49, background 48, bread 48, google 48, park 48, saucer 48, teal 48, tongue 48, autumn 47, conversation 47, history 47, lightning 47, line 47, noise 47, search bar 47, bar 46, bow tie 46, knife 46, network 46, ponytail 46, restaurant 46, tower 46, meat 45, model 45, mushroom 45, pearl 45, squatting 45, static 45, sticker 45, train 45, transaction 45, antenna 44, balloon 44, headband 44, interior 44, politician 44, psychedelic 44, shelf 44, video game character 44, walking 44, arm 43, crystal 43, fruit 43, github 43, pigtail 43, seal 43, shadow 43, wet hair 43, braid 42, jungle 42, machine 42, report 42, short hair 42, stone 42, weibo 42, bodysuit 41, cheongsam 41, design 41, furniture 41, locker 41, page 41, penguin 41, rooftop 41, stage 41, valley 41, brazil 40, photo 40, ruin 40, abdomen 39, balcony 39, dialog box 39, discord 39, pavement 39, top 39, umbrella 39, wing 39, cabinet 38, cake 38, fur 38, game interface 38, stadium 38, sunlight 38, traditional clothing 38, actor 37, black dress 37, comment 37, lantern 37, philosophy 37, watch 37, blue dress 36, blue hair 36, branch 36, colorful pattern 36, mural 36, party 36, railing 36, steampunk 36, white hair 36, 3d model 35, car interior 35, cigarette 35, denim shorts 35, ice 35, key 35, metal 35, midriff 35, pink dress 35, pizza 35, retro 35, bear 34, crying 34, curly hair 34, dragon 34, fantasy art 34, frame 34, gear 34, head 34, leotard 34, minimalist 34, nurse 34, tatami 34, vegetable 34, apple 33, armor 33, basket 33, camouflage 33, dessert 33, flowchart 33, hay 33, hospital 33, insect 33, navel 33, posing 33, proof of burn 33, rectangle 33, roof 33, speaker 33, tile 33, video 33, wave 33, ball 32, blue eye 32, cheerleader 32, crib 32, message 32, soap 32, vegetation 32, abs 31, bubble 31, cable 31, chicken 31, die 31, family 31, monero 31, movie poster 31, peace sign 31, podium 31, rocket 31, tablet 31, telephone 31, tent 31, vase 31, artwork 30, badge 30, barcode 30, cave 30, coat 30, explosion 30, fish 30, gaming 30, ink 30, log 30, plaid shirt 30, police 30, police officer 30, rain 30, square 30, title 30, twin tail 30, wallpaper 30
+
+Some would fold into existing classes rather than stand alone (ponytail, braid, short hair, pigtail, twin tail, curly hair, white hair, blue hair, wet hair into hair; black dress, blue dress, pink dress into dress; bread, meat, pizza, fruit, vegetable, cake, dessert into food; knife into objects; train into vehicle; penguin, bear, fish, insect, dragon into animal or their own class). Their group check and the label review in step 2 have not been redone for v2.
+
+## v1 (25 Nov)
 ## Data
 
 Read only from production on 25 Nov through `kubectl exec deploy/mysql` (one `select` on `upload_labels` joined to `uploads`). Nothing was written.
@@ -21,6 +304,7 @@ The raw rows live in `training/data/taxonomy/labels.tsv` (ignored by git, `train
 `training/taxonomy.py` has two commands.
 
 ```
+python3 training/taxonomy.py fetch     # writes training/data/taxonomy/labels.tsv, read only
 python3 training/taxonomy.py propose   # writes training/taxonomy_merges.csv
 python3 training/taxonomy.py build     # writes training/taxonomy.json
 ```
@@ -29,11 +313,11 @@ python3 training/taxonomy.py build     # writes training/taxonomy.json
 2. Count images per normalised label and keep the candidates with 30 or more images.
 3. Propose merges. Each candidate gets a text embedding (`sentence-transformers/all-MiniLM-L6-v2`, mean pooled) and a co-occurrence vector (positive PMI over the labels it shares images with). A label merges into a more frequent one when the text cosine is 0.9 or more, or the text cosine is 0.72 or more and the co-occurrence cosine is 0.45 or more. Both signals are needed for most merges because text alone joins opposites (`man` and `woman`) and co-occurrence alone joins neighbours (`bed` and `pillow`). A suggested group comes from the nearest group description by embedding.
 4. Review. `training/taxonomy_merges.csv` is the merge table: one row per candidate with its class, group, image count, both similarities and a `reviewed` column. A person edits `training/taxonomy_decisions.csv` (label, class, group) and runs `propose` again; a decision on a class also applies to every label proposed into it (`via class`). Only rows marked `yes` or `via class` reach the taxonomy, so an unreviewed proposal never becomes a class. Class `-` drops a label, with the reason in the group column.
-5. Build. Every reviewed class with at least 100 images (counted after merging) becomes a class in `training/taxonomy.json`, with its group, image count, normalised members and raw members (every spelling seen in the data, most common first).
+5. Build. Every reviewed class with at least `min_images` images (100 in v1, 50 in v2, counted after merging) becomes a class in `training/taxonomy.json`, with its group, image count, normalised members and raw members (every spelling seen in the data, most common first).
 
 The first pass of decisions was mine, made from the proposed table and label counts. A person should read `taxonomy_merges.csv` before training; the rows worth a look are the `via class` merges and the drops.
 
-## Result: 210 classes in 15 groups
+## v1 result: 210 classes in 15 groups
 
 | group | classes | examples |
 |---|---|---|
