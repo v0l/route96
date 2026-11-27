@@ -412,6 +412,12 @@ Media sandbox keys (see `docs/media-sandbox.md`), also editable in the admin UI 
 | `media_worker_timeout_secs` | `120` | Wall-clock limit for one sandboxed media job. On expiry the worker is killed and the upload is rejected. |
 | `media_worker_memory_mb` | `2048` | Address space limit of the media worker process, in MiB. |
 
+Payment keys, also editable in the admin UI config editor:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `payment_repair_days` | `7` | On start and after the LND invoice stream reconnects, unpaid invoices created within this many days are looked up in LND by payment hash. Those LND reports settled are credited once. `0` turns the lookup off. |
+
 ### `GET /admin/config`
 
 List all database config overrides.

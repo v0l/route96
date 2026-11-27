@@ -105,6 +105,17 @@ const KNOWN_FIELDS: KnownField[] = [
     optional: true,
   },
   {
+    key: "payment_repair_days",
+    label: "Lightning payment repair window",
+    description:
+      "On start and after the LND invoice stream reconnects, unpaid invoices created within this many days are looked up in LND, and the ones LND reports settled are credited. Set to 0 to turn it off. Defaults to 7. Only used when payments are configured.",
+    type: "integer",
+    unit: "days",
+    min: 0,
+    max: 365,
+    optional: true,
+  },
+  {
     key: "delete_unaccessed_days",
     label: "Delete inactive files after",
     description:

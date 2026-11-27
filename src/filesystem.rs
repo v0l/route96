@@ -784,6 +784,8 @@ mod expected_hash_tests {
             identical_media_dedup_allow_override: None,
             #[cfg(feature = "payments")]
             payments: None,
+            #[cfg(feature = "payments")]
+            payment_repair_days: None,
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,
@@ -1241,6 +1243,8 @@ mod tests {
             identical_media_dedup_allow_override: None,
             #[cfg(feature = "payments")]
             payments: None,
+            #[cfg(feature = "payments")]
+            payment_repair_days: None,
             delete_unaccessed_days: None,
             delete_after_days: None,
             delete_zero_egress_days: None,

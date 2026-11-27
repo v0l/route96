@@ -114,6 +114,10 @@ payments:
   interval:
     month: 1
 
+# (Optional) Days back to look up unpaid Lightning invoices in LND on start and
+# after the invoice stream reconnects, crediting any LND reports settled (default: 7, 0 = off)
+# payment_repair_days: 7
+
 # (Optional) Automatically delete files with zero egress bytes (never downloaded)
 # after this many days. This helps clean up files that were uploaded but never
 # actually used/downloaded by anyone.

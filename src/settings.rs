@@ -208,6 +208,10 @@ pub struct Settings {
     /// Payment options for paid storage
     pub payments: Option<PaymentConfig>,
 
+    #[cfg(feature = "payments")]
+    #[serde(default)]
+    pub payment_repair_days: Option<u64>,
+
     /// Automatically delete files that have had no downloads in this many days.
     ///
     /// Files uploaded within the same window are given a grace period and are
@@ -338,9 +342,6 @@ pub struct PaymentConfig {
 
     /// Free quota in bytes for users without payments (default: 100MB)
     pub free_quota_bytes: Option<u64>,
-
-    #[serde(default)]
-    pub repair_days: Option<u64>,
 }
 
 #[cfg(feature = "payments")]

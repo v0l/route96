@@ -38,9 +38,7 @@ impl PaymentsHandler {
             Some(s) => s
                 .read()
                 .await
-                .payments
-                .as_ref()
-                .and_then(|p| p.repair_days)
+                .payment_repair_days
                 .unwrap_or(DEFAULT_REPAIR_DAYS),
             None => DEFAULT_REPAIR_DAYS,
         }
@@ -77,6 +75,9 @@ impl PaymentsHandler {
 
     async fn repair_missed(&self, shutdown: &CancellationToken) -> Result<usize> {
         let days = self.repair_days().await;
+        if days == 0 {
+            return Ok(0);
+        }
         let unpaid = self.database.get_unpaid_payments_since(days).await?;
         let mut repaired = 0;
         for p in unpaid {
@@ -506,5 +507,38 @@ mod tests {
         assert!(!payment(&db, &expired).await.is_paid);
         assert!(db.get_user_by_id(stale_uid).await.unwrap().paid_until.is_none());
         assert!(db.get_user_by_id(expired_uid).await.unwrap().paid_until.is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs ROUTE96_TEST_DATABASE"]
+    async fn repair_window_follows_live_setting() {
+        let db = test_db().await;
+        let old = vec![0xf1u8; 32];
+        add_payment(&db, 10, &old).await;
+        sqlx::query("update payments set created = TIMESTAMPADD(DAY, -30, current_timestamp) where payment_hash = ?")
+            .bind(&old)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "storage_dir": "/tmp",
+            "database": "mysql://localhost/test",
+            "max_upload_bytes": 1,
+            "public_url": "https://example.com",
+            "payment_repair_days": 40,
+        }))
+        .unwrap();
+
+        let node = Arc::new(
+            FakeNode::with_subscriptions(vec![]).invoice(&old, Ok(settled(&old, Some(6)))),
+        );
+        let token = CancellationToken::new();
+        let handler = PaymentsHandler::new(node.clone(), db.clone())
+            .with_settings(Arc::new(RwLock::new(settings)));
+        let task = tokio::spawn(handler.process(token.clone()));
+        let paid = wait_for(|| async { payment(&db, &old).await.is_paid }).await;
+        stop(token, task).await;
+
+        assert!(paid, "lookups: {:?}", node.looked_up());
     }
 }
