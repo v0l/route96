@@ -18,6 +18,7 @@ HARD_NEGATIVE = "hard negative"
 IMAGE_MIMES = ("image/jpeg", "image/png", "image/webp", "image/gif")
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 VERSION = "taxonomy-v2"
+ADULT = "adult"
 MIN_IMAGES = 50
 CANDIDATE_MIN = 30
 
@@ -40,6 +41,7 @@ GROUPS = [
     "symbols and logos",
     "activities and sport",
     "seasons and events",
+    ADULT,
 ]
 GROUP_PROMPTS = {
     "people": "people, a person, a face, a crowd",
@@ -60,9 +62,10 @@ GROUP_PROMPTS = {
     "symbols and logos": "a logo, a symbol, a flag, a sign",
     "activities and sport": "sport, exercise, swimming, hiking",
     "seasons and events": "christmas, summer, a holiday, a concert, a protest",
+    ADULT: "nudity, lingerie, underwear, a topless person, explicit adult content",
 }
 
-EXCLUDED_NSFW = re.compile(
+ADULT_TERMS = re.compile(
     r"\b(nsfw|nude|nudity|naked|topless|shirtless|nipples?|areolae?|breasts?|boobs?|genitals?|genitalia"
     r"|penis|vagina|pussy|anal|sex|sexual\w*|porn\w*|erotic\w*|bondage|bdsm|fetish|cum|explicit\w*"
     r"|lingerie|underwear|bra|brassiere|panty|panties|thong|cleavage|buttocks?|butt|ass|pubic\w*|sexy"
@@ -145,9 +148,11 @@ def normalise(label):
     return SYNONYMS.get(s, s)
 
 
+def is_adult(label):
+    return bool(ADULT_TERMS.search(label))
+
+
 def excluded_reason(label):
-    if EXCLUDED_NSFW.search(label):
-        return "nsfw"
     if EXCLUDED_AGE.search(label):
         return "age"
     return None
@@ -334,8 +339,12 @@ def class_map(rows):
     return {
         l: (c, g)
         for l, (c, g) in rows.items()
-        if c and c != "-" and not excluded_reason(l) and not excluded_reason(c)
+        if c and c != "-" and not excluded_reason(l) and not excluded_reason(c) and adult_in_adult_group(l, c, g)
     }
+
+
+def adult_in_adult_group(label, cls, group):
+    return (is_adult(label) or is_adult(cls)) <= (group == ADULT)
 
 
 def images_per_class(norm, class_of):
@@ -386,8 +395,8 @@ def build_taxonomy(images, merges, min_images, proposals=None, candidate_min=CAN
         "min_images": min_images,
         "candidate_min": candidate_min,
         "multi_label": "An image gets every class that any of its Qwen labels maps to after normalisation, so one image can have zero to five classes. A label that maps to no class is ignored. Training uses one sigmoid output per class.",
+        "adult": "Nudity, sexual and underwear labels form the adult group and only that group. They describe the image; the nsfw model and its moderation path stay the only source of flagging and deletion.",
         "excluded": {
-            "nsfw": "Nudity, sexual and underwear labels stay with the nsfw model, which has its own human reviewed training set and threshold.",
             "age": "Age words (child, girl, boy, teen and similar) stay with the age model. Mixing them into a general classifier would duplicate the age signal without its review.",
         },
         "counts": {

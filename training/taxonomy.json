@@ -4,14 +4,14 @@
  "min_images": 50,
  "candidate_min": 30,
  "multi_label": "An image gets every class that any of its Qwen labels maps to after normalisation, so one image can have zero to five classes. A label that maps to no class is ignored. Training uses one sigmoid output per class.",
+ "adult": "Nudity, sexual and underwear labels form the adult group and only that group. They describe the image; the nsfw model and its moderation path stay the only source of flagging and deletion.",
  "excluded": {
-  "nsfw": "Nudity, sexual and underwear labels stay with the nsfw model, which has its own human reviewed training set and threshold.",
   "age": "Age words (child, girl, boy, teen and similar) stay with the age model. Mixing them into a general classifier would duplicate the age signal without its review."
  },
  "counts": {
-  "images": 36394,
-  "images_with_a_class": 35537,
-  "classes": 312,
+  "images": 36398,
+  "images_with_a_class": 35611,
+  "classes": 328,
   "excluded_labels": {
    "dropped age adjacent": 1,
    "dropped ambiguous": 3,
@@ -22,8 +22,7 @@
    "dropped not visual": 11,
    "dropped nsfw adjacent": 1,
    "dropped vague": 6,
-   "excluded age": 7,
-   "excluded nsfw": 24
+   "excluded age": 8
   }
  },
  "groups": [
@@ -44,13 +43,14 @@
   "memes and media",
   "symbols and logos",
   "activities and sport",
-  "seasons and events"
+  "seasons and events",
+  "adult"
  ],
  "classes": [
   {
    "name": "woman",
    "group": "people",
-   "images": 9027,
+   "images": 9028,
    "normalised": [
     "female",
     "woman"
@@ -66,7 +66,7 @@
   {
    "name": "man",
    "group": "people",
-   "images": 3127,
+   "images": 3134,
    "normalised": [
     "male",
     "man"
@@ -83,7 +83,7 @@
   {
    "name": "person",
    "group": "people",
-   "images": 2923,
+   "images": 2924,
    "normalised": [
     "human",
     "person"
@@ -97,7 +97,7 @@
   {
    "name": "face",
    "group": "people",
-   "images": 636,
+   "images": 638,
    "normalised": [
     "face"
    ],
@@ -209,7 +209,7 @@
   {
    "name": "portrait",
    "group": "pose and framing",
-   "images": 1610,
+   "images": 1612,
    "normalised": [
     "portrait"
    ],
@@ -370,7 +370,7 @@
   {
    "name": "shirt",
    "group": "body and clothing",
-   "images": 824,
+   "images": 825,
    "normalised": [
     "shirt",
     "t-shirt",
@@ -535,7 +535,7 @@
   {
    "name": "hat",
    "group": "body and clothing",
-   "images": 529,
+   "images": 530,
    "normalised": [
     "cap",
     "cowboy hat",
@@ -554,7 +554,7 @@
   {
    "name": "glasses",
    "group": "body and clothing",
-   "images": 498,
+   "images": 500,
    "normalised": [
     "glasses"
    ],
@@ -593,7 +593,7 @@
   {
    "name": "beard",
    "group": "body and clothing",
-   "images": 364,
+   "images": 366,
    "normalised": [
     "beard",
     "mustache"
@@ -738,7 +738,7 @@
   {
    "name": "jacket",
    "group": "body and clothing",
-   "images": 193,
+   "images": 194,
    "normalised": [
     "jacket",
     "leather jacket"
@@ -854,7 +854,7 @@
   {
    "name": "hoodie",
    "group": "body and clothing",
-   "images": 120,
+   "images": 121,
    "normalised": [
     "hoodie"
    ],
@@ -1084,7 +1084,7 @@
   {
    "name": "text",
    "group": "text and documents",
-   "images": 7509,
+   "images": 7516,
    "normalised": [
     "text"
    ],
@@ -1116,7 +1116,7 @@
   {
    "name": "chart",
    "group": "text and documents",
-   "images": 674,
+   "images": 675,
    "normalised": [
     "bar chart",
     "chart",
@@ -1242,7 +1242,7 @@
   {
    "name": "infographic",
    "group": "text and documents",
-   "images": 417,
+   "images": 418,
    "normalised": [
     "infographic"
    ],
@@ -1328,7 +1328,7 @@
   {
    "name": "chinese text",
    "group": "text and documents",
-   "images": 223,
+   "images": 219,
    "normalised": [
     "chinese language",
     "chinese text"
@@ -1471,7 +1471,7 @@
   {
    "name": "smartphone",
    "group": "screens and apps",
-   "images": 927,
+   "images": 928,
    "normalised": [
     "phone",
     "smartphone"
@@ -1492,7 +1492,7 @@
   {
    "name": "icon",
    "group": "screens and apps",
-   "images": 624,
+   "images": 627,
    "normalised": [
     "app icon",
     "emoji",
@@ -1511,7 +1511,7 @@
   {
    "name": "button",
    "group": "screens and apps",
-   "images": 608,
+   "images": 615,
    "normalised": [
     "button",
     "play button"
@@ -1597,7 +1597,7 @@
   {
    "name": "screen",
    "group": "screens and apps",
-   "images": 345,
+   "images": 346,
    "normalised": [
     "computer screen",
     "screen",
@@ -1661,7 +1661,7 @@
   {
    "name": "avatar",
    "group": "screens and apps",
-   "images": 159,
+   "images": 161,
    "normalised": [
     "avatar",
     "profile picture"
@@ -1758,7 +1758,7 @@
   {
    "name": "abstract",
    "group": "art and abstract",
-   "images": 2677,
+   "images": 2678,
    "normalised": [
     "abstract",
     "abstract pattern"
@@ -1777,7 +1777,7 @@
   {
    "name": "fractal",
    "group": "art and abstract",
-   "images": 2374,
+   "images": 2376,
    "normalised": [
     "fractal",
     "fractal art"
@@ -1791,7 +1791,7 @@
   {
    "name": "digital art",
    "group": "art and abstract",
-   "images": 1520,
+   "images": 1521,
    "normalised": [
     "computer art",
     "computer generated",
@@ -1821,7 +1821,7 @@
   {
    "name": "pattern",
    "group": "art and abstract",
-   "images": 1298,
+   "images": 1299,
    "normalised": [
     "geometric pattern",
     "mathematical pattern",
@@ -1838,7 +1838,7 @@
   {
    "name": "mandelbrot set",
    "group": "art and abstract",
-   "images": 1224,
+   "images": 1226,
    "normalised": [
     "mandelbrot set"
    ],
@@ -1854,7 +1854,7 @@
   {
    "name": "julia set",
    "group": "art and abstract",
-   "images": 1017,
+   "images": 1019,
    "normalised": [
     "julia set"
    ],
@@ -1869,7 +1869,7 @@
   {
    "name": "mathematics",
    "group": "art and abstract",
-   "images": 987,
+   "images": 988,
    "normalised": [
     "math",
     "mathematical",
@@ -2392,7 +2392,7 @@
   {
    "name": "gradient",
    "group": "colour",
-   "images": 67,
+   "images": 68,
    "normalised": [
     "gradient"
    ],
@@ -2472,6 +2472,19 @@
    ]
   },
   {
+   "name": "horse",
+   "group": "animals",
+   "images": 74,
+   "normalised": [
+    "horse"
+   ],
+   "members": [
+    "horse",
+    "Horse",
+    "horses"
+   ]
+  },
+  {
    "name": "rabbit",
    "group": "animals",
    "images": 73,
@@ -2481,19 +2494,6 @@
    "members": [
     "rabbit",
     "Rabbit"
-   ]
-  },
-  {
-   "name": "horse",
-   "group": "animals",
-   "images": 73,
-   "normalised": [
-    "horse"
-   ],
-   "members": [
-    "horse",
-    "Horse",
-    "horses"
    ]
   },
   {
@@ -2606,7 +2606,7 @@
   {
    "name": "indoor",
    "group": "places and nature",
-   "images": 602,
+   "images": 603,
    "normalised": [
     "indoor"
    ],
@@ -2674,7 +2674,7 @@
   {
    "name": "beach",
    "group": "places and nature",
-   "images": 395,
+   "images": 394,
    "normalised": [
     "beach",
     "sand"
@@ -2714,7 +2714,7 @@
   {
    "name": "ocean",
    "group": "places and nature",
-   "images": 385,
+   "images": 384,
    "normalised": [
     "ocean",
     "sea"
@@ -2947,6 +2947,18 @@
    ]
   },
   {
+   "name": "road",
+   "group": "places and nature",
+   "images": 147,
+   "normalised": [
+    "road"
+   ],
+   "members": [
+    "road",
+    "roads"
+   ]
+  },
+  {
    "name": "architecture",
    "group": "places and nature",
    "images": 146,
@@ -2956,18 +2968,6 @@
    "members": [
     "architecture",
     "Architecture"
-   ]
-  },
-  {
-   "name": "road",
-   "group": "places and nature",
-   "images": 146,
-   "normalised": [
-    "road"
-   ],
-   "members": [
-    "road",
-    "roads"
    ]
   },
   {
@@ -3223,7 +3223,7 @@
   {
    "name": "table",
    "group": "objects",
-   "images": 719,
+   "images": 720,
    "normalised": [
     "desk",
     "table"
@@ -3240,7 +3240,7 @@
   {
    "name": "couch",
    "group": "objects",
-   "images": 595,
+   "images": 596,
    "normalised": [
     "couch"
    ],
@@ -3466,7 +3466,7 @@
   {
    "name": "card",
    "group": "objects",
-   "images": 129,
+   "images": 130,
    "normalised": [
     "card",
     "playing card"
@@ -3599,7 +3599,7 @@
   {
    "name": "headphones",
    "group": "objects",
-   "images": 92,
+   "images": 93,
    "normalised": [
     "headphones"
    ],
@@ -3703,6 +3703,18 @@
    ]
   },
   {
+   "name": "clock",
+   "group": "objects",
+   "images": 63,
+   "normalised": [
+    "clock"
+   ],
+   "members": [
+    "clock",
+    "Clock"
+   ]
+  },
+  {
    "name": "sword",
    "group": "objects",
    "images": 63,
@@ -3713,18 +3725,6 @@
     "sword",
     "Sword",
     "swords"
-   ]
-  },
-  {
-   "name": "clock",
-   "group": "objects",
-   "images": 62,
-   "normalised": [
-    "clock"
-   ],
-   "members": [
-    "clock",
-    "Clock"
    ]
   },
   {
@@ -3789,7 +3789,7 @@
   {
    "name": "car",
    "group": "vehicles",
-   "images": 471,
+   "images": 473,
    "normalised": [
     "car"
    ],
@@ -3884,7 +3884,7 @@
   {
    "name": "coffee",
    "group": "food and drink",
-   "images": 223,
+   "images": 224,
    "normalised": [
     "coffee",
     "coffee cup"
@@ -3939,7 +3939,7 @@
   {
    "name": "spoon",
    "group": "food and drink",
-   "images": 63,
+   "images": 62,
    "normalised": [
     "spoon"
    ],
@@ -3981,7 +3981,7 @@
   {
    "name": "finance",
    "group": "bitcoin and crypto",
-   "images": 371,
+   "images": 370,
    "normalised": [
     "finance",
     "financial"
@@ -4035,7 +4035,7 @@
   {
    "name": "meme",
    "group": "memes and media",
-   "images": 2622,
+   "images": 2621,
    "normalised": [
     "humor",
     "meme"
@@ -4078,7 +4078,7 @@
   {
    "name": "social media",
    "group": "memes and media",
-   "images": 1132,
+   "images": 1129,
    "normalised": [
     "social media",
     "social media post",
@@ -4104,7 +4104,7 @@
   {
    "name": "video game",
    "group": "memes and media",
-   "images": 666,
+   "images": 667,
    "normalised": [
     "game",
     "game over",
@@ -4291,7 +4291,7 @@
   {
    "name": "logo",
    "group": "symbols and logos",
-   "images": 1275,
+   "images": 1276,
    "normalised": [
     "brand",
     "branding",
@@ -4344,7 +4344,7 @@
   {
    "name": "flag",
    "group": "symbols and logos",
-   "images": 236,
+   "images": 237,
    "normalised": [
     "flag"
    ],
@@ -4447,7 +4447,7 @@
   {
    "name": "sport",
    "group": "activities and sport",
-   "images": 253,
+   "images": 248,
    "normalised": [
     "basketball",
     "football",
@@ -4586,6 +4586,209 @@
    "members": [
     "concert"
    ]
+  },
+  {
+   "name": "nude",
+   "group": "adult",
+   "images": 1781,
+   "normalised": [
+    "nude",
+    "nude woman",
+    "nudity"
+   ],
+   "members": [
+    "nude",
+    "nudity",
+    "nude_woman",
+    "nude woman",
+    "Nudity",
+    "nudes"
+   ]
+  },
+  {
+   "name": "lingerie",
+   "group": "adult",
+   "images": 1102,
+   "normalised": [
+    "lingerie"
+   ],
+   "members": [
+    "lingerie"
+   ]
+  },
+  {
+   "name": "underwear",
+   "group": "adult",
+   "images": 685,
+   "normalised": [
+    "underwear"
+   ],
+   "members": [
+    "underwear",
+    "Underwear"
+   ]
+  },
+  {
+   "name": "penis",
+   "group": "adult",
+   "images": 476,
+   "normalised": [
+    "male genitalia",
+    "penis"
+   ],
+   "members": [
+    "penis",
+    "male_genitalia",
+    "male genitalia"
+   ]
+  },
+  {
+   "name": "topless",
+   "group": "adult",
+   "images": 388,
+   "normalised": [
+    "topless"
+   ],
+   "members": [
+    "topless"
+   ]
+  },
+  {
+   "name": "breast",
+   "group": "adult",
+   "images": 338,
+   "normalised": [
+    "breast",
+    "nipple"
+   ],
+   "members": [
+    "breasts",
+    "breast",
+    "nipple",
+    "nipples"
+   ]
+  },
+  {
+   "name": "buttock",
+   "group": "adult",
+   "images": 261,
+   "normalised": [
+    "buttock"
+   ],
+   "members": [
+    "buttocks",
+    "Buttocks",
+    "buttock"
+   ]
+  },
+  {
+   "name": "bra",
+   "group": "adult",
+   "images": 178,
+   "normalised": [
+    "bra"
+   ],
+   "members": [
+    "bra"
+   ]
+  },
+  {
+   "name": "shirtless",
+   "group": "adult",
+   "images": 140,
+   "normalised": [
+    "shirtless"
+   ],
+   "members": [
+    "shirtless"
+   ]
+  },
+  {
+   "name": "pubic hair",
+   "group": "adult",
+   "images": 99,
+   "normalised": [
+    "pubic hair"
+   ],
+   "members": [
+    "pubic hair",
+    "pubic_hair"
+   ]
+  },
+  {
+   "name": "genitalia",
+   "group": "adult",
+   "images": 86,
+   "normalised": [
+    "genital",
+    "genitalia"
+   ],
+   "members": [
+    "genitalia",
+    "genitals",
+    "genital",
+    "Genitalia"
+   ]
+  },
+  {
+   "name": "cleavage",
+   "group": "adult",
+   "images": 77,
+   "normalised": [
+    "cleavage"
+   ],
+   "members": [
+    "cleavage"
+   ]
+  },
+  {
+   "name": "sex",
+   "group": "adult",
+   "images": 70,
+   "normalised": [
+    "nsfw",
+    "sex"
+   ],
+   "members": [
+    "nsfw",
+    "sex",
+    "NSFW",
+    "Sex"
+   ]
+  },
+  {
+   "name": "panty",
+   "group": "adult",
+   "images": 61,
+   "normalised": [
+    "panty"
+   ],
+   "members": [
+    "panties",
+    "panty"
+   ]
+  },
+  {
+   "name": "thong",
+   "group": "adult",
+   "images": 57,
+   "normalised": [
+    "thong"
+   ],
+   "members": [
+    "thong"
+   ]
+  },
+  {
+   "name": "vulva",
+   "group": "adult",
+   "images": 55,
+   "normalised": [
+    "vulva"
+   ],
+   "members": [
+    "vulva"
+   ]
   }
  ],
  "candidates": [
@@ -4638,12 +4841,6 @@
    "reviewed": false
   },
   {
-   "name": "saucer",
-   "group": "food and drink",
-   "images": 48,
-   "reviewed": false
-  },
-  {
    "name": "teal",
    "group": "food and drink",
    "images": 48,
@@ -4660,12 +4857,6 @@
    "group": "seasons and events",
    "images": 47,
    "reviewed": true
-  },
-  {
-   "name": "conversation",
-   "group": "memes and media",
-   "images": 47,
-   "reviewed": false
   },
   {
    "name": "history",
@@ -4692,6 +4883,12 @@
    "reviewed": false
   },
   {
+   "name": "saucer",
+   "group": "food and drink",
+   "images": 47,
+   "reviewed": false
+  },
+  {
    "name": "search bar",
    "group": "screens and apps",
    "images": 47,
@@ -4706,6 +4903,12 @@
   {
    "name": "bow tie",
    "group": "colour",
+   "images": 46,
+   "reviewed": false
+  },
+  {
+   "name": "conversation",
+   "group": "memes and media",
    "images": 46,
    "reviewed": false
   },
@@ -4920,6 +5123,12 @@
    "reviewed": false
   },
   {
+   "name": "sex toy",
+   "group": "adult",
+   "images": 42,
+   "reviewed": true
+  },
+  {
    "name": "short hair",
    "group": "body and clothing",
    "images": 42,
@@ -4933,7 +5142,7 @@
   },
   {
    "name": "weibo",
-   "group": "seasons and events",
+   "group": "adult",
    "images": 42,
    "reviewed": false
   },
@@ -4963,7 +5172,7 @@
   },
   {
    "name": "locker",
-   "group": "body and clothing",
+   "group": "adult",
    "images": 41,
    "reviewed": false
   },
@@ -5011,7 +5220,7 @@
   },
   {
    "name": "ruin",
-   "group": "food and drink",
+   "group": "adult",
    "images": 40,
    "reviewed": false
   },
@@ -5047,7 +5256,7 @@
   },
   {
    "name": "top",
-   "group": "people",
+   "group": "adult",
    "images": 39,
    "reviewed": false
   },
@@ -5395,7 +5604,7 @@
   },
   {
    "name": "navel",
-   "group": "body and clothing",
+   "group": "adult",
    "images": 33,
    "reviewed": false
   },
@@ -5479,7 +5688,7 @@
   },
   {
    "name": "soap",
-   "group": "body and clothing",
+   "group": "adult",
    "images": 32,
    "reviewed": false
   },
@@ -5660,6 +5869,12 @@
   {
    "name": "rain",
    "group": "places and nature",
+   "images": 30,
+   "reviewed": false
+  },
+  {
+   "name": "rainbow",
+   "group": "colour",
    "images": 30,
    "reviewed": false
   },

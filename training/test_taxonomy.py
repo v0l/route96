@@ -4,12 +4,15 @@ from pathlib import Path
 import numpy as np
 
 from taxonomy import (
+    ADULT,
+    EXCLUDED_AGE,
     GROUPS,
     MIN_IMAGES,
     build_taxonomy,
     class_lookup,
     excluded_reason,
     image_counts,
+    is_adult,
     labels_to_classes,
     normalise,
     normalised_images,
@@ -43,13 +46,22 @@ def test_normalise_empty_and_punctuation():
     assert normalise("\"meme.\"") == "meme"
 
 
-def test_excluded_reason_routes_nsfw_and_age():
-    assert excluded_reason("nude woman") == "nsfw"
-    assert excluded_reason("lingerie") == "nsfw"
+def test_excluded_reason_routes_age_only():
+    assert excluded_reason("nude woman") is None
+    assert excluded_reason("lingerie") is None
     assert excluded_reason("anime girl") == "age"
     assert excluded_reason("child") == "age"
+    assert excluded_reason("adult content") == "age"
     assert excluded_reason("cat") is None
     assert excluded_reason("bass guitar") is None
+
+
+def test_is_adult_marks_nudity_and_underwear():
+    assert is_adult("nude woman")
+    assert is_adult("lingerie")
+    assert is_adult("male genitalia")
+    assert not is_adult("woman")
+    assert not is_adult("bass guitar")
 
 
 def test_read_images_keeps_only_images(tmp_path):
@@ -85,13 +97,13 @@ def test_build_taxonomy_counts_images_and_multi_label():
     images = {
         "a": {"cat", "Sofa", "text"},
         "b": {"cats", "couch"},
-        "c": {"text", "nude"},
+        "c": {"text", "lingerie"},
     }
     merges = {
         "cat": ("cat", "animals"),
         "couch": ("couch", "objects"),
         "text": ("text", "text and documents"),
-        "nude": ("-", "excluded nsfw"),
+        "lingerie": ("-", "dropped"),
     }
     t = build_taxonomy(images, merges, min_images=2)
     by_name = {c["name"]: c for c in t["classes"]}
@@ -100,8 +112,8 @@ def test_build_taxonomy_counts_images_and_multi_label():
     assert sorted(by_name["cat"]["members"]) == ["cat", "cats"]
     assert t["counts"]["images_with_a_class"] == 3
     lookup = class_lookup(t)
-    assert labels_to_classes(["Cats", "sofa", "Text", "nude"], lookup) == ["cat", "couch", "text"]
-    assert labels_to_classes(["nude"], lookup) == []
+    assert labels_to_classes(["Cats", "sofa", "Text", "lingerie"], lookup) == ["cat", "couch", "text"]
+    assert labels_to_classes(["lingerie"], lookup) == []
 
 
 def test_min_images_drops_small_classes():
@@ -117,7 +129,7 @@ def test_build_taxonomy_honours_min_images_and_lists_candidates():
     images.update({f"k{n}": {"frog"} for n in range(2)})
     images.update({f"m{n}": {"ostrich"} for n in range(3)})
     merges = {"dog": ("dog", "animals"), "llama": ("llama", "animals"), "frog": ("frog", "animals")}
-    proposals = {**merges, "ostrich": ("ostrich", "animals"), "nude": ("-", "excluded nsfw")}
+    proposals = {**merges, "ostrich": ("ostrich", "animals"), "nude": ("-", "dropped")}
     t = build_taxonomy(images, merges, min_images=4, proposals=proposals, candidate_min=3)
     assert t["min_images"] == 4
     assert t["candidate_min"] == 3
@@ -129,27 +141,60 @@ def test_build_taxonomy_honours_min_images_and_lists_candidates():
     ]
 
 
-def test_build_taxonomy_never_takes_an_excluded_label():
+def test_build_taxonomy_never_takes_an_age_label():
     images = {
-        "a": {"woman", "nude woman"},
-        "b": {"nude", "lingerie"},
+        "a": {"woman", "schoolgirl"},
+        "b": {"nude", "anime girl"},
         "c": {"anime girl", "woman"},
-        "d": {"nude"},
+        "d": {"girl"},
     }
     merges = {
         "woman": ("woman", "people"),
-        "nude woman": ("woman", "people"),
+        "schoolgirl": ("woman", "people"),
         "anime girl": ("woman", "people"),
-        "nude": ("nude", "people"),
-        "lingerie": ("underwear", "body and clothing"),
+        "nude": ("nude", ADULT),
+        "girl": ("nude", ADULT),
     }
     t = build_taxonomy(images, merges, min_images=1, proposals=merges)
-    assert [c["name"] for c in t["classes"]] == ["woman"]
-    assert t["classes"][0]["normalised"] == ["woman"]
-    assert t["classes"][0]["images"] == 2
+    by_name = {c["name"]: c for c in t["classes"]}
+    assert set(by_name) == {"woman", "nude"}
+    assert by_name["woman"]["normalised"] == ["woman"]
+    assert by_name["woman"]["images"] == 2
+    assert by_name["nude"]["normalised"] == ["nude"]
+    assert by_name["nude"]["images"] == 1
     assert t["candidates"] == []
     for c in t["classes"]:
         assert not any(excluded_reason(n) for n in c["normalised"] + c["members"])
+
+
+def test_build_taxonomy_keeps_adult_labels_in_the_adult_group():
+    images = {"a": {"woman", "nude woman"}, "b": {"nude", "lingerie"}, "c": {"lingerie"}}
+    merges = {
+        "woman": ("woman", "people"),
+        "nude woman": ("woman", "people"),
+        "nude": ("nude", ADULT),
+        "lingerie": ("underwear", "body and clothing"),
+    }
+    t = build_taxonomy(images, merges, min_images=1, proposals=merges)
+    by_name = {c["name"]: c for c in t["classes"]}
+    assert set(by_name) == {"woman", "nude"}
+    assert by_name["woman"]["normalised"] == ["woman"]
+    assert by_name["nude"]["group"] == ADULT
+
+
+def test_committed_taxonomy_has_an_adult_group_without_age_words():
+    t = json.loads((HERE / "taxonomy.json").read_text())
+    adult = [c for c in t["classes"] if c["group"] == ADULT]
+    assert ADULT in t["groups"]
+    assert {"nude", "lingerie", "underwear", "breast"} <= {c["name"] for c in adult}
+    assert {"nudity", "nude woman"} <= set(next(c for c in adult if c["name"] == "nude")["normalised"])
+    for c in adult:
+        assert not EXCLUDED_AGE.search(c["name"])
+        assert not any(EXCLUDED_AGE.search(n) for n in c["normalised"] + c["members"])
+    for c in t["classes"]:
+        if c["group"] != ADULT:
+            assert not is_adult(c["name"])
+            assert not any(is_adult(n) for n in c["normalised"])
 
 
 def test_committed_taxonomy_is_consistent():

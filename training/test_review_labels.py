@@ -41,7 +41,7 @@ def test_precision_groups_by_taxonomy_class():
     tally, per_class = precision_table(review, TAXONOMY)
     assert tally["animals"] == [2, 2]
     assert tally["objects"] == [0, 1]
-    assert tally["excluded nsfw"] == [1, 1]
+    assert tally["adult"] == [1, 1]
     assert tally[NO_CLASS] == [0, 1]
     assert tally["all labels"] == [3, 5]
     assert tally["all taxonomy classes"] == [2, 3]

@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from taxonomy import class_lookup, excluded_reason, normalise
+from taxonomy import ADULT, class_lookup, excluded_reason, is_adult, normalise
 
 HERE = Path(__file__).parent
 DATA = HERE / "data" / "label_quality"
@@ -34,6 +34,8 @@ def group_of(label, lookup, groups):
     reason = excluded_reason(n)
     if reason:
         return f"excluded {reason}"
+    if is_adult(n):
+        return ADULT
     return NO_CLASS
 
 
