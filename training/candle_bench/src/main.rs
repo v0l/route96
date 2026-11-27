@@ -42,7 +42,7 @@ impl Classifier {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        bail!("usage: taxonomy-candle-bench <vit|siglip> <checkpoint dir> [check.safetensors]");
+        bail!("usage: taxonomy-candle-bench <vit|siglip> <checkpoint dir> [check.safetensors [save.safetensors]]");
     }
     let device = Device::Cpu;
     let model = Classifier::load(&args[1], &PathBuf::from(&args[2]), &device)?;
@@ -53,6 +53,9 @@ fn main() -> Result<()> {
         let started = Instant::now();
         let got = model.forward(xs)?;
         let seconds = started.elapsed().as_secs_f64();
+        if let Some(save) = args.get(4) {
+            candle_core::safetensors::save(&[("logits".to_string(), got.clone())].into_iter().collect(), save)?;
+        }
         let images = xs.dim(0)? as f64;
         let diff = (got - &tensors["logits"])?.abs()?.flatten_all()?.max(0)?.to_scalar::<f32>()?;
         let threads = candle_core::utils::get_num_threads();
