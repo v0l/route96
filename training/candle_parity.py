@@ -10,6 +10,7 @@ from safetensors.torch import load_file, save_file
 
 from train import eval_transform
 from train_taxonomy import BASES, SiglipHead, logits_of
+from workdir import DATA
 
 HERE = Path(__file__).parent
 
@@ -38,7 +39,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("kind", choices=sorted(BASES))
     p.add_argument("checkpoint")
-    p.add_argument("--data", default=str(HERE / "data" / "taxonomy_v1"))
+    p.add_argument("--data", default=str(DATA))
     p.add_argument("--count", type=int, default=64)
     p.add_argument("--threads", type=int, default=8)
     p.add_argument("--out", required=True)

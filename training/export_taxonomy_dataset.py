@@ -7,6 +7,7 @@ from pathlib import Path
 
 from export_dataset import fetch_batch, kubectl, resize
 from taxonomy import DECISIONS, OUT, class_lookup, labels_to_classes, read_hard_negatives
+from workdir import DATA
 
 HERE = Path(__file__).parent
 QUERY = (
@@ -129,7 +130,7 @@ def fetch_images(args, img_dir, shas):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default=str(HERE / "data" / "taxonomy_v1"))
+    p.add_argument("--out", default=str(DATA))
     p.add_argument("--taxonomy", default=str(OUT))
     p.add_argument("--decisions", default=str(DECISIONS))
     p.add_argument("--namespace", default="nostr-download")

@@ -7,8 +7,10 @@ from pathlib import Path
 
 import numpy as np
 
+from workdir import LABELS
+
 HERE = Path(__file__).parent
-DATA = HERE / "data" / "taxonomy"
+DATA = LABELS
 MERGES = HERE / "taxonomy_merges.csv"
 DECISIONS = HERE / "taxonomy_decisions.csv"
 OUT = HERE / "taxonomy.json"

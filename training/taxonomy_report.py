@@ -3,6 +3,8 @@ import csv
 import json
 from pathlib import Path
 
+from workdir import OUT
+
 HERE = Path(__file__).parent
 RUNS = ["siglip_plain", "siglip_partial", "vit_plain", "vit_partial"]
 PER_CLASS = ["class", "support", "predicted", "precision", "recall", "f1", "threshold"]
@@ -52,7 +54,7 @@ def weakest_table(report, count, other=None):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default=str(HERE / "out" / "taxonomy"))
+    p.add_argument("--out", default=str(OUT))
     p.add_argument("--weakest", type=int, default=20)
     args = p.parse_args()
     out = Path(args.out)

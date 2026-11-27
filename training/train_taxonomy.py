@@ -20,6 +20,7 @@ from multilabel import (
     weighted_bce,
 )
 from train import eval_transform, train_transform
+from workdir import DATA, OUT
 
 HERE = Path(__file__).parent
 BASES = {"vit": "google/vit-base-patch16-224", "siglip": "google/siglip2-base-patch16-224"}
@@ -295,8 +296,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", choices=sorted(BASES), required=True)
     p.add_argument("--loss", choices=["plain", "partial"], required=True)
-    p.add_argument("--data", default=str(HERE / "data" / "taxonomy_v1"))
-    p.add_argument("--out", default=str(HERE / "out" / "taxonomy"))
+    p.add_argument("--data", default=str(DATA))
+    p.add_argument("--out", default=str(OUT))
     p.add_argument("--taxonomy", default=str(HERE / "taxonomy.json"))
     p.add_argument("--base")
     p.add_argument("--epochs", type=int)

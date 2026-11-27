@@ -8,8 +8,9 @@ from pathlib import Path
 import torch
 from PIL import Image, ImageDraw
 
+from workdir import DATA, OUT
+
 HERE = Path(__file__).parent
-DATA = HERE / "data" / "taxonomy_v1"
 VERDICTS = ("right", "wrong")
 FIELDS = ["index", "sha256", "class", "runs", "verdict"]
 
@@ -116,7 +117,7 @@ def main():
     a.add_argument("--count", type=int, default=200)
     a.add_argument("--seed", type=int, default=1441)
     a.add_argument("--per-sheet", type=int, default=20)
-    a.add_argument("--out", default="/tmp/r96-recall")
+    a.add_argument("--out", default=str(OUT / "missing_recall"))
     b = sub.add_parser("report")
     b.add_argument("sample")
     c = sub.add_parser("import")
