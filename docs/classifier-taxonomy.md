@@ -1,6 +1,6 @@
 # Image classifier taxonomy from the Qwen labels
 
-Issue #1407. Status: steps 1 to 4 done (taxonomy, label quality, export, training, issue #1441). Wiring into the media worker and the Qwen comparison are a later issue.
+Issue #1407. Status: steps 1 to 6 done. The classifier is wired into the media worker as label model type `taxonomy` (issue #1509, off by default) and compared with Qwen on 500 held out images; see [Media worker and Qwen comparison](#media-worker-and-qwen-comparison-issue-1509).
 
 Issue #1508 rebuilt the taxonomy as `taxonomy-v2` from fresh counts with a 50 image floor and new groups; see [Taxonomy v2](#taxonomy-v2-issue-1508). Issue #1450 added the adult group on the owner's request (27 Nov) and retrained on v2; see [Adult group](#adult-group-issue-1450) and [v2 training](#v2-training-issue-1450). The training results under v1 further down are the 25 Nov run on 210 classes.
 
@@ -169,6 +169,107 @@ The weakest classes overall, plain: collage 0.00 (4 val), cowboy 0.00 (1), close
 | PyTorch CPU images/s, 8 threads | 19.8 (2.5 per core) |
 
 The logit gap is just over the 2e-4 bar (v1 was 1.5e-4). It is float32 rounding in candle's kernels, not a model mismatch: the same gap against a float64 reference is 2.0e-4, the probabilities agree to 1e-5, and not one of the 20,992 class decisions changes. `candle_bench` takes an optional fifth argument to save its logits for this check.
+
+## Media worker and Qwen comparison (issue #1509)
+
+### In the server
+
+`LabelerType::Taxonomy` in `src/settings.rs` and `TaxonomyModel` / `TaxonomyLabeler` in `src/processing/labeling.rs`: the stock SigLIP2 tower (`siglip::VisionModel` with its pooling head) and our linear head from `head.safetensors`, sigmoid per class, each class kept when its probability reaches its trained threshold (and `min_confidence` when one is set). A video averages the probabilities of the same sampled frames the ViT uses. Pixels come from the sandboxed media worker like every other label model, resized to 224 by 224 and normalised with mean 0.5, std 0.5.
+
+There is no taxonomy model unless one is configured, so it is off by default. A config entry:
+
+```yaml
+label_models:
+  - type: taxonomy
+    name: taxonomy-v1
+    head_path: /models/taxonomy-v1/head.safetensors
+    backbone: google/siglip2-base-patch16-224
+```
+
+`hf_repo` can replace `head_path` (a repo holding `head.safetensors`), and `backbone` can be a local folder with `config.json` and `model.safetensors`. The admin UI Labeling tab has a Taxonomy type with the same three fields.
+
+Labels are written as `(label, model = taxonomy-v1)` like the other models. `upload_labels` gained a nullable `confidence` column, now filled for every model.
+
+Moderation: the nsfw and age models keep their own path. A label model with type `taxonomy` reports `moderates() = false`, so `run_batch` drops every plain flag and delete term for it, and the admin purge skips taxonomy labels. A term set on purpose for it is scoped by model name, `taxonomy-v1:nude`; a scoped term applies to that model only. Tests: `taxonomy_nude_neither_flags_nor_deletes` (a taxonomy `nude` at 0.95 with the delete terms `nude`, `breast`, `nsfw` and dry run off: no flag, no delete, no audit row, the purge finds nothing) and `taxonomy_term_set_on_purpose_flags_and_deletes`.
+
+### Held out images
+
+`training/heldout.py pick` took 500 images from production (read only) that Qwen labelled with at least one taxonomy class and that are not in the v2 manifest at all, neither train nor validation, seed 1509. The originals are in `$ROOT/data/heldout/blobs`. `r96util label` ran them through the same code path as the media worker, `heldout.py compare` scored them against Qwen's labels mapped to classes. 496 were labelled; 3 PDFs with an image extension and one 328 by 21 strip were refused, as the worker refuses them.
+
+| | value |
+|---|---|
+| Qwen labels (mapped to classes) | 1,082 |
+| taxonomy-v1 labels | 2,035 |
+| both | 774 |
+| precision against Qwen | 0.38 |
+| recall of Qwen's labels | 0.72 |
+| micro F1 | 0.50 |
+| images where the sets are equal | 18 of 496 |
+
+The held out set is not like validation. Qwen gives these images 2.2 classes each (validation has 3.6), most are screenshots, games and text, and they are what the export did not select because their classes were already full. Per class agreement on the classes with at least 8 Qwen labels:
+
+| class | Qwen | taxonomy-v1 | both | precision | recall | F1 |
+|---|---|---|---|---|---|---|
+| text | 239 | 248 | 194 | 0.78 | 0.81 | 0.80 |
+| screenshot | 101 | 99 | 78 | 0.79 | 0.77 | 0.78 |
+| woman | 92 | 80 | 77 | 0.96 | 0.84 | 0.90 |
+| button | 82 | 87 | 78 | 0.90 | 0.95 | 0.92 |
+| video game | 60 | 79 | 52 | 0.66 | 0.87 | 0.75 |
+| person | 57 | 71 | 25 | 0.35 | 0.44 | 0.39 |
+| man | 51 | 40 | 32 | 0.80 | 0.63 | 0.70 |
+| abstract | 34 | 33 | 27 | 0.82 | 0.79 | 0.81 |
+| mobile game | 31 | 66 | 21 | 0.32 | 0.68 | 0.43 |
+| fractal | 25 | 24 | 24 | 1.00 | 0.96 | 0.98 |
+| user interface | 21 | 64 | 8 | 0.12 | 0.38 | 0.19 |
+| card | 17 | 19 | 17 | 0.89 | 1.00 | 0.94 |
+| icon | 14 | 4 | 2 | 0.50 | 0.14 | 0.22 |
+| smartphone | 13 | 17 | 3 | 0.18 | 0.23 | 0.20 |
+| mobile app | 9 | 69 | 7 | 0.10 | 0.78 | 0.18 |
+| logo | 9 | 6 | 0 | 0.00 | 0.00 | 0.00 |
+| screen | 8 | 9 | 1 | 0.11 | 0.12 | 0.12 |
+
+The full table is `$ROOT/data/heldout/agreement.csv` and every disagreement is in `disagreements.csv` (1,261 taxonomy only, 308 Qwen only). Most taxonomy only labels are the screen classes Qwen uses one of and the model gives several of (mobile app 62, user interface 56, mobile game 45, social media 40), then text 54, person 46, news 36, typography 30.
+
+### 100 disagreements graded
+
+**Graded by the model (the agent) from 256 px contact sheets, not by a person.** 100 disagreements drawn at random (seed 1509): for each, whether the class is in the image (taxonomy right), not in it (Qwen right), or arguable.
+
+| disagreement | graded | taxonomy-v1 right | Qwen right | unclear |
+|---|---|---|---|---|
+| taxonomy-v1 only | 84 | 59 | 9 | 16 |
+| Qwen only | 16 | 0 | 14 | 2 |
+
+When taxonomy-v1 adds a class Qwen did not give, the class is visible about 70 percent of the time and wrong about 11 percent; the misses are a game drawn as `pixel art`, `screenshot`, `person` on a drawing and similar. When Qwen has a class taxonomy-v1 missed, Qwen is right almost every time (14 of 16): small or secondary things (socks, glasses, a lake, a mountain on a poster, a logo) and `screenshot` on screenshots of a phone. The sheets are `$ROOT/data/heldout/sheet_00.png` to `sheet_04.png` with `graded_sample.csv` (column `verdict`); M marks a taxonomy only class, Q a Qwen only one. They contain adult images. For the owner's own grading, set `verdict` to `model`, `qwen` or `unclear`, or run `heldout.py grade <csv> "0m 1q 2u ..."`, then `heldout.py report <csv>`.
+
+### Parity of the worker path
+
+On 200 validation images run through `r96util label` (ffmpeg scaling in the media worker) against PyTorch (PIL bilinear): 732 class decisions agree, 133 differ, and F1 against Qwen is 0.621 against 0.638. The model is the same (candle parity is 2.4e-4 on identical pixels); the gap is the resize. ffmpeg's bilinear scaler with no antialias does not match PIL's antialiased resize, and labels near the threshold flip. Training on worker-resized pixels, or making the worker resize like PIL, would close it.
+
+### Throughput on CPU
+
+`r96util label` on this desktop (Threadripper 9960X), release build, one file at a time as the worker runs, including the sandboxed decode:
+
+| threads | ms per image (500 held out originals) | images per hour |
+|---|---|---|
+| 1 | 371 | 9,700 |
+| 5 | 211 (median 203, p90 237) | 17,000 |
+
+A video (10 sampled frames) takes about 1.4 s on 5 threads. Production runs on 8 QEMU vCPUs with a limit of 5 CPUs shared with the other label models and uploads; the 25 Nov `candle_bench` numbers (0.9 images per second per core) suggest about half this desktop's speed per core there, so plan on roughly 0.4 to 0.5 s per image.
+
+### Backfill estimate
+
+Production has 37,544 unbanned images and 5,672 unbanned videos (27 Nov). At 0.45 s per image and 3 s per video on the production pod that is about 4.7 hours for images and 4.7 hours for videos, about 9.5 hours of one worker. Nothing was backfilled.
+
+### What production needs to turn it on
+
+1. Copy `$ROOT/out/taxonomy/siglip_plain/head.safetensors` (1 MB) to the models volume, or upload it to a Hugging Face repo such as `v0l/route96-taxonomy-v1` and use `hf_repo`.
+2. Add the model in the admin Labeling tab (type Taxonomy, name `taxonomy-v1`, head path or repo). The 1.5 GB SigLIP2 checkpoint downloads into `models_dir` on first start (about 1.5 GB of disk and 1.6 GB of RAM while loaded).
+3. The migration adding `upload_labels.confidence` runs on start.
+4. The worker then labels every file that has no `taxonomy-v1` row in `upload_labeled_by`, which is the backfill above. Leave flag and delete terms as they are; to act on a taxonomy label, add a scoped term such as `taxonomy-v1:nude`.
+
+### Can taxonomy-v1 replace Qwen for the closed vocabulary?
+
+Not yet as a drop in. On the big, concrete classes it matches Qwen well on unseen images (woman 0.90, button 0.92, fractal 0.98, card 0.94, text 0.80, screenshot 0.78), and most of its extra labels are right. But it misses small and secondary objects Qwen names, and it is noisy on the overlapping screen classes (mobile app, user interface, mobile game, smartphone, screen) and on person. Run it beside Qwen first, merge or retrain the screen classes, and fix the resize gap above before letting it stand in for Qwen.
 
 ## Taxonomy v2 (issue #1508)
 
@@ -712,5 +813,5 @@ What the evidence does not show: that the plain loss has better recall than the 
 
 ## Plan for the rest
 
-5. A `taxonomy` label model type in `src/processing/labeling.rs`, labels written as `taxonomy-v1` with a confidence, default off, backfill only on request.
-6. 500 held out images: agreement with Qwen, and review of the disagreements to decide whether the classifier replaces Qwen for the closed vocabulary.
+5. Done in #1509: the `taxonomy` label model type, off by default.
+6. Done in #1509: 500 held out images compared with Qwen, see above.
