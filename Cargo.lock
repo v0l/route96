@@ -3191,7 +3191,7 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 [[package]]
 name = "payments-rs"
 version = "0.2.0"
-source = "git+https://github.com/v0l/payments-rs.git?rev=60b0fbf3838385439fbd08d43565fb1d9ab810fb#60b0fbf3838385439fbd08d43565fb1d9ab810fb"
+source = "git+https://github.com/v0l/payments-rs.git?rev=d7318889e9fc1c62388404d208ffc2feed778e89#d7318889e9fc1c62388404d208ffc2feed778e89"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3941,7 +3941,7 @@ dependencies = [
 
 [[package]]
 name = "route96"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "async-openai",

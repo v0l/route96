@@ -1,6 +1,6 @@
 [package]
 name = "route96"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 
 [[bin]]
@@ -74,7 +74,7 @@ candle-transformers = { git = "https://github.com/v0l/candle", rev = "bb4d7025db
 hf-hub = { version = "0.5", optional = true }
 walkdir = { version = "2.5", optional = true }
 indicatif = { version = "0.18", optional = true }
-payments-rs = { git = "https://github.com/v0l/payments-rs.git", optional = true, rev = "60b0fbf3838385439fbd08d43565fb1d9ab810fb" }
+payments-rs = { git = "https://github.com/v0l/payments-rs.git", optional = true, rev = "d7318889e9fc1c62388404d208ffc2feed778e89" }
 fedimint-tonic-lnd = { git = "https://github.com/v0l/tonic_lnd.git", rev = "57fcd1ac2e8834c6f93cfa3c84ba67420a9dd3ed", default-features = false, features = ["lightningrpc", "invoicesrpc", "routerrpc"], optional = true }
 
 [dev-dependencies]
