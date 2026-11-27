@@ -388,9 +388,39 @@ def build(args):
         print(f"{by_group[g]:4d} {g}")
 
 
+FETCH_QUERY = (
+    "select lower(hex(u.id)), u.mime_type, l.label from upload_labels l "
+    "join uploads u on u.id = l.file where l.model = '{model}'"
+)
+
+
+def fetch(args):
+    from export_dataset import kubectl
+
+    raw = kubectl(
+        args.namespace,
+        args.db_deploy,
+        "sh",
+        "-c",
+        'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" route96 -N -B -e "$0"',
+        FETCH_QUERY.format(model=args.model),
+    )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [l for l in raw.decode().splitlines() if l.count("\t") == 2]
+    out.write_text("".join(f"{l}\n" for l in lines))
+    images = read_images(out)
+    print(f"{len(lines)} label rows, {len(images)} images with labels written to {out}")
+
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
+    f = sub.add_parser("fetch")
+    f.add_argument("--out", default=str(DATA / "labels.tsv"))
+    f.add_argument("--model", default="qwen3.5")
+    f.add_argument("--namespace", default="nostr-download")
+    f.add_argument("--db-deploy", default="mysql")
     a = sub.add_parser("propose")
     a.add_argument("--labels", default=str(DATA / "labels.tsv"))
     a.add_argument("--decisions", default=str(DECISIONS))
@@ -402,7 +432,7 @@ def main():
     b.add_argument("--out", default=str(OUT))
     b.add_argument("--min-images", type=int, default=100)
     args = p.parse_args()
-    {"propose": propose, "build": build}[args.cmd](args)
+    {"fetch": fetch, "propose": propose, "build": build}[args.cmd](args)
 
 
 if __name__ == "__main__":
