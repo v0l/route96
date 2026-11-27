@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 PY=${PY:-$HOME/.venvs/route96-taxonomy/bin/python}
-ROOT=${ROUTE96_TAXONOMY_ROOT:-$HOME/route96-taxonomy}
+ROOT=${ROUTE96_TAXONOMY_ROOT:-/core/datasets/route96-taxonomy}
 DATA=${DATA:-$ROOT/data/taxonomy_v2}
 OUT=${OUT:-$ROOT/out/taxonomy}
 read -ra TRAIN_ARGS <<<"${TRAIN_ARGS:-}"
