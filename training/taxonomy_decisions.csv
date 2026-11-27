@@ -11,6 +11,8 @@ sitting,lying down,hard negative
 lying down,sitting,hard negative
 black and white,colorful,hard negative
 colorful,black and white,hard negative
+cat ear,bunny ear,hard negative
+bunny ear,cat ear,hard negative
 woman,woman,people
 man,man,people
 male,man,people
@@ -20,9 +22,9 @@ face,face,people
 smile,smile,people
 crowd,crowd,people
 couple,couple,people
-portrait,portrait,people
-selfie,selfie,people
-mirror selfie,selfie,people
+portrait,portrait,pose and framing
+selfie,selfie,pose and framing
+mirror selfie,selfie,pose and framing
 soldier,soldier,people
 donald trump,-,dropped named person
 beard,beard,body and clothing
@@ -200,9 +202,9 @@ mountain,mountain,places and nature
 building,building,places and nature
 landscape,landscape,places and nature
 sunset,sunset,places and nature
-sun,-,dropped too few
+sun,sun,places and nature
 snow,snow,places and nature
-winter,snow,places and nature
+winter,winter,seasons and events
 ocean,ocean,places and nature
 sea,ocean,places and nature
 beach,beach,places and nature
@@ -284,31 +286,31 @@ kuzco,the emperor's new groove,memes and media
 pacha,the emperor's new groove,memes and media
 yzma,the emperor's new groove,memes and media
 kronk,the emperor's new groove,memes and media
-sitting,sitting,activities and events
-kneeling,kneeling,activities and events
-lying down,lying down,activities and events
-fitness,fitness,activities and events
-gym,fitness,activities and events
-football,sport,activities and events
-soccer,sport,activities and events
-sports,sport,activities and events
-basketball,sport,activities and events
-christmas,christmas,activities and events
-black and white,black and white,style and colour
-grayscale,black and white,style and colour
-blue,blue,style and colour
-colorful,colorful,style and colour
-green,green,style and colour
-pink,pink,style and colour
-purple,purple,style and colour
-orange,orange,style and colour
-red,red,style and colour
-silhouette,silhouette,style and colour
-texture,texture,style and colour
-black background,black background,style and colour
-dark background,black background,style and colour
-close-up,close-up,style and colour
-close up,close-up,style and colour
+sitting,sitting,pose and framing
+kneeling,kneeling,pose and framing
+lying down,lying down,pose and framing
+fitness,fitness,activities and sport
+gym,fitness,activities and sport
+football,sport,activities and sport
+soccer,sport,activities and sport
+sports,sport,activities and sport
+basketball,sport,activities and sport
+christmas,christmas,seasons and events
+black and white,black and white,colour
+grayscale,black and white,colour
+blue,blue,colour
+colorful,colorful,colour
+green,green,colour
+pink,pink,colour
+purple,purple,colour
+orange,orange,colour
+red,red,colour
+silhouette,silhouette,visual style
+texture,texture,visual style
+black background,black background,colour
+dark background,black background,colour
+close-up,close-up,pose and framing
+close up,close-up,pose and framing
 mustache,beard,body and clothing
 black hair,hair,body and clothing
 pink hair,hair,body and clothing
@@ -334,3 +336,214 @@ manga,anime,art and abstract
 disney,cartoon,memes and media
 emoji,icon,screens and apps
 television,screen,screens and apps
+female,woman,people
+human,person,people
+group,people,people
+two woman,people,people
+three woman,people,people
+friend,people,people
+military,soldier,people
+cowboy,cowboy,people
+western,cowboy,people
+asian,-,dropped ethnicity
+student,-,dropped age adjacent
+standing,standing,pose and framing
+sleeping,sleeping,pose and framing
+back view,back view,pose and framing
+looking back,back view,pose and framing
+rear view,back view,pose and framing
+from behind,back view,pose and framing
+eye,eye,body and clothing
+back,back,body and clothing
+chest,torso,body and clothing
+thigh,leg,body and clothing
+red hair,hair,body and clothing
+makeup,makeup,body and clothing
+mask,mask,body and clothing
+face mask,mask,body and clothing
+fashion,fashion,body and clothing
+glove,glove,body and clothing
+sweater,sweater,body and clothing
+cardigan,sweater,body and clothing
+lace,lace,body and clothing
+fishnet,fishnet,body and clothing
+hanfu,hanfu,body and clothing
+robe,robe,body and clothing
+bathrobe,robe,body and clothing
+bow,bow,body and clothing
+sailor suit,school uniform,body and clothing
+plaid skirt,skirt,body and clothing
+pants,pants,body and clothing
+trousers,pants,body and clothing
+tank top,shirt,body and clothing
+bag,bag,body and clothing
+handbag,bag,body and clothing
+backpack,bag,body and clothing
+ring,jewelry,body and clothing
+cat ear,cat ear,body and clothing
+bunny ear,bunny ear,body and clothing
+rabbit ear,bunny ear,body and clothing
+japanese text,japanese text,text and documents
+japanese,japanese text,text and documents
+handwriting,handwriting,text and documents
+book cover,book,text and documents
+data,chart,text and documents
+financial data,financial chart,text and documents
+tradingview,financial chart,text and documents
+technical analysis,financial chart,text and documents
+article,news,memes and media
+number,-,dropped vague
+form,user interface,screens and apps
+menu,menu,screens and apps
+setting,setting,screens and apps
+settings menu,setting,screens and apps
+notification,notification,screens and apps
+play button,button,screens and apps
+web browser,website,screens and apps
+browser,website,screens and apps
+profile,profile page,screens and apps
+user profile,profile page,screens and apps
+profile picture,avatar,screens and apps
+computer screen,screen,screens and apps
+android,-,dropped ambiguous
+geometric,geometric,art and abstract
+geometry,geometric,art and abstract
+grid,grid,art and abstract
+graffiti,graffiti,art and abstract
+mathematical art,mathematics,art and abstract
+mathematical,mathematics,art and abstract
+math,mathematics,art and abstract
+mathematical visualization,mathematics,art and abstract
+monster,monster,art and abstract
+alien,monster,art and abstract
+creature,monster,art and abstract
+vintage,vintage,visual style
+neon,neon,visual style
+sci-fi,sci-fi,visual style
+cyberpunk,sci-fi,visual style
+collage,collage,visual style
+reflection,reflection,visual style
+black,black,colour
+white,white,colour
+gold,gold,colour
+yellow,yellow,colour
+gradient,gradient,colour
+dark,-,dropped vague
+light,-,dropped vague
+llama,llama,animals
+rabbit,rabbit,animals
+bunny,rabbit,animals
+horse,horse,animals
+frog,frog,animals
+fox,fox,animals
+ostrich,ostrich,animals
+sheep,sheep,animals
+tabby,cat,animals
+floor,floor,places and nature
+palm tree,palm tree,places and nature
+bridge,bridge,places and nature
+office,office,places and nature
+shower,shower,places and nature
+church,church,places and nature
+castle,castle,places and nature
+classroom,classroom,places and nature
+path,path,places and nature
+trail,path,places and nature
+fog,fog,places and nature
+smoke,smoke,places and nature
+flame,fire,places and nature
+brick wall,wall,places and nature
+stone wall,wall,places and nature
+cherry blossom,flower,places and nature
+galaxy,space,places and nature
+planet,space,places and nature
+night sky,night,places and nature
+headphones,headphones,objects
+earphones,headphones,objects
+camera,camera,objects
+candle,candle,objects
+box,box,objects
+packaging,box,objects
+bench,bench,objects
+notebook,notebook,objects
+pencil,pencil,objects
+bookshelf,bookshelf,objects
+electronics,electronics,objects
+circuit board,electronics,objects
+fan,fan,objects
+card,card,objects
+playing card,card,objects
+label,label,objects
+clock,clock,objects
+guitar,guitar,objects
+toy,toy,objects
+teddy bear,toy,objects
+plush toy,toy,objects
+doll,toy,objects
+sword,sword,objects
+rifle,gun,objects
+weapon,gun,objects
+skull,skull,objects
+bone,skull,objects
+skeleton,skull,objects
+crown,crown,objects
+rug,rug,objects
+carpet,rug,objects
+fireplace,fireplace,objects
+board game,board game,objects
+monitor,computer,objects
+computer monitor,computer,objects
+rope,-,dropped nsfw adjacent
+chain,-,dropped ambiguous
+bowl,bowl,food and drink
+plate,plate,food and drink
+spoon,spoon,food and drink
+drink,drink,food and drink
+beer,drink,food and drink
+wine,drink,food and drink
+coin,coin,bitcoin and crypto
+money,money,bitcoin and crypto
+currency,money,bitcoin and crypto
+dollar bill,money,bitcoin and crypto
+satire,satire,memes and media
+political cartoon,satire,memes and media
+caricature,satire,memes and media
+puzzle,puzzle,memes and media
+music,music,memes and media
+album cover,music,memes and media
+vinyl record,music,memes and media
+movie scene,movie,memes and media
+movie still,movie,memes and media
+film still,movie,memes and media
+game over,video game,memes and media
+game over screen,video game,memes and media
+branding,logo,symbols and logos
+brand,logo,symbols and logos
+emblem,logo,symbols and logos
+banner,sign,symbols and logos
+circle,circle,symbols and logos
+cross,cross,symbols and logos
+arrow,arrow,symbols and logos
+swimming,swimming,activities and sport
+hiking,hiking,activities and sport
+hiker,hiking,activities and sport
+yoga,fitness,activities and sport
+yoga mat,fitness,activities and sport
+exercise,fitness,activities and sport
+workout,fitness,activities and sport
+summer,summer,seasons and events
+autumn,autumn,seasons and events
+autumn foliage,autumn,seasons and events
+autumn leaf,autumn,seasons and events
+winter clothing,winter,seasons and events
+winter landscape,winter,seasons and events
+concert,concert,seasons and events
+protest,protest,seasons and events
+presentation,presentation,seasons and events
+conference,presentation,seasons and events
+education,-,dropped not visual
+cybersecurity,-,dropped not visual
+religion,-,dropped not visual
+business,-,dropped not visual
+economics,-,dropped not visual
+podcast,-,dropped not visual
