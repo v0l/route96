@@ -10,7 +10,7 @@
  },
  "counts": {
   "images": 36394,
-  "images_with_a_class": 35534,
+  "images_with_a_class": 35537,
   "classes": 312,
   "excluded_labels": {
    "dropped age adjacent": 1,
@@ -3842,12 +3842,14 @@
   {
    "name": "airplane",
    "group": "vehicles",
-   "images": 151,
+   "images": 169,
    "normalised": [
+    "aircraft",
     "airplane"
    ],
    "members": [
-    "airplane"
+    "airplane",
+    "aircraft"
    ]
   },
   {
@@ -5196,12 +5198,6 @@
   {
    "name": "3d model",
    "group": "visual style",
-   "images": 35,
-   "reviewed": false
-  },
-  {
-   "name": "aircraft",
-   "group": "vehicles",
    "images": 35,
    "reviewed": false
   },

@@ -259,6 +259,7 @@ bottle,bottle,objects
 pen,pen,objects
 car,car,vehicles
 airplane,airplane,vehicles
+aircraft,airplane,vehicles
 boat,boat,vehicles
 food,food,food and drink
 coffee,coffee,food and drink

@@ -666,8 +666,8 @@ text,text,text and documents,7509,1.00,1.00,yes
 text overlay,text overlay,text and documents,226,1.00,1.00,yes
 subtitle,text overlay,text and documents,104,1.00,1.00,yes
 typography,typography,text and documents,456,1.00,1.00,yes
-aircraft,aircraft,vehicles,35,1.00,1.00,no
 airplane,airplane,vehicles,151,1.00,1.00,yes
+aircraft,airplane,vehicles,35,1.00,1.00,yes
 antenna,antenna,vehicles,44,1.00,1.00,no
 balloon,balloon,vehicles,44,1.00,1.00,no
 boat,boat,vehicles,144,1.00,1.00,yes
