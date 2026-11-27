@@ -67,13 +67,43 @@ def kind(label):
     return "age and adult" if age and adult else "age" if age else "adult" if adult else ""
 
 
+ROMAN = {"ii": 2, "iii": 3, "iv": 4, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15, "xvi": 16}
+FACETS = [
+    {"partial", "explicit", "full", "implied", "frontal", "semi", "non", "mild", "suggestive", "artistic"},
+    {"instagram", "twitter", "facebook", "tiktok", "youtube", "reddit", "threads", "x", "snapchat", "linkedin", "discord", "telegram", "whatsapp", "nostr", "weibo", "pinterest", "tumblr", "twitch", "bluesky", "mastodon"},
+    {"post", "story", "reel", "tweet", "thread", "reply", "feed"},
+    {"ankle", "knee", "thigh", "calf", "crew", "maxi", "midi"},
+]
+KEEP_APART = {
+    frozenset(p)
+    for p in [
+        ("blog", "url"),
+        ("cryptocurrency trading", "cryptocurrency"),
+        ("cryptocurrency exchange", "cryptocurrency"),
+        ("cryptocurrency exchange", "cryptocurrency trading"),
+        ("england", "united kingdom"),
+    ]
+}
+
+
+def words(label):
+    return re.findall(r"[a-z]+", label)
+
+
 def digits(label):
-    return re.findall(r"\d+", label)
+    return sorted([int(d) for d in re.findall(r"\d+", label)] + [ROMAN[w] for w in words(label) if w in ROMAN])
+
+
+def facets_differ(a, b):
+    wa, wb = set(words(a)), set(words(b))
+    return any(wa & f != wb & f for f in FACETS)
 
 
 def may_merge(a, b, class_of, hard_pairs):
     ka, kb = kind(a), kind(b)
-    if ka != kb or ka == "age and adult" or digits(a) != digits(b):
+    if ka != kb or ka == "age and adult" or digits(a) != digits(b) or facets_differ(a, b):
+        return False
+    if frozenset((a, b)) in KEEP_APART:
         return False
     ca, cb = class_of.get(a), class_of.get(b)
     if ca and ca != cb:

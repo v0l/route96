@@ -24,7 +24,7 @@ Steps, in order:
 
 1. Spelling: the `taxonomy.py` rules (lower case, underscores, punctuation, singular, synonym table), then list markers (`*   text`, `- text`, `2.  Text`), `&` to `and`, a leading article, and spacing, hyphen, apostrophe and dot variants joined to their most used form (`t-shirt`, `tshirt`, `t shirt`; `low-poly`, `lowpoly`).
 2. Reviewed merges: every spelling form that is a member of a taxonomy class becomes that class.
-3. Meaning: centred SigLIP2 text embeddings (mean of all labels removed, which spreads cosines from 0.75 to 0.99 out to about 0.0 to 0.99). Labels are visited from most used to least; each joins the most similar earlier head at or above the threshold, else becomes a head. A merge is refused when the two labels differ in age or adult kind, when either mixes an age word with an adult word, when their numbers differ (`rollercoaster tycoon 2` and `3`, `2025` and `2026`), when the label is a taxonomy class and the head is not the same class, or when the pair is a hard negative.
+3. Meaning: centred SigLIP2 text embeddings (mean of all labels removed, which spreads cosines from 0.75 to 0.99 out to about 0.0 to 0.99). Labels are visited from most used to least; each joins the most similar earlier head at or above the threshold, else becomes a head. A merge is refused when the two labels differ in age or adult kind, when either mixes an age word with an adult word, when their numbers differ (`rollercoaster tycoon 2` and `3`, `2025` and `2026`), when the label is a taxonomy class and the head is not the same class, or when the pair is a hard negative. Guards added after the owner's review (each has a test in `test_normalize_labels.py`): Roman numerals count as numbers (`mafia ii` and `iii`); words that set a level, a platform, a post type or a garment length must match on both sides (`partial nudity` and `explicit nudity`, `instagram post`, `instagram story` and `twitter post`, `knee-high` and `thigh-high`); and a keep apart list for classes that differ for search (`blog` and `url`, `cryptocurrency trading`, `cryptocurrency exchange` and plain `cryptocurrency` kept apart from each other, `england` and `united kingdom`).
 
 ### Threshold, from a graded sample
 
@@ -50,29 +50,29 @@ The threshold is 0.88 (precision 0.95 above it). Wrong pairs above it: `instagra
 | lower case only | 17,842 | 11.5 | 1,951 | 1,188 | 875 | 577 |
 | spelling | 15,014 | 13.6 | 1,849 | 1,139 | 841 | 568 |
 | reviewed merges | 14,792 | 13.5 | 1,629 | 919 | 621 | 399 |
-| meaning, 0.88 | 14,355 | 13.9 | 1,644 | 933 | 628 | 400 |
+| meaning, 0.88 | 14,363 | 13.9 | 1,644 | 932 | 628 | 400 |
 
-The floors fall at the reviewed step because it folds labels that already cleared them (`candlestick chart`, `stock market`, `tradingview`) into one class. Merging by meaning removes 437 labels (3 percent) and adds 15 labels at 10 files, 7 at 30 and 1 at 50. Even at 0.75, where half the merges are wrong, it would remove 2,537 labels and add 43 at 30 files over the reviewed step. Most of the long tail is not the same idea in other words: it is named people, products, games, places and one off objects (`dell`, `john cena`, `stapler`, `tajikistan`, `medovnik`), each with its own meaning.
+The floors fall at the reviewed step because it folds labels that already cleared them (`candlestick chart`, `stock market`, `tradingview`) into one class. Merging by meaning removes 429 labels (3 percent) and adds 15 labels at 10 files, 13 at 20, 7 at 30 and 1 at 50. Even at 0.75, where half the merges are wrong, it would remove 2,537 labels and add 43 at 30 files over the reviewed step. Most of the long tail is not the same idea in other words: it is named people, products, games, places and one off objects (`dell`, `john cena`, `stapler`, `tajikistan`, `medovnik`), each with its own meaning.
 
 Files per normalised label, and the share of label uses each bucket covers:
 
 | files | raw labels | share | normalised labels | share |
 |---|---|---|---|---|
-| 1 | 12,027 | 5.9% | 8,098 | 4.1% |
-| 2 to 4 | 4,199 | 5.3% | 3,363 | 4.4% |
-| 5 to 9 | 1,356 | 4.3% | 1,250 | 4.1% |
-| 10 to 19 | 792 | 5.2% | 711 | 4.8% |
-| 20 to 29 | 302 | 3.6% | 305 | 3.7% |
+| 1 | 12,027 | 5.9% | 8,100 | 4.1% |
+| 2 to 4 | 4,199 | 5.3% | 3,366 | 4.4% |
+| 5 to 9 | 1,356 | 4.3% | 1,253 | 4.1% |
+| 10 to 19 | 792 | 5.2% | 712 | 4.8% |
+| 20 to 29 | 302 | 3.6% | 304 | 3.7% |
 | 30 to 49 | 297 | 5.5% | 228 | 4.3% |
 | 50 to 99 | 265 | 9.0% | 130 | 4.6% |
 | 100 to 499 | 264 | 27.7% | 196 | 22.1% |
 | 500 and over | 51 | 33.6% | 74 | 47.9% |
 
-The 400 labels with 50 or more files cover 74.6 percent of label uses; the 8,098 single file labels cover 4.1 percent.
+The 400 labels with 50 or more files cover 74.6 percent of label uses; the 8,100 single file labels cover 4.1 percent.
 
 ### Spot checks
 
-30 random meaning merges (seed 1539): ai chatbot interface to chatbot interface, video conferencing to video conference, historical clothing to historical costume, sheer top to mesh top, omelette to omelet, television static to tv static, mobile game ui to mobile game interface, snowboarding to snowboard, latex outfit to latex clothing, blue hair wig to blue wig, network hardware to network equipment, england to united kingdom, orange tabby to orange cat, steam train to steam locomotive, jump to jumping, railroad to railway, hollow knight: silksong to hollow knight, casino chip to poker chip, bitcoin logo to bitcoin symbol, cyberpunk city view to cyberpunk city, flag of israel to israeli flag, us politics to american politics, mobile app ui to mobile ui, us flag to american flag, vintage car to classic car, morel mushroom to morel, running shoe to athletic shoe, blackboard to chalkboard, pregnant woman to pregnant, payment screen to payment interface.
+30 random meaning merges (seed 1539): ai chatbot interface to chatbot interface, webpage screenshot to website screenshot, hollow knight: silksong to hollow knight, sound mixer to audio mixer, peace symbol to peace sign, tortoise to turtle, movie list to list of movie, sponsor to sponsor logo, mall to shopping mall, body painting to body paint, padme amidala to padmé amidala, facial recognition technology to facial recognition, pencil drawing to pencil sketch, television program to television show, login page to login screen, roller skate to roller skating, inspirational poster to motivational poster, cat ears headband to cat ear headband, bitcoin meme to cryptocurrency meme, dark mode interface to dark mode ui, football fan to soccer fan, vintage movie still to vintage film still, morel mushroom to morel, vintage computer to retro computer, white pantyhose to white tights, netanyahu to benjamin netanyahu, screen share to screen sharing, blond hair to blonde hair, railroad to railway, podcast cover art to podcast cover.
 
 The biggest groups by raw variants after all steps (most of the size is spelling and the reviewed taxonomy merges):
 
@@ -109,9 +109,9 @@ The biggest groups by raw variants after all steps (most of the size is spelling
 | screenshot | 3208 | 9 | screenshot, mobile_screenshot, mobile screenshot |
 | hand | 1172 | 9 | hand, hands, finger, fingers |
 
-The biggest groups made by meaning alone: 3d print (3d printed, 3d printed object, 3d printing), black and white photo (image, photograph, photography), dark mode ui (dark mode interface, dark mode user interface, dark theme ui), cryptocurrency (cryptocurrency exchange, cryptocurrency trading), twitter post (instagram post, instagram story), ali khamenei, clothing (apparel, clothes), cristiano ronaldo, crypto transaction, exercise equipment, headphones, iranian flag, israeli flag, pregnant (pregnancy, pregnant woman), settings screen.
+The biggest groups made by meaning alone: 3d print (3d printed, 3d printed object, 3d printing), black and white photo (image, photograph, photography), dark mode ui (dark mode interface, dark mode user interface, dark theme ui), ali khamenei, big breast (huge breast, large breast), clothing (apparel, clothes), coffee machine (coffee maker, espresso machine), cristiano ronaldo, crypto transaction (cryptocurrency payment, cryptocurrency transaction), cryptocurrency meme (bitcoin meme, crypto meme), cryptocurrency trading (crypto trading), exercise equipment, headphones, hosting (software hosting, web hosting), iranian flag.
 
-Merges to check, the wrong or doubtful ones: instagram post and instagram story into twitter post (wrong), cryptocurrency trading and cryptocurrency exchange into cryptocurrency, blog into url (wrong), partial nudity into explicit nudity (wrong), skin irritation into skin infection, playing violin into violinist, england into united kingdom, knee-high socks into thigh-high socks (wrong), mafia iii into mafia ii (wrong; roman numerals pass the number guard), anime hentai into hentai. All 85 merges between 0.88 and 0.89 are in `summary.json` under `unsure`.
+Merges still doubtful after the guards: web hosting and software hosting into hosting, bitcoin meme into cryptocurrency meme, football fan into soccer fan, skin irritation into skin infection, playing violin into violinist. All 79 merges between 0.88 and 0.89 are in `summary.json` under `unsure`.
 
 Age and adult: no normalised label mixes kinds; the two labels that carry both an age word and an adult word (`adult content`, `explicit adult content`, where `adult` is the age word) stay apart as their own labels and never merge.
 

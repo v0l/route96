@@ -93,6 +93,36 @@ def test_pair_grades_and_precision_by_bin():
     assert precision_by_bin(rows) == {"0.80": (1, 1), "0.90": (1, 1)}
 
 
+def test_roman_numerals_count_as_numbers():
+    assert not may_merge("mafia iii", "mafia ii", {}, set())
+    assert not may_merge("rocky iv", "rocky", {}, set())
+    assert may_merge("mafia ii game", "mafia ii", {}, set())
+
+
+def test_nudity_levels_never_merge():
+    assert not may_merge("partial nudity", "explicit nudity", {}, set())
+    assert not may_merge("full nudity", "nudity", {}, set())
+    assert may_merge("naked", "nude", {}, set())
+
+
+def test_platforms_and_post_types_never_merge():
+    assert not may_merge("instagram post", "twitter post", {}, set())
+    assert not may_merge("instagram story", "instagram post", {}, set())
+    assert not may_merge("facebook reel", "instagram reel", {}, set())
+    assert may_merge("instagram post screenshot", "instagram post", {}, set())
+
+
+def test_garment_lengths_never_merge():
+    assert not may_merge("knee-high socks", "thigh-high socks", {}, set())
+    assert not may_merge("ankle socks", "knee socks", {}, set())
+
+
+def test_search_classes_stay_apart():
+    for a, b in [("blog", "url"), ("cryptocurrency trading", "cryptocurrency"), ("cryptocurrency exchange", "cryptocurrency"), ("cryptocurrency exchange", "cryptocurrency trading"), ("england", "united kingdom")]:
+        assert not may_merge(a, b, {}, set())
+        assert not may_merge(b, a, {}, set())
+
+
 def test_taxonomy_classes_and_hard_negatives_stay_apart():
     class_of = {"cat": "cat", "dog": "dog"}
     assert not may_merge("cat", "dog", class_of, set())
