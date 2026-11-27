@@ -12,6 +12,7 @@ All notable changes to route96 are listed here. The format follows
 - The Docker image runs as uid 10001 instead of root (images since 17 Nov). Existing installs must hand their config file and data directory to that uid; see "Upgrading from images before 17 Nov" in the README. `/app/data` in the image is owned by uid 10001, so new named volumes get the right owner.
 
 ### Fixed
+- Setup on MariaDB in strict mode no longer fails with `Field 'paid_size' doesn't have a default value`: `users.paid_size` and `users.is_admin` now default to 0 (#114).
 - Startup permission errors name the path, its owner and mode and the process uid instead of a bare `Permission denied (os error 13)`, and the Docker entrypoint prints the exact `chown` and `chmod` commands before exiting with code 1.
 - Lightning payments that settle while route96 is restarting, or while the LND invoice stream is down, are now credited. The LND `settle_index` is stored with each settled payment, the invoice stream resubscribes from it with backoff when it ends or errors, and on start and after each reconnect unpaid invoices from the last `payment_repair_days` days (default 7, editable in the admin config editor) are looked up in LND and the settled ones are credited once. A replayed settle no longer extends a subscription twice (#115).
 
