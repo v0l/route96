@@ -14,6 +14,7 @@ from normalize_labels import (
     reviewed_map,
     spelling,
     spelling_map,
+    taxonomy_classes,
 )
 
 
@@ -52,6 +53,16 @@ def test_counts_are_files_per_label_not_rows():
 def test_reviewed_merges_map_members_to_their_class():
     assert reviewed_map({"Kitten": "cat", "Dog": "dog"}, {"cat": "cat"}) == {"Kitten": "cat", "Dog": "dog"}
     assert reviewed_map({"x": "female"}, {"female": "woman"}) == {"x": "woman"}
+
+
+def test_reviewed_decisions_below_the_floor_join_their_class(tmp_path):
+    tax = tmp_path / "taxonomy.json"
+    tax.write_text('{"classes": [{"name": "nude", "normalised": ["nude"]}, {"name": "cat", "normalised": ["cat"]}]}')
+    dec = tmp_path / "decisions.csv"
+    dec.write_text("label,class,group\nnaked,nude,adult\nschoolgirl,nude,adult\nkitty,cat,animals\ncat,dog,hard negative\nrope,-,dropped\n")
+    got = taxonomy_classes(tax, dec)
+    assert got["naked"] == "nude" and got["kitty"] == "cat"
+    assert "schoolgirl" not in got and "rope" not in got and got["cat"] == "cat"
 
 
 def test_kind_marks_age_adult_and_both():
@@ -110,6 +121,12 @@ def test_platforms_and_post_types_never_merge():
     assert not may_merge("instagram story", "instagram post", {}, set())
     assert not may_merge("facebook reel", "instagram reel", {}, set())
     assert may_merge("instagram post screenshot", "instagram post", {}, set())
+
+
+def test_gender_words_never_merge():
+    assert not may_merge("woman covering mouth", "man covering mouth", {}, set())
+    assert not may_merge("female doctor", "male doctor", {}, set())
+    assert may_merge("woman in red dress", "woman in red gown", {}, set())
 
 
 def test_garment_lengths_never_merge():

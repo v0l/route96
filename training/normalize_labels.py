@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from taxonomy import ADULT_TERMS, EXCLUDED_AGE, HERE, normalise, read_hard_negatives
+from taxonomy import ADULT_TERMS, DECISIONS, EXCLUDED_AGE, HERE, class_map, normalise, read_hard_negatives, read_merges
 from workdir import LABELS, ROOT
 
 NORMALIZED = ROOT / "data" / "normalized"
@@ -73,6 +73,7 @@ FACETS = [
     {"instagram", "twitter", "facebook", "tiktok", "youtube", "reddit", "threads", "x", "snapchat", "linkedin", "discord", "telegram", "whatsapp", "nostr", "weibo", "pinterest", "tumblr", "twitch", "bluesky", "mastodon"},
     {"post", "story", "reel", "tweet", "thread", "reply", "feed"},
     {"ankle", "knee", "thigh", "calf", "crew", "maxi", "midi"},
+    {"man", "men", "male", "woman", "women", "female", "boy", "girl", "father", "mother", "husband", "wife"},
 ]
 KEEP_APART = {
     frozenset(p)
@@ -160,9 +161,13 @@ def embed_text(texts, model_name=TEXT_MODEL, batch=256):
     return np.concatenate(out)
 
 
-def taxonomy_classes(path=HERE / "taxonomy.json"):
+def taxonomy_classes(path=HERE / "taxonomy.json", decisions=DECISIONS):
     taxonomy = json.loads(Path(path).read_text())
     class_of = {}
+    names = {c["name"] for c in taxonomy["classes"]}
+    for label, (cls, _) in class_map(read_merges(decisions)).items():
+        if cls in names:
+            class_of[spelling(label)] = cls
     for c in taxonomy["classes"]:
         for n in c["normalised"] + [c["name"]]:
             class_of[spelling(n)] = c["name"]
