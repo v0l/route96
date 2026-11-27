@@ -166,9 +166,10 @@ pub async fn start_background_tasks(
         if let Some(client) = client {
             let db = db.clone();
             let token = shutdown.clone();
+            let live = settings.clone();
             set.spawn(async move {
                 info!("Starting PaymentsHandler background task");
-                let m = payments::PaymentsHandler::new(client, db);
+                let m = payments::PaymentsHandler::new(client, db).with_settings(live);
                 if let Err(e) = m.process(token).await {
                     error!("PaymentsHandler failed: {}", e);
                 } else {

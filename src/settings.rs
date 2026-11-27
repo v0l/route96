@@ -338,6 +338,9 @@ pub struct PaymentConfig {
 
     /// Free quota in bytes for users without payments (default: 100MB)
     pub free_quota_bytes: Option<u64>,
+
+    #[serde(default)]
+    pub repair_days: Option<u64>,
 }
 
 #[cfg(feature = "payments")]

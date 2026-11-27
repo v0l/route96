@@ -2077,19 +2077,28 @@ impl Database {
             .await
     }
 
-    pub async fn complete_payment(&self, payment: &Payment) -> Result<(), Error> {
+    pub async fn complete_payment(&self, payment: &Payment) -> Result<bool, Error> {
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query("update payments set is_paid = true, settle_index = ? where payment_hash = ?")
-            .bind(payment.settle_index)
-            .bind(&payment.payment_hash)
-            .execute(&mut *tx)
-            .await?;
+        let updated = sqlx::query(
+            "update payments set is_paid = true, settle_index = ? where payment_hash = ? and is_paid = false",
+        )
+        .bind(payment.settle_index)
+        .bind(&payment.payment_hash)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
 
         // Calculate time extension based on fractional quota value
         // If user upgrades from 5GB to 10GB, their remaining time gets halved
         // If user pays for 1GB on a 5GB plan, they get 1/5 of the normal time
-        let current_user = self.get_user_by_id(payment.user_id).await?;
+        let current_user: User = sqlx::query_as("select * from users where id = ? for update")
+            .bind(payment.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         if let Some(paid_until) = current_user.paid_until {
             if paid_until > chrono::Utc::now() {
@@ -2132,7 +2141,16 @@ impl Database {
 
         tx.commit().await?;
 
-        Ok(())
+        Ok(true)
+    }
+
+    pub async fn get_unpaid_payments_since(&self, days: u64) -> Result<Vec<Payment>, Error> {
+        sqlx::query_as(
+            "select * from payments where is_paid = false and created > current_timestamp - interval ? day order by created",
+        )
+        .bind(days)
+        .fetch_all(&self.pool)
+        .await
     }
 
     /// Check if user has sufficient quota for an upload
@@ -2753,14 +2771,14 @@ mod user_list_tests {
 }
 
 #[cfg(test)]
-mod strict_mode_tests {
+pub(crate) mod strict_mode_tests {
     use super::*;
     use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
     use std::str::FromStr;
 
     const STRICT: &str = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION";
 
-    async fn strict_db() -> Database {
+    pub(crate) async fn strict_db() -> Database {
         let url = std::env::var("ROUTE96_TEST_DATABASE")
             .expect("set ROUTE96_TEST_DATABASE=mysql://root:root@127.0.0.1:3399");
         let name = format!("r96_strict_{}", uuid::Uuid::new_v4().simple());
