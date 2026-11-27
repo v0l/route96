@@ -310,7 +310,10 @@ mod tests {
         false
     }
 
-    fn start(node: Arc<FakeNode>, db: &Database) -> (CancellationToken, tokio::task::JoinHandle<Result<()>>) {
+    fn start(
+        node: Arc<FakeNode>,
+        db: &Database,
+    ) -> (CancellationToken, tokio::task::JoinHandle<Result<()>>) {
         let token = CancellationToken::new();
         let handler = PaymentsHandler::new(node, db.clone());
         (token.clone(), tokio::spawn(handler.process(token)))
@@ -336,12 +339,14 @@ mod tests {
         let hash = vec![9u8; 32];
         let uid = add_payment(&db, 7, &hash).await;
 
-        let node = Arc::new(FakeNode::with_subscriptions(vec![Subscription::Stays(vec![
-            InvoiceUpdate::Canceled {
-                payment_hash: hex::encode(vec![1u8; 32]),
-            },
-            settled(&hash, Some(1)),
-        ])]));
+        let node = Arc::new(FakeNode::with_subscriptions(vec![Subscription::Stays(
+            vec![
+                InvoiceUpdate::Canceled {
+                    payment_hash: hex::encode(vec![1u8; 32]),
+                },
+                settled(&hash, Some(1)),
+            ],
+        )]));
         let (token, task) = start(node, &db);
         let paid = wait_for(|| async { payment(&db, &hash).await.is_paid }).await;
         stop(token, task).await;
@@ -359,9 +364,9 @@ mod tests {
         let hash = vec![0xa1u8; 32];
         add_payment(&db, 1, &hash).await;
 
-        let node = Arc::new(FakeNode::with_subscriptions(vec![Subscription::Ends(vec![
-            settled(&hash, Some(5)),
-        ])]));
+        let node = Arc::new(FakeNode::with_subscriptions(vec![Subscription::Ends(
+            vec![settled(&hash, Some(5))],
+        )]));
         let (token, task) = start(node.clone(), &db);
         let resubscribed = wait_for(|| async { node.subscribed_from().len() >= 2 }).await;
         stop(token, task).await;
@@ -400,8 +405,7 @@ mod tests {
         assert!((29..=30).contains(&days_paid(user.paid_until)));
 
         let node = Arc::new(
-            FakeNode::with_subscriptions(vec![])
-                .invoice(&missed, Ok(settled(&missed, Some(11)))),
+            FakeNode::with_subscriptions(vec![]).invoice(&missed, Ok(settled(&missed, Some(11)))),
         );
         let (token, task) = start(node.clone(), &db);
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -505,8 +509,20 @@ mod tests {
         assert!(!node.looked_up().contains(&stale));
         assert!(!payment(&db, &stale).await.is_paid);
         assert!(!payment(&db, &expired).await.is_paid);
-        assert!(db.get_user_by_id(stale_uid).await.unwrap().paid_until.is_none());
-        assert!(db.get_user_by_id(expired_uid).await.unwrap().paid_until.is_none());
+        assert!(
+            db.get_user_by_id(stale_uid)
+                .await
+                .unwrap()
+                .paid_until
+                .is_none()
+        );
+        assert!(
+            db.get_user_by_id(expired_uid)
+                .await
+                .unwrap()
+                .paid_until
+                .is_none()
+        );
     }
 
     #[tokio::test]
