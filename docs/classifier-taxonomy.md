@@ -39,6 +39,137 @@ The age exclusion is unchanged: girl, child, boy, baby, schoolgirl, anime girl, 
 
 The nsfw ViT (`v0l/route96-nsfw-vit224`), its threshold and its moderation path do not change. The adult classes describe an image; they are not a moderation signal. When the taxonomy model is wired into the media worker, its labels must never be matched against `label_flag_terms` or `label_delete_terms` (`src/background/label_files.rs`, `run_batch`). Today `run_batch` matches the terms against every new label of every label model, so the wiring step has to skip taxonomy labels there, with a test that a taxonomy `nude` or `breast` neither flags nor deletes a file.
 
+## v2 training (issue #1450)
+
+All data and outputs live outside git and outside every worktree, under `/core/datasets/route96-taxonomy/` (`~/route96-taxonomy` links to it). Every taxonomy script reads the root from `ROUTE96_TAXONOMY_ROOT` (`training/workdir.py`), and `run_taxonomy.sh` passes `--data` and `--out` from it. The 25 Nov dataset and checkpoints were lost with their worktree, so the v1 numbers below are from the doc, not rerun.
+
+```
+cd training
+python3 taxonomy.py fetch                       # $ROOT/data/taxonomy/labels.tsv, read only
+python3 export_taxonomy_dataset.py              # $ROOT/data/taxonomy_v2, read only, about 50 min
+./run_taxonomy.sh siglip_plain siglip_partial   # $ROOT/out/taxonomy/<run>, GPU1 through gpu-run, MemoryMax=24G
+python3 taxonomy_report.py                      # $ROOT/out/taxonomy/per_class.csv
+python3 missing_recall.py sheets $ROOT/out/taxonomy/siglip_plain $ROOT/out/taxonomy/siglip_partial
+python3 export_head.py                          # $ROOT/out/taxonomy/siglip_plain/head.safetensors
+```
+
+### Dataset
+
+Same rules as v1: jpeg, png and webp only, smallest class first up to 2,000 images each, floor `min(200, available)`, split by sorted sha256 shuffled with seed 0, 15 percent validation, short side 256 jpeg.
+
+| | v1 (25 Nov) | v2 (27 Nov) |
+|---|---|---|
+| classes | 210 | 328 |
+| labelled images (jpeg, png, webp) | 33,294 | 34,448 |
+| selected | 31,227 | 33,297 |
+| written | 30,631 | 32,633 |
+| train / validation | 26,039 / 4,592 | 27,755 / 4,878 |
+| classes per image (mean) | 3.2 | 3.6 |
+| images with a hard negative | 4,949 | 5,309 |
+| classes over 2,000 | 6 | 6 (woman 8,353, text, screenshot, abstract, person, fractal) |
+| classes under 200 | 78 | 184, all with every image there is |
+
+664 selected images were not written: 9 were unreadable and the rest have no blob in `/data` or `/cold`. Most of those are adult images that moderation banned and deleted while their label rows stayed: of the 599 images Qwen labelled penis or male genitalia, 566 are banned. So `penis` has 476 images in the taxonomy and 24 in the dataset (2 in validation), and `pubic hair` (34), `genitalia` (45) and `close-up` (37) shrink the same way. `cowboy` has 14 because most of its 91 images are gifs.
+
+Adult classes in the dataset: nude 1,693, lingerie 1,099, underwear 660, topless 382, breast 321, buttock 250, bra 176, shirtless 131, cleavage 73, panty 61, thong 55, sex 54, vulva 51, genitalia 45, pubic hair 34, penis 24.
+
+### Results against Qwen's labels (4,878 validation images, 328 classes)
+
+Frozen `google/siglip2-base-patch16-224` with a linear head (768 to 328), 3 feature passes, 40 epochs, cross fitted thresholds, exactly as in v1.
+
+| run | macro F1 | micro F1 | macro precision | macro recall | top 5 hit | top 5 recall | labels per image | hard negative rate | GPU images/s (batch 64) | GPU ms (batch 1) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| siglip_plain | 0.520 | 0.621 | 0.512 | 0.565 | 0.979 | 0.730 | 4.24 | 0.132 | 3554 | 2.21 |
+| siglip_partial | 0.462 | 0.538 | 0.449 | 0.524 | 0.958 | 0.621 | 4.74 | 0.121 | 3568 | 2.06 |
+| v1 siglip_plain (25 Nov, 210 classes) | 0.573 | 0.647 | 0.557 | 0.611 | 0.981 | 0.779 | 3.67 | 0.133 | 3554 | 2.14 |
+
+Macro F1 by class set, SigLIP2 plain (partial in brackets):
+
+| classes | count | mean F1 | mean precision | mean recall |
+|---|---|---|---|---|
+| the 210 v1 classes | 210 | 0.563 (0.511) | 0.547 | 0.607 |
+| added in #1508 | 102 | 0.440 (0.378) | 0.453 | 0.482 |
+| adult | 16 | 0.466 (0.356) | 0.429 | 0.545 |
+
+The drop from 0.573 to 0.520 is mostly the new classes: on the classes that existed on 25 Nov the plain head scores 0.563, close to 0.573 with 118 more classes competing. The new classes are small (102 classes have under 15 validation images) and the macro average weighs each one like `woman`. Top 5 hit holds at 0.98. The plain loss beats or ties the partial loss in every group (ties in activities and sport, seasons and events), so the pick stays **SigLIP2 frozen with a linear head, plain loss**.
+
+The 20 weakest v1 classes from 25 Nov, now:
+
+| class | v1 val support | v1 F1 | v2 val support | v2 F1 |
+|---|---|---|---|---|
+| close-up | 5 | 0.08 | 5 | 0.05 |
+| couple | 10 | 0.11 | 8 | 0.28 |
+| blanket | 10 | 0.12 | 19 | 0.31 |
+| movie | 6 | 0.17 | 7 | 0.26 |
+| colorful | 6 | 0.18 | 13 | 0.32 |
+| graphic design | 17 | 0.19 | 14 | 0.20 |
+| jacket | 25 | 0.20 | 31 | 0.34 |
+| clothing | 28 | 0.22 | 17 | 0.06 |
+| software | 28 | 0.23 | 27 | 0.29 |
+| wood | 10 | 0.23 | 18 | 0.52 |
+| art | 21 | 0.24 | 21 | 0.15 |
+| bedroom | 27 | 0.25 | 38 | 0.21 |
+| lamp | 21 | 0.25 | 25 | 0.39 |
+| text overlay | 30 | 0.25 | 26 | 0.28 |
+| silhouette | 23 | 0.26 | 21 | 0.38 |
+| fantasy | 12 | 0.27 | 27 | 0.46 |
+| human body | 13 | 0.28 | 10 | 0.13 |
+| spiral | 15 | 0.29 | 10 | 0.23 |
+| error message | 15 | 0.30 | 22 | 0.43 |
+| avatar | 14 | 0.31 | 24 | 0.23 |
+
+The other v1 classes cannot be compared one by one: the 25 Nov `per_class.csv` was lost. The big ones are where they were (woman 0.90, abstract 0.92, fractal 1.00, bitcoin 0.78, bed 0.76, screenshot 0.74, text 0.67, person 0.39). `clothing`, `art` and `human body` lost because their images now also carry adult or new clothing classes that take the specific word.
+
+Mean F1 by group, plain: animals 0.73, activities and sport 0.68, vehicles 0.67, text and documents 0.63, food and drink 0.60, art and abstract 0.58, memes and media 0.55, places and nature 0.53, symbols and logos 0.52, objects 0.51, seasons and events 0.51, people 0.50, body and clothing 0.49, screens and apps 0.48, bitcoin and crypto 0.47, adult 0.47, pose and framing 0.42, visual style 0.39, colour 0.37. Colour and visual style are the weakest groups, as styles were in v1.
+
+Adult group, SigLIP2 plain:
+
+| class | val support | precision | recall | F1 | F1 with partial loss |
+|---|---|---|---|---|---|
+| nude | 265 | 0.66 | 0.80 | 0.72 | 0.68 |
+| lingerie | 163 | 0.64 | 0.70 | 0.67 | 0.63 |
+| underwear | 100 | 0.52 | 0.57 | 0.54 | 0.43 |
+| topless | 66 | 0.45 | 0.50 | 0.47 | 0.36 |
+| breast | 50 | 0.60 | 0.68 | 0.64 | 0.51 |
+| buttock | 36 | 0.66 | 0.58 | 0.62 | 0.46 |
+| bra | 32 | 0.42 | 0.56 | 0.48 | 0.32 |
+| shirtless | 23 | 0.67 | 0.96 | 0.79 | 0.68 |
+| cleavage | 14 | 0.07 | 0.21 | 0.11 | 0.06 |
+| vulva | 13 | 0.53 | 0.69 | 0.60 | 0.55 |
+| panty | 12 | 0.05 | 0.17 | 0.08 | 0.01 |
+| thong | 10 | 0.12 | 0.60 | 0.20 | 0.03 |
+| genitalia | 9 | 0.25 | 0.22 | 0.24 | 0.11 |
+| sex | 7 | 0.25 | 0.14 | 0.18 | 0.04 |
+| pubic hair | 6 | 0.33 | 0.33 | 0.33 | 0.15 |
+| penis | 2 | 0.67 | 1.00 | 0.80 | 0.67 |
+
+The big adult classes (nude, lingerie, breast, buttock, shirtless) are usable; cleavage, panty, thong, sex and genitalia are not yet, and penis has 2 validation images, so its 0.80 means nothing. Panty and thong lose to lingerie and underwear, which Qwen names on the same pictures.
+
+The weakest classes overall, plain: collage 0.00 (4 val), cowboy 0.00 (1), close-up 0.05, clothing 0.06, notification 0.07, panty 0.08, robe 0.08, bow 0.08, cleavage 0.11, rug 0.11, green 0.11, lace 0.12, pants 0.13, human body 0.13. The best added classes: hanfu 0.92, frog 0.85, fox 0.84, graffiti 0.83, fireplace 0.82, horse 0.80, ostrich 0.80, winter 0.77. Precision, recall, F1 and threshold for every class and both runs are in `$ROOT/out/taxonomy/per_class.csv`.
+
+### Missing recall sample for the owner
+
+`missing_recall.py sheets` over both runs, 200 validation images, seed 1441: 500 extra labels (classes a run predicts that Qwen did not give). The sheets are `$ROOT/out/taxonomy/missing_recall/sheet_00.png` to `sheet_09.png` and the table to grade is `$ROOT/out/taxonomy/missing_recall/sample.csv`; tag A is siglip_plain, B is siglip_partial. Nothing is graded yet; the owner grades it with `import` and `report` as described under v1. The sheets include adult images.
+
+### Head export and candle
+
+`export_head.py` writes `$ROOT/out/taxonomy/siglip_plain/head.safetensors`: `weight` (328 by 768), `bias`, `thresholds` (one per class, fitted on all of validation), with the class names in order and the base checkpoint in the metadata. The tower is the stock `google/siglip2-base-patch16-224`.
+
+`candle_parity.py` on 64 validation images and `candle_bench` on the server's candle revision:
+
+| | value |
+|---|---|
+| max abs logit difference, candle vs PyTorch float32 | 2.4e-4 |
+| max abs logit difference, candle vs PyTorch float64 | 2.0e-4 |
+| max abs logit difference, PyTorch float32 vs float64 | 4.5e-5 |
+| largest logit | 17.6 |
+| max probability difference, candle vs PyTorch | 9.0e-6 |
+| class decisions that differ at the thresholds | 0 of 20,992 |
+| candle CPU images/s, 8 threads | 7.0 to 7.4 (0.9 per core) |
+| PyTorch CPU images/s, 8 threads | 19.8 (2.5 per core) |
+
+The logit gap is just over the 2e-4 bar (v1 was 1.5e-4). It is float32 rounding in candle's kernels, not a model mismatch: the same gap against a float64 reference is 2.0e-4, the probabilities agree to 1e-5, and not one of the 20,992 class decisions changes. `candle_bench` takes an optional fifth argument to save its logits for this check.
+
 ## Taxonomy v2 (issue #1508)
 
 ### Recount
