@@ -1,6 +1,6 @@
 import torch
 
-from floors import Space, file_counts, floor_classes, normalized_labels, subset_scores, tier_of, train_head
+from floors import Space, export_head, file_counts, floor_classes, normalized_labels, subset_scores, tier_of, train_head
 
 
 def test_floor_classes_keep_base_first_and_skip_age_and_dropped():
@@ -39,6 +39,24 @@ def test_subset_scores_average_only_classes_with_validation_images():
     got = subset_scores(per, {"a", "b"})
     assert got == {"classes": 2, "with_val": 1, "macro_f1": 0.5, "macro_precision": 0.4, "macro_recall": 0.6}
     assert subset_scores(per, {"b"})["macro_f1"] is None
+
+
+def test_export_head_writes_the_server_head_format(tmp_path):
+    from safetensors import safe_open
+    import json
+
+    saved = {"names": ["cat", "rose"], "state": {"weight": torch.ones(2, 3), "bias": torch.zeros(2)}, "thresholds": [0.3, 0.6]}
+    out = tmp_path / "head.safetensors"
+    assert export_head(saved, out) == (2, 3)
+    with safe_open(str(out), "pt") as f:
+        assert json.loads(f.metadata()["classes"]) == ["cat", "rose"]
+        assert f.get_tensor("thresholds").tolist() == [0.30000001192092896, 0.6000000238418579]
+    saved["thresholds"] = [0.3]
+    try:
+        export_head(saved, out)
+        assert False
+    except ValueError:
+        pass
 
 
 def test_train_head_learns_a_separable_problem():

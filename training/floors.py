@@ -169,8 +169,24 @@ def run_floor(args, floor, counts, base, kinds, dropped, mapping, cache, rows):
     return out
 
 
+def export_head(saved, out):
+    from safetensors.torch import save_file
+
+    names = saved["names"]
+    tensors = {
+        "weight": saved["state"]["weight"].float().contiguous(),
+        "bias": saved["state"]["bias"].float().contiguous(),
+        "thresholds": torch.tensor(saved["thresholds"], dtype=torch.float32),
+    }
+    if tensors["weight"].shape[0] != len(names) or tensors["thresholds"].shape[0] != len(names):
+        raise ValueError("head, thresholds and class names disagree")
+    save_file(tensors, out, metadata={"classes": json.dumps(names), "base": "google/siglip2-base-patch16-224"})
+    return tuple(tensors["weight"].shape)
+
+
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--export", type=int)
     p.add_argument("--data", default=str(DATA))
     p.add_argument("--labels", default=str(LABELS / "labels.tsv"))
     p.add_argument("--features", default=str(OUT / "siglip_features_3.pt"))
@@ -183,6 +199,10 @@ def main():
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args()
     torch.set_num_threads(args.threads)
+    if args.export:
+        target = Path(args.out) / f"floor_{args.export}"
+        print(export_head(torch.load(target / "head.pt"), target / "head.safetensors"))
+        return
     mapping, kinds = read_label_map()
     counts = file_counts(args.labels, mapping)
     base = [c["name"] for c in json.loads((HERE / "taxonomy.json").read_text())["classes"]]

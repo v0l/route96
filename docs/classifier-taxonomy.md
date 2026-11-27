@@ -4,7 +4,7 @@ Issue #1407. Status: steps 1 to 6 done. The classifier is wired into the media w
 
 Issue #1508 rebuilt the taxonomy as `taxonomy-v2` from fresh counts with a 50 image floor and new groups; see [Taxonomy v2](#taxonomy-v2-issue-1508). Issue #1450 added the adult group on the owner's request (27 Nov) and retrained on v2; see [Adult group](#adult-group-issue-1450) and [v2 training](#v2-training-issue-1450). The training results under v1 further down are the 25 Nov run on 210 classes.
 
-Issue #1539 normalised the whole Qwen label set before any new floors or retraining; see [Normalised label set](#normalised-label-set-issue-1539).
+Issue #1539 normalised the whole Qwen label set, then measured more trained classes against open vocabulary zero shot; see [Normalised label set](#normalised-label-set-issue-1539) and [More classes](#more-classes-trained-floors-and-open-vocabulary-issue-1539).
 
 ## Normalised label set (issue #1539)
 
@@ -23,8 +23,8 @@ Outputs in `$ROOT/data/normalized/`: `label_map.tsv` (raw, spelling, reviewed, n
 Steps, in order:
 
 1. Spelling: the `taxonomy.py` rules (lower case, underscores, punctuation, singular, synonym table), then list markers (`*   text`, `- text`, `2.  Text`), `&` to `and`, a leading article, and spacing, hyphen, apostrophe and dot variants joined to their most used form (`t-shirt`, `tshirt`, `t shirt`; `low-poly`, `lowpoly`).
-2. Reviewed merges: every spelling form that is a member of a taxonomy class becomes that class.
-3. Meaning: centred SigLIP2 text embeddings (mean of all labels removed, which spreads cosines from 0.75 to 0.99 out to about 0.0 to 0.99). Labels are visited from most used to least; each joins the most similar earlier head at or above the threshold, else becomes a head. A merge is refused when the two labels differ in age or adult kind, when either mixes an age word with an adult word, when their numbers differ (`rollercoaster tycoon 2` and `3`, `2025` and `2026`), when the label is a taxonomy class and the head is not the same class, or when the pair is a hard negative. Guards added after the owner's review (each has a test in `test_normalize_labels.py`): Roman numerals count as numbers (`mafia ii` and `iii`); words that set a level, a platform, a post type or a garment length must match on both sides (`partial nudity` and `explicit nudity`, `instagram post`, `instagram story` and `twitter post`, `knee-high` and `thigh-high`); and a keep apart list for classes that differ for search (`blog` and `url`, `cryptocurrency trading`, `cryptocurrency exchange` and plain `cryptocurrency` kept apart from each other, `england` and `united kingdom`).
+2. Reviewed merges: every spelling form that is a member of a taxonomy class becomes that class, and so does every reviewed row of `taxonomy_decisions.csv` that names a taxonomy class, including rows under the candidate floor (`naked` to `nude`, `black bra` to `bra`, `oral sex` to `sex`). Age words never join (`class_map`).
+3. Meaning: centred SigLIP2 text embeddings (mean of all labels removed, which spreads cosines from 0.75 to 0.99 out to about 0.0 to 0.99). Labels are visited from most used to least; each joins the most similar earlier head at or above the threshold, else becomes a head. A merge is refused when the two labels differ in age or adult kind, when either mixes an age word with an adult word, when their numbers differ (`rollercoaster tycoon 2` and `3`, `2025` and `2026`), when the label is a taxonomy class and the head is not the same class, or when the pair is a hard negative. Guards added after the owner's review (each has a test in `test_normalize_labels.py`): Roman numerals count as numbers (`mafia ii` and `iii`); words that set a level, a platform, a post type, a garment length or a gender must match on both sides (`partial nudity` and `explicit nudity`, `instagram post`, `instagram story` and `twitter post`, `knee-high` and `thigh-high`, `woman covering mouth` and `man covering mouth`); and a keep apart list for classes that differ for search (`blog` and `url`, `cryptocurrency trading`, `cryptocurrency exchange` and plain `cryptocurrency` kept apart from each other, `england` and `united kingdom`).
 
 ### Threshold, from a graded sample
 
@@ -49,30 +49,30 @@ The threshold is 0.88 (precision 0.95 above it). Wrong pairs above it: `instagra
 | raw | 19,553 | 10.5 | 1,971 | 1,179 | 877 | 580 |
 | lower case only | 17,842 | 11.5 | 1,951 | 1,188 | 875 | 577 |
 | spelling | 15,014 | 13.6 | 1,849 | 1,139 | 841 | 568 |
-| reviewed merges | 14,792 | 13.5 | 1,629 | 919 | 621 | 399 |
-| meaning, 0.88 | 14,363 | 13.9 | 1,644 | 932 | 628 | 400 |
+| reviewed merges | 14,749 | 13.5 | 1,601 | 910 | 618 | 399 |
+| meaning, 0.88 | 14,327 | 13.9 | 1,618 | 922 | 625 | 400 |
 
-The floors fall at the reviewed step because it folds labels that already cleared them (`candlestick chart`, `stock market`, `tradingview`) into one class. Merging by meaning removes 429 labels (3 percent) and adds 15 labels at 10 files, 13 at 20, 7 at 30 and 1 at 50. Even at 0.75, where half the merges are wrong, it would remove 2,537 labels and add 43 at 30 files over the reviewed step. Most of the long tail is not the same idea in other words: it is named people, products, games, places and one off objects (`dell`, `john cena`, `stapler`, `tajikistan`, `medovnik`), each with its own meaning.
+The floors fall at the reviewed step because it folds labels that already cleared them (`candlestick chart`, `stock market`, `tradingview`) into one class. Merging by meaning removes 422 labels (3 percent) and adds 17 labels at 10 files, 12 at 20, 7 at 30 and 1 at 50. Even at 0.75, where half the merges are wrong, it would remove 2,537 labels and add 43 at 30 files over the reviewed step. Most of the long tail is not the same idea in other words: it is named people, products, games, places and one off objects (`dell`, `john cena`, `stapler`, `tajikistan`, `medovnik`), each with its own meaning.
 
 Files per normalised label, and the share of label uses each bucket covers:
 
 | files | raw labels | share | normalised labels | share |
 |---|---|---|---|---|
-| 1 | 12,027 | 5.9% | 8,100 | 4.1% |
+| 1 | 12,027 | 5.9% | 8,103 | 4.1% |
 | 2 to 4 | 4,199 | 5.3% | 3,366 | 4.4% |
-| 5 to 9 | 1,356 | 4.3% | 1,253 | 4.1% |
-| 10 to 19 | 792 | 5.2% | 712 | 4.8% |
-| 20 to 29 | 302 | 3.6% | 304 | 3.7% |
-| 30 to 49 | 297 | 5.5% | 228 | 4.3% |
-| 50 to 99 | 265 | 9.0% | 130 | 4.6% |
-| 100 to 499 | 264 | 27.7% | 196 | 22.1% |
-| 500 and over | 51 | 33.6% | 74 | 47.9% |
+| 5 to 9 | 1,356 | 4.3% | 1,240 | 4.1% |
+| 10 to 19 | 792 | 5.2% | 696 | 4.7% |
+| 20 to 29 | 302 | 3.6% | 297 | 3.6% |
+| 30 to 49 | 297 | 5.5% | 225 | 4.3% |
+| 50 to 99 | 265 | 9.0% | 128 | 4.6% |
+| 100 to 499 | 264 | 27.7% | 198 | 22.4% |
+| 500 and over | 51 | 33.6% | 74 | 48.0% |
 
-The 400 labels with 50 or more files cover 74.6 percent of label uses; the 8,100 single file labels cover 4.1 percent.
+The 400 labels with 50 or more files cover 75.0 percent of label uses; the 8,103 single file labels cover 4.1 percent.
 
 ### Spot checks
 
-30 random meaning merges (seed 1539): ai chatbot interface to chatbot interface, webpage screenshot to website screenshot, hollow knight: silksong to hollow knight, sound mixer to audio mixer, peace symbol to peace sign, tortoise to turtle, movie list to list of movie, sponsor to sponsor logo, mall to shopping mall, body painting to body paint, padme amidala to padmé amidala, facial recognition technology to facial recognition, pencil drawing to pencil sketch, television program to television show, login page to login screen, roller skate to roller skating, inspirational poster to motivational poster, cat ears headband to cat ear headband, bitcoin meme to cryptocurrency meme, dark mode interface to dark mode ui, football fan to soccer fan, vintage movie still to vintage film still, morel mushroom to morel, vintage computer to retro computer, white pantyhose to white tights, netanyahu to benjamin netanyahu, screen share to screen sharing, blond hair to blonde hair, railroad to railway, podcast cover art to podcast cover.
+30 random meaning merges (seed 1539): ai chatbot interface to chatbot interface, wojak character to wojak, ice hockey player to hockey player, spongebob squarepant to spongebob, phone screen to smartphone screen, train track to railway track, national debt to us national debt, street lamp to street light, media release to press release, body painting to body paint, pattachitra to patachitra, federal reserve building to federal reserve, piggyback to piggyback ride, text placeholder to placeholder text, macos ui to macos interface, safety glasses to protective eyewear, iran flag to iranian flag, cavemen to caveman, bitcoin meme to cryptocurrency meme, dark mode user interface to dark mode ui, fungi to fungus, web ui to website interface, movie projector to film projector, web hosting to hosting, wooden walkway to wooden path, nicolas maduro to nicolás maduro, settings page to settings screen, blond hair to blonde hair, red lace bra to red bra, police vehicle to police car.
 
 The biggest groups by raw variants after all steps (most of the size is spelling and the reviewed taxonomy merges):
 
@@ -83,12 +83,14 @@ The biggest groups by raw variants after all steps (most of the size is spelling
 | chart | 690 | 21 | chart, graph, statistics, data, data_visualization, bar_chart, line_chart, line_graph, barchart |
 | mobile app | 1023 | 20 | mobile_app, mobile_interface, mobile, app, mobile app interface, mobile_application, MobileInterface, mobile-app |
 | website | 543 | 17 | website, webpage, web_application, web_interface, browser, web_page, web browser |
+| sex | 238 | 17 | sex, nsfw, pornography, oral sex, erotic, explicit_content, masturbation, sexual, sexual_intercourse, sexual activity |
 | cartoon | 1608 | 16 | cartoon, character, cartoon_character, Disney, characters, - cartoon, 2. cartoon |
 | people | 746 | 15 | people, friends, group, two women, three women, friend, groups |
 | the emperor's new groove | 206 | 15 | Kuzco, The Emperor's New Groove, Pacha, Yzma, Kronk, EmperorsNewGroove, emperor's-new-groove |
 | user interface | 1604 | 14 | user_interface, interface, form, app_interface, ui, UI, userinterface |
 | social media | 1160 | 14 | social media, social_media_post, twitter, tweet, Social Media Post |
 | shirt | 991 | 13 | shirt, t-shirt, white shirt, white top, tank_top, tshirt, t_shirt |
+| nude | 2130 | 12 | nude, nudity, nude_woman, naked, male_nudity, explicit_nudity, nudes |
 | hair | 1292 | 12 | hair, long hair, pink hair, black hair, red_hair |
 | jewelry | 940 | 12 | necklace, jewelry, bracelet, earring, ring, *   necklace |
 | news | 537 | 12 | news, headline, article, news_article, headlines |
@@ -104,14 +106,126 @@ The biggest groups by raw variants after all steps (most of the size is spelling
 | logo | 1344 | 10 | logo, branding, brand, emblem |
 | smartphone | 1021 | 10 | smartphone, phone, mobile phone, cell_phone |
 | computer | 307 | 10 | computer, keyboard, monitor, computer_monitor |
+| fitness | 199 | 10 | fitness, gym, yoga, exercise, yoga mat, workout |
 | toy | 199 | 10 | toy, doll, teddy bear, plush toy |
-| 3d print | 23 | 10 | 3D print, 3d_printing, 3D printed, 3D printed object |
-| screenshot | 3208 | 9 | screenshot, mobile_screenshot, mobile screenshot |
-| hand | 1172 | 9 | hand, hands, finger, fingers |
 
-The biggest groups made by meaning alone: 3d print (3d printed, 3d printed object, 3d printing), black and white photo (image, photograph, photography), dark mode ui (dark mode interface, dark mode user interface, dark theme ui), ali khamenei, big breast (huge breast, large breast), clothing (apparel, clothes), coffee machine (coffee maker, espresso machine), cristiano ronaldo, crypto transaction (cryptocurrency payment, cryptocurrency transaction), cryptocurrency meme (bitcoin meme, crypto meme), cryptocurrency trading (crypto trading), exercise equipment, headphones, hosting (software hosting, web hosting), iranian flag.
+The adult groups `sex` and `nude` hold only adult spellings, all from reviewed decision rows; no age word is in them.
 
-Merges still doubtful after the guards: web hosting and software hosting into hosting, bitcoin meme into cryptocurrency meme, football fan into soccer fan, skin irritation into skin infection, playing violin into violinist. All 79 merges between 0.88 and 0.89 are in `summary.json` under `unsure`.
+The biggest groups made by meaning alone: 3d print (3d printed, 3d printed object, 3d printing), black and white photo (image, photograph, photography), dark mode ui (dark mode interface, dark mode user interface, dark theme ui), ali khamenei, big breast (huge breast, large breast), clothing (apparel, clothes), coffee machine (coffee maker, espresso machine), cristiano ronaldo, crypto transaction (cryptocurrency payment, cryptocurrency transaction), cryptocurrency meme (bitcoin meme, crypto meme), cryptocurrency trading (crypto trading), exercise equipment, hosting (software hosting, web hosting), iranian flag, israeli flag, mobile ui (mobile app ui, mobile ui design).
+
+Merges still doubtful after the guards: web hosting and software hosting into hosting, bitcoin meme into cryptocurrency meme, skin irritation into skin infection, playing violin into violinist. All 77 merges between 0.88 and 0.89 are in `summary.json` under `unsure`.
+
+## More classes: trained floors and open vocabulary (issue #1539)
+
+Everything below runs on the normalised labels above. Every run here was on CPU (8 threads, this desktop); none needed the GPU. Outputs are under `$ROOT/out/taxonomy/floors/` and `$ROOT/out/taxonomy/openvocab/`.
+
+```
+cd training
+python3 floors.py --device cpu                      # retrain the head at 50, 30, 20 and 10 files, 30 to 100 s each
+python3 floors.py --export 30                       # floor_30/head.safetensors in the server's head format
+python3 openvocab.py embed --templates bare         # SigLIP2 text tower over 14,229 labels, about 4 min
+python3 openvocab.py features                       # 492 held out originals through the vision tower
+python3 openvocab.py evaluate                       # zero shot and hybrid, tuned on validation, scored on held out
+python3 openvocab.py compare                        # every route on the same held out images
+python3 openvocab.py fixture                        # parity fixture for candle
+RAYON_NUM_THREADS=5 taxonomy-candle-bench text <siglip2 dir> $ROOT/out/taxonomy/openvocab/candle_text_fixture.safetensors
+```
+
+### Route 1: more trained classes
+
+Same frozen SigLIP2 features as taxonomy-v1 (the cached 3 pass features), same split, 40 epochs, plain loss, cross fitted thresholds. A class is every normalised label with at least that many image files (jpeg, png, webp, gif) that is not already a taxonomy class, is not dropped in `taxonomy_decisions.csv`, and has no age word (`floors.py`, `BLOCKED_KINDS`). A training image's positives are its taxonomy classes plus its normalised labels. The dataset was not re-exported: it already holds 93 percent of the files of the new classes (Qwen named them on images selected for other classes).
+
+| floor | classes | new classes | macro F1, all | macro F1, the 328 | macro F1, classes new at this floor | micro F1 | top 5 hit | train time |
+|---|---|---|---|---|---|---|---|---|
+| 50 | 329 | 1 | 0.521 | 0.520 | 0.90 (cheongsam) | 0.622 | 0.980 | 30 s |
+| 30 | 516 | 188 | 0.452 | 0.519 | 0.331 (187 at 30 to 49) | 0.598 | 0.981 | 41 s |
+| 20 | 784 | 456 | 0.401 | 0.518 | 0.300 (268 at 20 to 29) | 0.572 | 0.981 | 52 s |
+| 10 | 1426 | 1098 | 0.322 | 0.515 | 0.217 (642 at 10 to 19) | 0.550 | 0.982 | 103 s |
+
+Adding classes barely touches the 328 (0.520 to 0.515), so the drop in macro F1 is all in the small classes. The new classes have few validation images (median 5 at floor 30, 2 for the classes new at floor 10), so their F1 is noisy, but the trend is clear: 30 to 49 file classes score 0.33, 20 to 29 score 0.30, 10 to 19 score 0.22. Of the 188 classes new at floor 30, 89 reach F1 0.3; of the 456 at floor 20, 211 do. The best new classes are concrete things (cheerleader, pasture, megaphone, chessboard, pyramid, ceiling, noise, static, crib, rooftop, mural); the worst are vague words (digital, model, top, head, conversation, crystal) at 0.
+
+At floor 10 the new classes include adult spellings that are not in the adult group (`pornography`, `hentai`, `bondage`, `erotic`); a floor below 30 would need those reviewed into the adult group or dropped before training. Floor 30 adds one adult word, `sex toy`, which needs a review into the adult group.
+
+### Route 2: open vocabulary with the text tower
+
+Every normalised label except age kinds and dropped labels, 14,229 labels, is embedded once with the SigLIP2 text tower (lower case, padded to 64 tokens as SigLIP2 expects). An image gets `sigmoid(cos(image, label) * 112.7 - 16.8)` per label, SigLIP2's own scale and bias. Three prompt templates were tried (bare label, "a photo of ...", "an image of ..."); they are within 0.01 F1 of each other, and the bare label is best on validation. The threshold and a top k cap were tuned on the 4,878 validation images and then frozen for the held out set.
+
+### On the same held out images (#1509)
+
+492 of the 500 held out originals (8 are PDFs or tiny strips), resized like training (PIL bilinear). Truth is Qwen's labels after normalisation: 2,390 labels, of which 1,078 are in the 328 classes and 1,312 are not. 2,241 of the 2,390 (94 percent) are somewhere in the 14,229 label vocabulary.
+
+| route | vocabulary | labels per image | precision vs Qwen | recall of Qwen | F1 | recall of Qwen labels outside the 328 |
+|---|---|---|---|---|---|---|
+| taxonomy-v1 head (328) | 328 | 4.0 | 0.39 | 0.32 | 0.35 | 0.003 (4 of 1,312) |
+| head, floor 30 | 516 | 4.5 | 0.37 | 0.35 | 0.36 | 0.053 |
+| head, floor 20 | 784 | 5.3 | 0.34 | 0.37 | 0.36 | 0.097 |
+| head, floor 10 | 1426 | 5.8 | 0.33 | 0.39 | 0.36 | 0.141 |
+| zero shot alone, top 5 | 14,229 | 5.0 | 0.09 | 0.09 | 0.09 | 0.146 |
+| hybrid, head plus zero shot top 1 | 14,229 | 5.0 | 0.34 | 0.35 | 0.35 | 0.056 |
+| hybrid, head plus zero shot top 3 | 14,229 | 6.9 | 0.27 | 0.38 | 0.31 | 0.108 |
+| hybrid, head plus zero shot top 5 | 14,229 | 8.8 | 0.22 | 0.40 | 0.28 | 0.146 |
+
+The numbers against Qwen are low for every route because Qwen gives about five labels from 14,000 and the routes pick their own five; the 0.35 F1 of the head here is the same model that scored 0.50 on taxonomy classes in #1509 (the truth set is now every normalised label, not only the 328 classes). Zero shot alone is far worse than the trained head on the 328 (0.09 against 0.35), so it cannot replace the head. On the labels outside the 328, the hybrid at top 5 finds exactly as many of Qwen's as the floor 10 head (0.146 against 0.141), but adds 4.8 labels per image to do it, where the floor 10 head adds 1.8.
+
+### Model graded precision samples
+
+**Graded by the model (the agent) from 256 px contact sheets, not by a person.** Each row is a label a route added beyond the 328 class head on a held out image; `model` means the label is in the image, `qwen` that it is not, `unclear` that it is arguable. Sheets and tables: `$ROOT/out/taxonomy/openvocab/sheet_*.png` with `graded_sample.csv` (hybrid), and `$ROOT/out/taxonomy/openvocab/floor_sample/` (floor 10 head). They contain adult images.
+
+| route | graded | right | wrong | unclear | right where Qwen did not give it |
+|---|---|---|---|---|---|
+| hybrid, zero shot labels added to the head (100) | 100 | 71 | 11 | 18 | 59 of 88 |
+| floor 10 head, labels from the 1,098 new classes (40) | 40 | 17 | 18 | 5 | 9 of 32 |
+
+The zero shot labels are right 71 percent of the time and are often more specific than Qwen (dartboard, yahtzee, solitaire, gomoku, sandisk, cruzer blade, cheongsam, catalytic converter, qasem soleimani, a named racing driver), but 28 of the 100 are `game screen`, `game result`, `game menu` or `dendritic fractal` on near identical images: the zero shot side repeats a handful of generic labels on the screenshot heavy part of the uploads. Its wrong labels are real things that are not there (a person named on the wrong face, `chatgpt interface` on a Discord screen, `bitaxe` on a cartoon). The new floor 10 classes are wrong about as often as right, mostly words with no visual meaning (pole, digital, title, health, highlight, history, pointing).
+
+### CPU cost in candle
+
+`taxonomy-candle-bench text` on the server's candle revision, the stock SigLIP2 checkpoint, this desktop, 5 threads:
+
+| | value |
+|---|---|
+| text tower vs PyTorch, max abs difference over 64 labels | 1.6e-5 |
+| text tower, labels embedded per second (5 threads) | 20 |
+| embedding all 14,229 labels once | about 12 minutes on 5 threads (4 minutes in PyTorch on 8) |
+| label matrix, float32 | 14,229 by 768, 44 MB |
+| scoring one image against all labels (one matrix product, sigmoid) | 1.0 ms |
+| vision tower plus 328 class head, one image | 200 ms (166 ms at batch 8) |
+| peak RSS, vision tower alone | 0.7 GB |
+| peak RSS, full checkpoint loaded (vision and text) | 2.4 GB |
+
+Per image the open vocabulary side is free next to the vision tower (1 ms on 200 ms). The cost is RAM if the text tower is loaded in the server; it does not need to be, because the label vectors can be computed offline and shipped as a 44 MB file.
+
+### Recommendation: grow the trained head to floor 30, no open vocabulary in production yet
+
+Ship a floor 30 head (516 classes) after a review pass, and keep the open vocabulary side as an offline tool.
+
+- Floor 30 keeps the 328 classes where they are (0.519 against 0.520) and adds 188 classes, 89 of them at F1 0.3 or better, for a 1.6 MB head file and no runtime cost. On held out images it lifts recall of Qwen's labels from 0.32 to 0.35 at about the same precision.
+- Going to floor 20 or 10 adds classes that are right less than half the time (model graded 17 of 40 at floor 10), and at floor 10 it pulls in adult spellings that need review under the #1450 rules.
+- The open vocabulary hybrid does no better against Qwen than a trained head at the same number of extra labels per image, and 28 percent of its extras are a few repeated generic labels. Its one real strength is naming specific things (games, products, people, places) that no floor will ever reach, because the long tail is mostly distinct named things, not paraphrases. That is better used offline: to propose labels for the owner to review into classes, or to search by text over stored image embeddings, than as automatic labels on every upload.
+
+Before a floor 30 head ships: review the 188 new classes like the v2 classes (group, merges, drops; drop the 0 F1 vague words such as digital, model, top, head), put `sex toy` in the adult group or drop it, then retrain and export with `floors.py --floors 30` and `--export 30`.
+
+### What production would need
+
+Floor 30 head (recommended):
+
+| | value |
+|---|---|
+| files | `head.safetensors` 1.6 MB (516 by 768, thresholds, class names) beside the existing SigLIP2 vision checkpoint |
+| RAM | unchanged from taxonomy-v1: about 0.7 GB for the vision tower in candle (1.6 GB if the full checkpoint is loaded, as the server does today) |
+| time per image, 5 CPUs | unchanged: about 200 ms on this desktop, 0.4 to 0.5 s on the production pod; the 516 class head adds well under 1 ms |
+| code | none: `TaxonomyModel` reads any number of classes from `head.safetensors` |
+
+Hybrid, if wanted later:
+
+| | value |
+|---|---|
+| files | the floor 30 or v1 head, plus a label matrix of 14,229 by 768 float32 (44 MB) and the label names |
+| RAM | plus 44 MB; the text tower is not loaded at run time |
+| time per image, 5 CPUs | plus about 1 ms |
+| code | a new label model mode that loads the label matrix and adds the top k labels outside the head's classes; the matrix is rebuilt offline by `openvocab.py embed` when the vocabulary changes |
+
+Nothing was deployed and nothing was backfilled.
 
 Age and adult: no normalised label mixes kinds; the two labels that carry both an age word and an adult word (`adult content`, `explicit adult content`, where `adult` is the age word) stay apart as their own labels and never merge.
 
