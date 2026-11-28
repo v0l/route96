@@ -2,7 +2,7 @@
 
 Decentralized blob storage server with Nostr integration, supporting multiple protocols and advanced media processing capabilities.
 
-[![badge-light](https://apps.umbrel.com/badge-light.svg)](https://apps.umbrel.com/app/route96)
+[![badge-light](https://apps.umbrel.com/badge-light.svg)](https://apps.umbrel.com/app/route96) [![Available on StartOS](https://img.shields.io/badge/Available%20on-StartOS-1c1c1c?style=for-the-badge)](https://github.com/Start9-Community/route96-startos)
 
 ## Core Features
 
